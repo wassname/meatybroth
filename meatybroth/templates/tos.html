@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block body %}
+<h2>Terms of use</h2>
+<p><strong>What this is.</strong> A public, read-only reader and search over a
+bounded sample of public Nostr posts observed through the operator's followed
+network and followed RSS/Mastodon/Bluesky bridge accounts — text only, last
+30 days. There are no user accounts and no posting. Shown posts are cached
+copies collected through Nostr relays; original-event links point back to the
+Nostr network.</p>
+<p><strong>What is collected and shown.</strong> Only Nostr events whose
+cryptographic signature verifies are stored; post text, author names and
+profile details are derived from those signed events. Post bodies are
+sanitized text with http(s) links only — no scripts or images in post
+bodies. This site does not verify anyone's real-world identity, and a
+displayed name or address is not proof of who wrote it. A signed Nostr event
+cannot be edited without breaking its signature, and no process guarantees
+its deletion from the Nostr network; relays may retain events regardless of
+what this reader shows. Post bodies expire and disappear after 30 days;
+profile and follow metadata may be kept beyond that window. Filter
+rejections are logged as counts and event ids, never as content.</p>
+<p><strong>Prohibited material and removal.</strong> Child sexual abuse and
+exploitation material, exposed private credentials, and threats or doxxing
+have no place here: posts containing obvious credentials are discarded before
+being stored, stored copies are removed when found, and the operator removes
+other prohibited posts from this site when identified and prevents their
+collection. Spam and explicit content are filtered at the operator's
+discretion, as described on the status page. Removal from this site does not
+affect copies on Nostr relays, and a signed Nostr event cannot be deleted
+network-wide by this site.</p>
+<p><strong>Notices.</strong> To report a problem with a post, open an issue at
+<a href="https://github.com/wassname/meatybroth/issues/new">github.com/wassname/meatybroth/issues/new</a>
+with the post's event ID and a short reason. GitHub issues are public and
+normally show the reporter's GitHub identity. Do not paste post content,
+screenshots or credentials into a report, and do not copy illegal or
+sensitive material anywhere. The operator reviews reports and disables public
+access to identified prohibited posts.</p>
+<p><strong>Limits.</strong> Collection is budgeted and partial by design, and
+filtering is imperfect in both directions: no guarantee is made that any
+particular content is complete, correct, or available. Missing posts may
+reflect collection limits or deliberate filtering. Author-labelled content
+warnings hide text behind a click-to-show with the author's reason;
+unlabelled explicit text may be auto-flagged, and flagged text is hidden
+behind a click-to-show until expanded. The operator
+maintains a blocklist of authors and posts that stops content from appearing
+here and prevents it from being collected again; per-rule filter counts are
+visible on the status page.</p>
+{% endblock %}

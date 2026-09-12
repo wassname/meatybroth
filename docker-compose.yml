@@ -1,0 +1,55 @@
+# Meaty Broth reader: web and collector share one image and SQLite volume.
+# The public profile adds Caddy for HTTPS.
+
+services:
+  web:
+    build: .
+    image: meatybroth:local
+    init: true
+    ports:
+      - "127.0.0.1:8081:8081"
+    volumes:
+      - meatybroth-data:/var/lib/meatybroth
+    environment:
+      MEATYBROTH_DB: /var/lib/meatybroth/meatybroth.db
+      MEATYBROTH_ROOT: ${MEATYBROTH_ROOT:-60c052cf19fbfb973c1779585df423e3982a3a251fc826d4c76f8063621c5bb6}
+      MEATYBROTH_BLOCKLIST: /var/lib/meatybroth/blocklist.txt
+    restart: unless-stopped
+    logging: &bounded-logs
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  collector:
+    image: meatybroth:local
+    build: .
+    init: true
+    command: python -m meatybroth collect --db /var/lib/meatybroth/meatybroth.db --loop --interval 600 --max-requests 80
+    volumes:
+      - meatybroth-data:/var/lib/meatybroth
+    environment:
+      MEATYBROTH_DB: /var/lib/meatybroth/meatybroth.db
+      MEATYBROTH_ROOT: ${MEATYBROTH_ROOT:-60c052cf19fbfb973c1779585df423e3982a3a251fc826d4c76f8063621c5bb6}
+      MEATYBROTH_BLOCKLIST: /var/lib/meatybroth/blocklist.txt
+    restart: unless-stopped
+    logging: *bounded-logs
+
+  caddy:
+    profiles: [public]
+    image: caddy@sha256:d8c17a862962def15cde69863a3a463f25a2664942eafd7bdbf050e9c3116b83
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      MEATYBROTH_DOMAIN: ${MEATYBROTH_DOMAIN:-meatybroth.com}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    depends_on: [web]
+    restart: unless-stopped
+    logging: *bounded-logs
+
+volumes:
+  meatybroth-data:
+  caddy-data:

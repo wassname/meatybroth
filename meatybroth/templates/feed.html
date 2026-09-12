@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% from "_post.html" import post_card %}
+{% block body %}
+{% if error %}
+<p class="error">Search error: {{ error }}</p>
+{% endif %}
+{% if mode == 'discovery' and q and not results and not error %}
+<p class="hint">No Social matches for this query. <a href="/?q={{ q|urlencode }}&mode=relevance">Search everything instead</a>.</p>
+{% endif %}
+{% for p in results %}
+{{ post_card(p) }}
+{% else %}
+{% if not error %}<p class="empty">No results in the current window.</p>{% endif %}
+{% endfor %}
+<nav class="pagination" aria-label="pagination">
+  {% if page > 0 %}<a href="?{{ qs_base }}page={{ page - 1 }}">&larr; newer</a>{% endif %}
+  {% if page > 0 %}<a href="?{{ qs_base }}page={{ [page - 10, 0] | max }}">&minus;10</a>{% endif %}
+  {% if has_next %}<a href="?{{ qs_base }}page={{ page + 10 }}">+10</a>{% endif %}
+  {% if has_next %}<a href="?{{ qs_base }}page={{ page + 1 }}">older &rarr;</a>{% endif %}
+  <form method="get" action="/" class="pagejump">
+    {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
+    <input type="hidden" name="mode" value="{{ mode }}">
+    {% if before %}<input type="hidden" name="before" value="{{ before }}">{% endif %}
+    {% if reach %}<input type="hidden" name="reach" value="{{ reach }}">{% endif %}
+    {% if order %}<input type="hidden" name="order" value="{{ order }}">{% endif %}
+    {% for k, v in state_fields %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+    <label>page <input type="number" name="page" min="0" value="{{ page }}"></label>
+    <button type="submit">jump</button>
+  </form>
+  <form method="get" action="/" class="datejump" title="Posts before this date, limited to the last 30 days; ages are relative to today">
+    {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
+    <input type="hidden" name="mode" value="{{ mode }}">
+    {% if reach %}<input type="hidden" name="reach" value="{{ reach }}">{% endif %}
+    {% if order %}<input type="hidden" name="order" value="{{ order }}">{% endif %}
+    {% for k, v in state_fields %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+    <label>jump to</label>
+    <button type="submit" name="before" value="{{ now - 86400 }}">1d ago</button>
+    <button type="submit" name="before" value="{{ now - 5 * 86400 }}">5d ago</button>
+    <input type="date" name="date" aria-label="jump to date">
+    <button type="submit">go</button>
+  </form>
+  {% if before %}<a href="?{% if q %}q={{ q|urlencode }}&{% endif %}mode={{ mode }}&page=0">latest</a>{% endif %}
+</nav>
+{% endblock %}

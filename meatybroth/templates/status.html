@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block body %}
+<h2>Collector status</h2>
+<p>As of {{ now }}. Only posts created in the last {{ window_days }} days are served; expiry is enforced on reads and by scheduled cleanup.</p>
+{% if status_rows %}
+{% for s in status_rows %}
+<h3>{{ s.source }}</h3>
+<p>{{ s.eligible_posts }} eligible posts · last fetch {{ s.updated }}</p>
+<ul>
+  {% for k, v in s.items() if k not in ('source', 'updated_at', 'eligible_posts', 'updated') %}
+  <li><strong>{{ k }}</strong>:
+    {% if v is sequence and v is not string %}
+      <ul>{% for item in v %}<li>{{ item }}</li>{% endfor %}</ul>
+    {% elif v is mapping %}
+      <ul>{% for k2, v2 in v.items() %}<li><strong>{{ k2 }}</strong>: {{ v2 }}</li>{% endfor %}</ul>
+    {% else %}
+      {{ v }}
+    {% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% endfor %}
+{% else %}
+<p class="empty">No collector has reported status yet.</p>
+{% endif %}
+{% endblock %}

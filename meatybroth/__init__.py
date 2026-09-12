@@ -1,0 +1,1 @@
+"""Personal text reader."""

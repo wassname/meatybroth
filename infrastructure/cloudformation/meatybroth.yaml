@@ -1,0 +1,227 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Meaty Broth reader: one EC2 host, HTTPS through Caddy, Route53 DNS, SSM access,
+  and an encrypted root volume holding the disposable SQLite corpus. No NAT,
+  load balancer, S3 archive, relay or SSH.
+
+Parameters:
+  SourceRevision:
+    Type: String
+    Description: Pinned git commit of wassname/meatybroth to run (never a mutable branch).
+    AllowedPattern: "^[0-9a-f]{40}$"
+    ConstraintDescription: Must be a full 40-character git commit SHA.
+  DomainName:
+    Type: String
+    Default: meatybroth.com
+    AllowedPattern: '^[a-z0-9][a-z0-9.-]*[a-z0-9]$'
+    Description: Public hostname served by Caddy.
+  HostedZoneId:
+    Type: AWS::Route53::HostedZone::Id
+    Description: Existing public Route53 hosted zone for DomainName.
+  InstanceType:
+    Type: String
+    Default: t3.small
+    Description: Modest burstable x86 host; 2 GiB starting hypothesis per the reuse review.
+  RootVolumeSize:
+    Type: Number
+    Default: 30
+    Description: Encrypted gp3 root GiB for OS, container images, SQLite+WAL and bounded logs.
+  AmiId:
+    Type: "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>"
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    Description: >-
+      Name of an SSM parameter (public AWS-provided path by default) whose value
+      is a region-compatible AL2023 x86_64 AMI ID. To pin, first store the exact
+      AMI ID in your own SSM parameter and pass its name here.
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.42.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Project
+          Value: meatybroth
+        - Key: Name
+          Value: !Sub "meatybroth-${AWS::StackName}-vpc"
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Project
+          Value: meatybroth
+
+  VpcGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.42.0.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags:
+        - Key: Project
+          Value: meatybroth
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Project
+          Value: meatybroth
+
+  DefaultRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+    DependsOn: VpcGatewayAttachment
+
+  SubnetRouteAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Meaty Broth HTTPS host; no SSH
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Project
+          Value: meatybroth
+
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags:
+        - Key: Project
+          Value: meatybroth
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref InstanceRole]
+
+  # Bootstrap clones from GitHub and installs packages: wait until the
+  # subnet's default route exists or dnf/git fail on a networkless instance.
+  ReaderInstance:
+    Type: AWS::EC2::Instance
+    DependsOn: [DefaultRoute, SubnetRouteAssociation]
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: !Ref InstanceType
+      SubnetId: !Ref PublicSubnet
+      IamInstanceProfile: !Ref InstanceProfile
+      SecurityGroupIds: [!Ref InstanceSecurityGroup]
+      PrivateIpAddress: 10.42.0.10
+      InstanceInitiatedShutdownBehavior: terminate
+      MetadataOptions:
+        HttpTokens: required
+        HttpPutResponseHopLimit: 1
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: !Ref RootVolumeSize
+            VolumeType: gp3
+            Encrypted: true
+            DeleteOnTermination: true
+      Tags:
+        - Key: Project
+          Value: meatybroth
+        - Key: Name
+          Value: !Sub "meatybroth-${AWS::StackName}"
+      UserData:
+        Fn::Base64: !Sub
+          - |
+            #!/bin/bash
+            set -euxo pipefail
+            # AL2023's buildx is too old for Compose v5.5.1, and its repos have
+            # no Compose plugin. Install checksum-pinned compatible plugins.
+            dnf install -y docker git
+            install -d /usr/libexec/docker/cli-plugins
+            curl -fsSL -o /usr/libexec/docker/cli-plugins/docker-compose \
+              https://github.com/docker/compose/releases/download/v5.5.1/docker-compose-linux-x86_64
+            echo "db1889184726840f75c4f9c001048430d4f25b3be3cb084d3ddd762bc0aed576  /usr/libexec/docker/cli-plugins/docker-compose" | sha256sum -c -
+            curl -fsSL -o /usr/libexec/docker/cli-plugins/docker-buildx \
+              https://github.com/docker/buildx/releases/download/v0.36.1/buildx-v0.36.1.linux-amd64
+            echo "48af8a397ebd60178778bf63611dbcebe5f5e7a9be90eb9147b24b9587455778  /usr/libexec/docker/cli-plugins/docker-buildx" | sha256sum -c -
+            chmod +x /usr/libexec/docker/cli-plugins/docker-compose /usr/libexec/docker/cli-plugins/docker-buildx
+            systemctl enable --now docker
+            rm -rf /opt/meatybroth
+            git clone https://github.com/wassname/meatybroth /opt/meatybroth
+            git -C /opt/meatybroth checkout ${SourceRevision}
+            cd /opt/meatybroth
+            printf '%s\n' 'MEATYBROTH_DOMAIN=${DomainName}' > .env
+            docker compose --profile public up -d --build
+          - {}
+
+  ReaderAddress:
+    Type: AWS::EC2::EIP
+    DependsOn: VpcGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Project
+          Value: meatybroth
+
+  ReaderAddressAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt [ReaderAddress, AllocationId]
+      InstanceId: !Ref ReaderInstance
+
+  SiteRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: A
+      TTL: 60
+      ResourceRecords: [!Ref ReaderAddress]
+
+Outputs:
+  SiteUrl:
+    Value: !Sub "https://${DomainName}"
+    Description: Public reader URL.
+  PublicIp:
+    Value: !Ref ReaderAddress
+    Description: Stable IPv4 address behind the DNS record.
+  InstanceId:
+    Value: !Ref ReaderInstance
+    Description: SSM target for private diagnostics and port forwarding.
+  InstanceSecurityGroupId:
+    Value: !Ref InstanceSecurityGroup
+    Description: Confirm against running resources after deployment.
