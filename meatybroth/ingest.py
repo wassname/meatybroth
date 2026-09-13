@@ -98,14 +98,17 @@ def fetch_primal_list(identifier: str) -> dict:
     """Read one public categorized list from Primal's cache, with a bounded
     request. The cache is not counted as a content relay or a follows query."""
     subscription = f"meatybroth-{identifier}"
-    ws = websocket.create_connection(PRIMAL_CACHE_URL, timeout=RELAY_TIMEOUT,
-                                     max_size=MAX_QUERY_BYTES)
+    ws = websocket.create_connection(PRIMAL_CACHE_URL, timeout=RELAY_TIMEOUT)
     try:
         ws.send(json.dumps(["REQ", subscription, {"cache": ["parameterized_replaceable_list", {
             "pubkey": PRIMAL_LIST_AUTHOR, "identifier": identifier}]}]))
         deadline = time.monotonic() + RELAY_TIMEOUT
         while time.monotonic() < deadline:
-            message = json.loads(ws.recv())
+            ws.settimeout(max(0.1, deadline - time.monotonic()))
+            raw = ws.recv()
+            if len(raw.encode()) > MAX_QUERY_BYTES:
+                raise ValueError(f"Primal cache response exceeds {MAX_QUERY_BYTES} bytes")
+            message = json.loads(raw)
             if message[:2] == ["EVENT", subscription]:
                 event = message[2]
                 # Validate before returning; cache auxiliary events are ignored.
@@ -119,25 +122,37 @@ def fetch_primal_list(identifier: str) -> dict:
 
 
 def refresh_primal_lists(store: Store, *, now: int) -> dict:
-    """At most daily, update verified cached lists. A failed refresh keeps an
-    earlier verified snapshot and reports its age; it never claims freshness."""
+    """At most daily, check each Primal list. A failed attempt is also held
+    for a day; a later-created, non-future event alone may replace a snapshot."""
     detail = {"cache": PRIMAL_CACHE_URL, "author": PRIMAL_LIST_AUTHOR, "lists": {}}
     for identifier in PRIMAL_LISTS:
         cached = store.moderation_list("primal", identifier)
-        if cached is not None and now - cached["checked_at"] < PRIMAL_LIST_REFRESH_SECONDS:
-            detail["lists"][identifier] = {"event_id": cached["event_id"],
-                "event_created_at": cached["event_created_at"], "checked_at": cached["checked_at"],
-                "members": len(cached["members"]), "refresh": "cached"}
+        attempt = store.moderation_refresh_attempt("primal", identifier)
+        if attempt is not None and now - attempt["attempted_at"] < PRIMAL_LIST_REFRESH_SECONDS:
+            detail["lists"][identifier] = {"refresh": "not-due", "attempted_at": attempt["attempted_at"],
+                "last_error": attempt["error"]}
+            if cached is not None:
+                detail["lists"][identifier]["using_cached"] = {"event_id": cached["event_id"],
+                    "event_created_at": cached["event_created_at"], "checked_at": cached["checked_at"],
+                    "members": len(cached["members"])}
             continue
         try:
             event = fetch_primal_list(identifier)
             members = primal_list_members(event, identifier)
+            if event["created_at"] > now:
+                raise ValueError("Primal list event is future-dated")
+            if cached is not None and event["created_at"] < cached["event_created_at"]:
+                raise ValueError("Primal list event rolls back verified snapshot")
             store.set_moderation_list("primal", identifier, event_id=event["id"], author=event["pubkey"],
                                       event_created_at=event["created_at"], members=members, checked_at=now)
+            store.record_moderation_refresh_attempt("primal", identifier, attempted_at=now, error=None)
+            reconciled = store.reconcile_primal_list(identifier, members, now=now)
             detail["lists"][identifier] = {"event_id": event["id"],
                 "event_created_at": event["created_at"], "checked_at": now,
-                "members": len(members), "refresh": "verified"}
-        except Exception as error:
+                "members": len(members), "reconciled_posts": reconciled, "refresh": "verified"}
+        except (OSError, websocket.WebSocketException, json.JSONDecodeError, ValueError, RuntimeError) as error:
+            store.record_moderation_refresh_attempt("primal", identifier, attempted_at=now,
+                                                    error=f"{type(error).__name__}: {error}")
             detail["lists"][identifier] = {"refresh": "error", "error": f"{type(error).__name__}: {error}"}
             if cached is not None:
                 detail["lists"][identifier]["using_cached"] = {"event_id": cached["event_id"],
@@ -277,9 +292,7 @@ class Budget:
 
 
 # ---------------------------------------------------------------- content filters
-# Minimal content controls:
-# secrets reject before persistence; spam counts; NIP-36/explicit flags render-side.
-# All synthetic-test only; counts land in the collector report, never deleted silently.
+# Secrets and blocklists reject; spam and author warnings label rendered posts.
 
 SECRET_PATTERNS = [
     ("nsec key", re.compile(r"nsec1[0-9a-z]{30,}")),
@@ -290,8 +303,64 @@ SECRET_PATTERNS = [
     ("github token", re.compile(r"gh[pousr]_[A-Za-z0-9]{30,}\b")),
 ]
 URL_RE = re.compile(r"https?://\S+")
-EXPLICIT_TERMS = re.compile(
-    r"\b(hardcore sex|uncensored nudity|explicit sex scene)\b", re.I)
+
+# Defaults: Ditto's bot greeting plus the 13 complete spam signatures from
+# xbol0/nostr-spam-words words.txt (MIT, 2023-02-27). Do not split its lines:
+# generic individual terms are not safe signals, while full source signatures
+# identify narrow Telegram/crypto spam campaigns.
+KEYWORD_SEED = [
+    "Gm, from wss://",
+    "人工 公安 开房 户籍 t.me",
+    "ChatGPT 中文之家 OpenAI 互联网 免费 攻略",
+    "电报 众筹 平台",
+    "电视剧 狂飙 全集 t.me",
+    "互关 共同 友好 认证 进群 微信 推广 自助 t.me",
+    "enthusiasts isab blockchain EVM decentralized",
+    "Web3 Twitter Spaces twitterspace.co",
+    "灰产 开车 资源 t.me",
+    "互联网 从业者 内部 之家 高质量 币圈",
+    "成人 抖阴 下载 推广 下单 翻墙",
+    "全球 华人 社区 WeChat 动态 扫码 交流",
+    "明星 公链 零门槛 大佬 站台 邀请",
+    "优惠券 下单 领取",
+]
+KEYWORD_FILE_HEADER = (
+    "# Operator keyword labels (case-insensitive full signatures).\n"
+    "# One signature per line; lines starting with # are comments. An empty list\n"
+    "# means NO keyword labels. Hits get a visible spam label; the body stays readable.\n"
+    "# Defaults: Ditto relay bot signature (MIT) plus xbol0/nostr-spam-words\n"
+    "# 13 full signatures (MIT). Do not split source lines into generic words.\n"
+)
+
+
+def keywords_path(store: Store) -> Path:
+    """Anchor to the DB's directory like the blocklist; env override for tests."""
+    import os
+    env = os.environ.get("MEATYBROTH_KEYWORDS")
+    if env:
+        return Path(env)
+    return store.keywords_path
+
+
+def load_keywords(store: Store) -> list[str]:
+    """Operator signature list. A missing file is seeded once and logged; an
+    emptied file means no keyword labels."""
+    path = keywords_path(store)
+    if not path.exists():
+        path.write_text(KEYWORD_FILE_HEADER + "".join(f"{k}\n" for k in KEYWORD_SEED))
+        logger.info("keyword file {} seeded with operator default", path)
+    return [line.strip() for line in path.read_text().splitlines()
+            if line.strip() and not line.startswith("#")]
+
+
+def keyword_hit(content: str, keywords: list[str]) -> str | None:
+    """First matching phrase (keywordPolicy semantics: case-insensitive
+    substring on content), or None."""
+    lowered = content.lower()
+    for keyword in keywords:
+        if keyword.lower() in lowered:
+            return keyword
+    return None
 
 
 def find_secret(text: str) -> str | None:
@@ -324,13 +393,27 @@ def load_blocklist(store: Store) -> set[str]:
             if line.strip() and not line.startswith("#")}
 
 
+def hashtag_spam(event: dict) -> bool:
+    """Damus default: more than three signed Nostr `t` tags marks hashtag spam.
+    Count tags, not `#` characters, so URL fragments/Markdown cannot match."""
+    return sum(1 for tag in event["tags"] if len(tag) >= 2 and tag[0] == "t") > 3
+
+
+def nsfw_tag(event: dict) -> bool:
+    """Damus's #nsfw convention over signed Nostr `t` tags."""
+    return any(tag[1].lower() == "nsfw" for tag in event["tags"]
+               if len(tag) >= 2 and tag[0] == "t")
+
+
 def spam_reasons(event: dict, store: Store) -> list[str]:
-    """Cheap spam flags: same-author duplicate content in-window, link-farm."""
+    """Cheap spam labels: same-author duplicate, link farm, Damus tag count."""
     reasons = []
     urls = URL_RE.findall(event["content"])
     words = len(event["content"].split())
     if len(urls) > 5 and words < 40:
         reasons.append("link-farm")
+    if hashtag_spam(event):
+        reasons.append("hashtag-spam")
     with store.connect() as db:
         dup = db.execute(
             "SELECT COUNT(*) FROM posts WHERE author_id=? AND text=? AND canonical_id != ?",
@@ -370,6 +453,7 @@ def collect_nostr(store: Store, root_pubkey: str, relays, budget: Budget, *, now
     }
     start_used = budget.used
     blocklist = load_blocklist(store)
+    keywords = load_keywords(store)
     primal_spam = (store.moderation_list("primal", "spam_list") or {"members": set()})["members"]
     primal_nsfw = (store.moderation_list("primal", "nsfw_list") or {"members": set()})["members"]
 
@@ -430,16 +514,23 @@ def collect_nostr(store: Store, root_pubkey: str, relays, budget: Budget, *, now
             if event["kind"] == 1:
                 if posts:
                     spam = spam_reasons(event, store)
-                    if event["pubkey"] in primal_spam:
-                        spam.append("Primal spam snapshot")
+                    if keywords and keyword_hit(event["content"], keywords):
+                        spam.append("keyword")
+                    primal_spam_member = event["pubkey"] in primal_spam
                     seen_spam = report.setdefault("_spam_ids", set())
                     for reason in spam:
                         if event["id"] not in seen_spam:  # one relay copy counts once
                             seen_spam.add(event["id"])
                             report["filter_stats"]["spam"] += 1
+                    if primal_spam_member and event["id"] not in seen_spam:
+                        seen_spam.add(event["id"])
+                        report["filter_stats"]["spam"] += 1
                     cw_reason = next((t[1] if len(t) >= 2 and t[1] else "unspecified"
                                       for t in event.get("tags", []) if t[0] == "content-warning"), None)
-                    explicit = bool(EXPLICIT_TERMS.search(event["content"]))
+                    # Damus also honors signed Nostr #nsfw `t` tags. NIP-36
+                    # content-warning wins where authors include both.
+                    if cw_reason is None and nsfw_tag(event):
+                        cw_reason = "nsfw tag"
                     # flags refresh on every sighting, independent of the body
                     # upsert: preexisting unchanged posts acquire tags too
                     if cw_reason is not None:
@@ -447,16 +538,15 @@ def collect_nostr(store: Store, root_pubkey: str, relays, budget: Budget, *, now
                     if event["pubkey"] in primal_nsfw:
                         store.save_content_warning(event["id"], "primal-nsfw",
                                                    "curated-nsfw: Primal snapshot", now=now)
-                    if explicit:
-                        store.save_content_warning(event["id"], "explicit", "auto-flagged: explicit", now=now)
+                    store.clear_spam_keyword_flags(event["id"])
                     for reason in spam:
                         store.save_content_warning(event["id"], "spam", f"auto-flagged: spam {reason}", now=now)
+                    if primal_spam_member:
+                        store.save_content_warning(event["id"], "primal-spam",
+                                                   "auto-flagged: spam Primal snapshot", now=now)
                     if cw_reason is not None and event["id"] not in report.setdefault("_cw_ids", set()):
                         report["_cw_ids"].add(event["id"])
                         report["filter_stats"]["cw"] += 1
-                    if explicit and event["id"] not in report.setdefault("_explicit_ids", set()):
-                        report["_explicit_ids"].add(event["id"])
-                        report["filter_stats"]["explicit"] += 1
                     post = nostr_post(event, author_name(store, event["pubkey"]))
                     if store.upsert(post, now=now):
                         report["posts_upserted"] += 1
@@ -758,6 +848,7 @@ def collect_once(store: Store, root_pubkey: str, *, max_requests: int = 40, rela
     # durable operator block action: remove stored content for blocked
     # ids/authors so it never renders again, not just block new ingress
     nostr["purged_blocklisted"] = store.purge_blocklisted(load_blocklist(store))
+    nostr["auto_explicit_cleared"] = store.clear_auto_explicit_flags()
     nostr["metadata_secret_purged"] = store.purge_metadata_with_secrets(find_secret)
     # purge already-stored copies carrying secrets (backfill scan)
     with store.connect() as db:
@@ -767,7 +858,7 @@ def collect_once(store: Store, root_pubkey: str, *, max_requests: int = 40, rela
                 db.execute("DELETE FROM posts WHERE canonical_id=?", (canonical_id,))
                 nostr["filter_stats"]["secret_purged"] += 1
                 logger.info("purged stored event {}: secret pattern {}", canonical_id[:16], secret)
-    for internal in ("_rejected_ids", "_spam_ids", "_cw_ids", "_explicit_ids"):
+    for internal in ("_rejected_ids", "_spam_ids", "_cw_ids"):
         nostr.pop(internal, None)  # internal uniqueness tracking
     nostr["filter_stats"] = dict(nostr["filter_stats"])  # JSON-serializable for status
     store.set_status("nostr", nostr, now=now)

@@ -46,6 +46,10 @@ class Store:
         self.blocklist_path = self.path.parent / "blocklist.txt"
         if not self.path.exists():
             self.blocklist_path.touch(exist_ok=True)
+        # Operator keyword file (keywordPolicy equivalent): seeded with the
+        # documented default on first collection, never overwritten after;
+        # an emptied file means no keyword labels.
+        self.keywords_path = self.path.parent / "filter-keywords.txt"
         with self.connect() as db:
             db.execute("PRAGMA journal_mode=WAL")
             db.executescript("""
@@ -100,6 +104,11 @@ class Store:
                     event_id TEXT NOT NULL, author TEXT NOT NULL,
                     event_created_at INTEGER NOT NULL, checked_at INTEGER NOT NULL,
                     members_json TEXT NOT NULL,
+                    PRIMARY KEY(source, identifier)
+                );
+                CREATE TABLE IF NOT EXISTS moderation_refresh_attempts (
+                    source TEXT NOT NULL, identifier TEXT NOT NULL,
+                    attempted_at INTEGER NOT NULL, error TEXT,
                     PRIMARY KEY(source, identifier)
                 );
                 CREATE TABLE IF NOT EXISTS collection_cursors (
@@ -199,6 +208,28 @@ class Store:
                     removed += 1
         return removed
 
+    def clear_spam_keyword_flags(self, event_id: str) -> int:
+        """Drop a stored keyword spam label for one event (operator removed the
+        phrase, or it no longer matches). Matches ONLY the keyword reason, so
+        duplicate/link-farm spam rows and author labels are kept. One row per
+        (event, category) exists at most. Returns rows removed."""
+        with self.connect() as db:
+            cur = db.execute(
+                "DELETE FROM content_warnings WHERE event_id=? AND category='spam' "
+                "AND reason='auto-flagged: spam keyword'", (event_id,))
+            return cur.rowcount
+
+    def clear_auto_explicit_flags(self) -> int:
+        """One-shot migration off the removed regex classifier: delete stored
+        'auto-flagged: explicit' rows (category 'explicit') so old content is
+        no longer hidden behind click-to-show under the new ToS semantics.
+        Author NIP-36 labels (category 'author-cw') are kept. Returns rows removed."""
+        with self.connect() as db:
+            cur = db.execute(
+                "DELETE FROM content_warnings WHERE category='explicit' "
+                "AND reason='auto-flagged: explicit'")
+            return cur.rowcount
+
     def purge_blocklisted(self, entries: set[str]) -> int:
         """Operator block action: remove stored posts by blocked event id or
         author pubkey (FTS keeps sync via delete triggers). Returns rows removed."""
@@ -215,9 +246,9 @@ class Store:
         return removed
 
     def save_content_warning(self, event_id: str, category: str, reason: str, *, now: int | None = None) -> None:
-        """NIP-36 / explicit / spam flags kept per category (author labels and
-        filter flags coexist); the signed body stays stored, the renderer
-        decides click-to-show."""
+        """NIP-36 author labels and spam flags kept per category (one reason per
+        category: author labels and filter flags coexist); the signed body stays
+        stored, the renderer decides click-to-show."""
         with self.connect() as db:
             db.execute("""INSERT INTO content_warnings(event_id, category, reason, created_at)
                 VALUES (?, ?, ?, ?)
@@ -308,6 +339,39 @@ class Store:
         if row is None:
             return None
         return {**dict(row), "members": set(json.loads(row["members_json"]))}
+
+    def moderation_refresh_attempt(self, source: str, identifier: str) -> dict | None:
+        with self.connect() as db:
+            row = db.execute("SELECT * FROM moderation_refresh_attempts WHERE source=? AND identifier=?",
+                             (source, identifier)).fetchone()
+        return None if row is None else dict(row)
+
+    def record_moderation_refresh_attempt(self, source: str, identifier: str, *, attempted_at: int,
+                                          error: str | None) -> None:
+        with self.connect() as db:
+            db.execute("""INSERT INTO moderation_refresh_attempts (source, identifier, attempted_at, error)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(source, identifier) DO UPDATE SET
+                  attempted_at=excluded.attempted_at, error=excluded.error""",
+                (source, identifier, attempted_at, error))
+
+    def reconcile_primal_list(self, identifier: str, members: set[str], *, now: int) -> int:
+        """Replace only this Primal category across retained Nostr posts.
+        Local spam/author labels use other categories and are therefore untouched."""
+        category = "primal-spam" if identifier == "spam_list" else "primal-nsfw"
+        reason = ("auto-flagged: spam Primal snapshot" if identifier == "spam_list"
+                  else "curated-nsfw: Primal snapshot")
+        with self.connect() as db:
+            db.execute("DELETE FROM content_warnings WHERE category=?", (category,))
+            if not members:
+                return 0
+            marks = ",".join("?" for _ in members)
+            rows = db.execute(
+                f"SELECT canonical_id FROM posts WHERE source='nostr' AND author_id IN ({marks})",
+                sorted(members)).fetchall()
+            db.executemany("INSERT INTO content_warnings (event_id, category, reason, created_at) VALUES (?, ?, ?, ?)",
+                           [(row["canonical_id"].removeprefix("nostr:"), category, reason, now) for row in rows])
+            return len(rows)
 
     def set_status(self, source: str, detail: dict, *, now: int | None = None):
         with self.connect() as db:
