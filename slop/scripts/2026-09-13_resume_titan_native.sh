@@ -39,10 +39,16 @@ for segment in $(seq 1 20); do
   fi
   vectors="$(sqlite3 .local/rust-live-8086/events.sqlite "SELECT count(*) FROM post_embeddings WHERE space_id=(SELECT id FROM embedding_spaces WHERE backend='bedrock' ORDER BY created_at DESC LIMIT 1);")"
   cost="$(sqlite3 .local/rust-live-8086/events.sqlite "SELECT printf('%.9f',coalesce(sum(actual_nusd),0)/1000000000.0) FROM embedding_requests WHERE status='succeeded' AND space_id=(SELECT id FROM embedding_spaces WHERE backend='bedrock' ORDER BY created_at DESC LIMIT 1);")"
-  echo "segment=$segment finish=$(date -Is) vectors=$vectors actual_cost_usd=$cost"
+  missing="$(sqlite3 .local/rust-live-8086/events.sqlite "SELECT count(*) FROM reader_post_events reader JOIN events event ON event.id=reader.event_id WHERE event.created_at BETWEEN unixepoch()-2592000 AND unixepoch() AND NOT EXISTS(SELECT 1 FROM post_embeddings embedding WHERE embedding.event_id=event.id AND embedding.space_id=(SELECT id FROM embedding_spaces WHERE backend='bedrock' ORDER BY created_at DESC LIMIT 1));")"
+  uncertain="$(sqlite3 .local/rust-live-8086/events.sqlite "SELECT count(*) FROM embedding_requests WHERE status IN('reserved','uncertain') AND space_id=(SELECT id FROM embedding_spaces WHERE backend='bedrock' ORDER BY created_at DESC LIMIT 1);")"
+  echo "segment=$segment finish=$(date -Is) vectors=$vectors missing=$missing uncertain=$uncertain actual_cost_usd=$cost"
   if grep -q 'Embedded 0 posts in this batch' "$segment_log"; then
-    echo "Titan pending set exhausted"
-    exit 0
+    if [[ "$missing" == 0 && "$uncertain" == 0 ]]; then
+      echo "Titan pending set exhausted with no missing or uncertain rows"
+      exit 0
+    fi
+    echo "Titan stopped incomplete: missing=$missing uncertain=$uncertain"
+    exit 2
   fi
 done
 

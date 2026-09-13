@@ -16,6 +16,8 @@ use std::{
 
 pub const TITAN_MODEL: &str = "amazon.titan-embed-text-v2:0";
 pub const TITAN_DIMENSIONS: usize = 512;
+// Titan Text Embeddings V2 accepts at most 8,192 input tokens. https://docs.aws.amazon.com/bedrock/latest/userguide/titan-embedding-models.html -- Pi/gpt-5.6-sol
+const TITAN_MAX_INPUT_TOKENS: usize = 8192;
 pub const MINILM_MODEL: &str = "sentence-transformers/all-MiniLM-L6-v2";
 pub const MINILM_DIMENSIONS: usize = 384;
 const TITAN_MAX_CHUNK_BYTES: usize = 8_000;
@@ -86,6 +88,9 @@ pub struct Output {
 pub trait Transport: Send + Sync {
     fn space(&self) -> &Space;
     fn split(&self, text: &str) -> Result<Vec<String>, Error>;
+    fn concurrency(&self) -> usize {
+        1
+    }
     fn embed<'a>(
         &'a self,
         text: &'a str,
@@ -132,6 +137,10 @@ impl Transport for Bedrock {
 
     fn split(&self, text: &str) -> Result<Vec<String>, Error> {
         Ok(titan_chunks(text))
+    }
+
+    fn concurrency(&self) -> usize {
+        4
     }
 
     fn embed<'a>(
@@ -516,8 +525,12 @@ fn reserve(
         };
     }
     // Reserve before transport; uncertain requests still count because billing may have occurred. -- Pi/gpt-5.6-sol
-    let reserved = i64::try_from(input_bytes.checked_add(8).ok_or("Input size overflow")?)?
-        * space.price_nusd_per_token;
+    let reserved_tokens = if space.backend == "bedrock" {
+        TITAN_MAX_INPUT_TOKENS
+    } else {
+        input_bytes
+    };
+    let reserved = i64::try_from(reserved_tokens)? * space.price_nusd_per_token;
     let total: i64 = tx.query_row(
         "SELECT coalesce(sum(CASE status WHEN 'succeeded' THEN actual_nusd ELSE reserved_nusd END),0)
          FROM embedding_requests",
@@ -737,6 +750,60 @@ fn finalize(
     Ok(())
 }
 
+async fn embed_event(
+    path: &Path,
+    transport: &(impl Transport + ?Sized),
+    budget: Budget,
+    now: i64,
+    event_id: &[u8],
+    text: &str,
+) -> Result<(), Error> {
+    let space = transport.space();
+    let text_chunks = transport.split(text)?;
+    for (chunk_index, text_chunk) in text_chunks.iter().enumerate() {
+        let Some(request_id) = reserve(
+            path,
+            event_id,
+            chunk_index,
+            text_chunk.len(),
+            space,
+            budget,
+            now,
+        )?
+        else {
+            continue;
+        };
+        let output = match transport.embed(text_chunk).await {
+            Ok(output) => output,
+            Err(error) => {
+                let message = error.to_string();
+                if message.starts_with("preflight:") {
+                    archive_preflight_failure(path, request_id, &message, now)?;
+                } else {
+                    mark_uncertain(path, request_id, &message)?;
+                }
+                return Err(error);
+            }
+        };
+        complete_request(
+            path,
+            space,
+            Completion {
+                request_id,
+                event_id,
+                chunk_index,
+                chunk_count: text_chunks.len(),
+                input_bytes: text_chunk.len(),
+                output: &output,
+                now,
+            },
+        )?;
+        tokio::task::yield_now().await;
+    }
+    finalize(path, event_id, text_chunks.len(), space, now)?;
+    Ok(())
+}
+
 /// Embeds eligible posts after collection scans have drained all admitted SDK writes.
 ///
 /// Run this in the collector sequence, not as an independent SQLite writer. No transaction spans
@@ -753,52 +820,28 @@ pub async fn embed_pending(
     let space = transport.space();
     register_space(path, space, now)?;
     let posts = pending(path, space, now, limit)?;
-    for (event_id, text) in &posts {
-        let text_chunks = transport.split(text)?;
-        for (chunk_index, text_chunk) in text_chunks.iter().enumerate() {
-            let Some(request_id) = reserve(
-                path,
-                event_id,
-                chunk_index,
-                text_chunk.len(),
-                space,
-                budget,
-                now,
-            )?
-            else {
-                continue;
-            };
-            // No SQLite transaction spans the model call. -- Pi/gpt-5.6-sol
-            let output = match transport.embed(text_chunk).await {
-                Ok(output) => output,
-                Err(error) => {
-                    let message = error.to_string();
-                    if message.starts_with("preflight:") {
-                        archive_preflight_failure(path, request_id, &message, now)?;
-                    } else {
-                        mark_uncertain(path, request_id, &message)?;
-                    }
-                    return Err(error);
-                }
-            };
-            complete_request(
-                path,
-                space,
-                Completion {
-                    request_id,
-                    event_id,
-                    chunk_index,
-                    chunk_count: text_chunks.len(),
-                    input_bytes: text_chunk.len(),
-                    output: &output,
-                    now,
-                },
-            )?;
-            tokio::task::yield_now().await;
+    let mut embedded = 0;
+    for window in posts.chunks(transport.concurrency()) {
+        // SQLite sections finish synchronously; only provider awaits overlap. -- Pi/gpt-5.6-sol
+        let results = futures_util::future::join_all(
+            window
+                .iter()
+                .map(|(event_id, text)| embed_event(path, transport, budget, now, event_id, text)),
+        )
+        .await;
+        let mut first_error = None;
+        for result in results {
+            match result {
+                Ok(()) => embedded += 1,
+                Err(error) if first_error.is_none() => first_error = Some(error),
+                Err(_) => {}
+            }
         }
-        finalize(path, event_id, text_chunks.len(), space, now)?;
+        if let Some(error) = first_error {
+            return Err(error);
+        }
     }
-    Ok(posts.len())
+    Ok(embedded)
 }
 
 /// Caches one exact text query under the same pre-call budget ledger.
