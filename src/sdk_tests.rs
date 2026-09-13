@@ -227,6 +227,31 @@ fn count(db: &Connection, sql: &str) -> i64 {
 }
 
 #[tokio::test]
+async fn relay_budget_expires_only_between_drained_policy_scans() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("events.sqlite");
+    let sdk = collect::open(&path, collect::PRIMAL_AUTHOR).await.unwrap();
+    let policy = policy::Policy::new(Default::default(), Default::default());
+    let (url, task) = relay(Vec::new()).await;
+    let client = collect::client(sdk.clone(), Arc::new(policy.clone()));
+    client.add_relay(&url).await.unwrap();
+    client.connect().await;
+    let result = collect::collect_relay(
+        &path,
+        &client,
+        &policy,
+        &sdk,
+        &url,
+        &mut std::collections::BTreeSet::new(),
+        tokio::time::Instant::now(),
+    )
+    .await;
+    assert!(result.is_err());
+    assert_eq!(policy.active_request_count(), 0);
+    task.abort();
+}
+
+#[tokio::test]
 async fn sdk_relay_to_atomic_fts_http_policy_and_expiry() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("events.sqlite");

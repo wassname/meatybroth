@@ -507,6 +507,7 @@ async fn reconcile_window(
     sdk: &NostrSqlite,
     relay_url: &str,
     filter: Filter,
+    deadline: tokio::time::Instant,
 ) -> Result<Option<Observation>, Error> {
     let local_count = sdk.count(filter.clone()).await?;
     let local = sdk.query(filter.clone()).await?;
@@ -521,15 +522,17 @@ async fn reconcile_window(
         .relay(relay_url)
         .await?
         .ok_or("Relay not registered")?;
-    let summary = match relay
+    let sync = relay
         .sync(filter)
         .items(local.iter().map(|event| (event.id, event.created_at)))
-        .opts(SyncOptions::new().dry_run())
-        .await
-    {
-        Ok(summary) => summary,
-        Err(error) if error.kind() == ErrorKind::Unsupported => return Ok(None),
-        Err(error) => return Err(error.into()),
+        .opts(SyncOptions::new().dry_run());
+    let summary = match tokio::time::timeout_at(deadline, sync).await {
+        Err(_) => return Err("Relay reconciliation inventory exceeded its work budget".into()),
+        Ok(result) => match result {
+            Ok(summary) => summary,
+            Err(error) if error.kind() == ErrorKind::Unsupported => return Ok(None),
+            Err(error) => return Err(error.into()),
+        },
     };
     if summary.remote.len() > 10_000 {
         return Err(format!(
@@ -544,6 +547,9 @@ async fn reconcile_window(
     };
     let remote: Vec<_> = summary.remote.into_iter().collect();
     for ids in remote.chunks(PAGE_LIMIT) {
+        if tokio::time::Instant::now() >= deadline {
+            return Err("Relay reconciliation batches reached their work budget".into());
+        }
         let expected: BTreeSet<_> = ids.iter().copied().collect();
         let batch = scan(
             client,
@@ -588,6 +594,7 @@ async fn durable_window(
     policy: &Policy,
     sdk: &NostrSqlite,
     window: CoverageWindow<'_>,
+    deadline: tokio::time::Instant,
 ) -> Result<DurableObservation, Error> {
     let CoverageWindow {
         relay,
@@ -611,7 +618,8 @@ async fn durable_window(
         .since(Timestamp::from(u64::try_from(since)?))
         .until(Timestamp::from(u64::try_from(until)?));
     if !reconciliation_unsupported {
-        if let Some(observed) = reconcile_window(client, policy, sdk, relay, filter.clone()).await?
+        if let Some(observed) =
+            reconcile_window(client, policy, sdk, relay, filter.clone(), deadline).await?
         {
             finish_run(path, id, &observed, (relay, cursor_column, cursor_value))?;
             return Ok(DurableObservation {
@@ -619,6 +627,9 @@ async fn durable_window(
                 reconciled: true,
             });
         }
+    }
+    if tokio::time::Instant::now() >= deadline {
+        return Err("Relay window reached its work budget between drained scans".into());
     }
     let observed = scan(
         client,
@@ -849,16 +860,17 @@ pub async fn prune(sdk: &NostrSqlite, policy: &Policy, now: u64) -> Result<(), E
     }
     Ok(())
 }
-async fn collect_relay(
+pub(crate) async fn collect_relay(
     path: &Path,
     client: &Client,
     policy: &Policy,
     sdk: &NostrSqlite,
     relay: &str,
-    now: i64,
     unsupported_reconciliation: &mut BTreeSet<String>,
+    deadline: tokio::time::Instant,
 ) -> Result<(), Error> {
-    let now_u64 = u64::try_from(now)?;
+    let now_u64 = Timestamp::now().as_secs();
+    let now = i64::try_from(now_u64)?;
     let mut admitted = Observation {
         eose: true,
         ..Observation::default()
@@ -898,6 +910,7 @@ async fn collect_relay(
                 cursor_value: until + 1,
                 reconciliation_unsupported: !reconciliation_supported,
             },
+            deadline,
         )
         .await?;
         reconciliation_supported &= result.reconciled;
@@ -927,6 +940,7 @@ async fn collect_relay(
                 cursor_value: since,
                 reconciliation_unsupported: !reconciliation_supported,
             },
+            deadline,
         )
         .await?;
         reconciliation_supported &= result.reconciled;
@@ -934,6 +948,9 @@ async fn collect_relay(
             unsupported_reconciliation.insert(relay.to_owned());
         }
         merge(&mut admitted, result.observed);
+    }
+    if tokio::time::Instant::now() >= deadline {
+        return Err("Relay work budget reached between fully drained scans".into());
     }
     let (metadata, parents) =
         hydrate_notes(client, policy, sdk, relay, &admitted.accepted_notes).await?;
@@ -1165,26 +1182,19 @@ pub async fn run(
             prune(&sdk, &policy, now_u64).await?;
         }
         for relay in &relays {
-            let result = tokio::time::timeout(
-                Duration::from_secs(RELAY_WORK_BUDGET),
-                collect_relay(
-                    path,
-                    &client,
-                    &policy,
-                    &sdk,
-                    relay,
-                    now,
-                    &mut unsupported_reconciliation,
-                ),
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(RELAY_WORK_BUDGET);
+            let error = collect_relay(
+                path,
+                &client,
+                &policy,
+                &sdk,
+                relay,
+                &mut unsupported_reconciliation,
+                deadline,
             )
-            .await;
-            let error = match result {
-                Ok(Ok(())) => None,
-                Ok(Err(error)) => Some(error.to_string()),
-                Err(_) => Some(format!(
-                    "bounded relay work exceeded {RELAY_WORK_BUDGET} seconds"
-                )),
-            };
+            .await
+            .err()
+            .map(|error| error.to_string());
             if let Some(error) = error {
                 let reason = format!("recoverable relay cycle failure: {error}");
                 record_gap(path, relay, now - COVERAGE_STEP, now, &reason)?;

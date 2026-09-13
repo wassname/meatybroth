@@ -86,6 +86,10 @@ impl Policy {
     pub fn finish(&self, id: &SubscriptionId) -> Observation {
         self.requests.lock().unwrap().remove(id).unwrap().1
     }
+    #[cfg(test)]
+    pub(crate) fn active_request_count(&self) -> usize {
+        self.requests.lock().unwrap().len()
+    }
     /// Applies storage exclusions after signature and filter validation.
     pub fn reject(&self, event: &Event) -> bool {
         secret(event)
