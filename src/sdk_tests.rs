@@ -1,7 +1,8 @@
 use super::*;
 use axum::extract::ws::{Message, WebSocketUpgrade};
 use nostr_sdk::prelude::{
-    Event, EventBuilder, Filter, FinalizeEvent, Keys, Kind, NostrDatabase, Tag, Timestamp,
+    DatabaseEventStatus, Event, EventBuilder, Filter, FinalizeEvent, Keys, Kind, NostrDatabase,
+    Tag, Timestamp,
 };
 use serde_json::{json, Value};
 use tower::ServiceExt;
@@ -13,7 +14,10 @@ fn signed(keys: &Keys, kind: u16, content: &str, time: u64, tags: Vec<Vec<&str>>
         .finalize(keys)
         .unwrap()
 }
-async fn relay(events: Vec<Value>) -> (String, tokio::task::JoinHandle<()>) {
+async fn relay_ordered(
+    events: Vec<Value>,
+    eose_first: bool,
+) -> (String, tokio::task::JoinHandle<()>) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("ws://{}", listener.local_addr().unwrap());
     let app = Router::new().route(
@@ -28,6 +32,12 @@ async fn relay(events: Vec<Value>) -> (String, tokio::task::JoinHandle<()>) {
                         };
                         let req: Value = serde_json::from_str(&text).unwrap();
                         if req[0] == "REQ" {
+                            if eose_first {
+                                socket
+                                    .send(Message::Text(json!(["EOSE", req[1]]).to_string().into()))
+                                    .await
+                                    .unwrap();
+                            }
                             for event in &events {
                                 socket
                                     .send(Message::Text(
@@ -36,10 +46,12 @@ async fn relay(events: Vec<Value>) -> (String, tokio::task::JoinHandle<()>) {
                                     .await
                                     .unwrap();
                             }
-                            socket
-                                .send(Message::Text(json!(["EOSE", req[1]]).to_string().into()))
-                                .await
-                                .unwrap();
+                            if !eose_first {
+                                socket
+                                    .send(Message::Text(json!(["EOSE", req[1]]).to_string().into()))
+                                    .await
+                                    .unwrap();
+                            }
                         }
                     }
                 })
@@ -50,6 +62,9 @@ async fn relay(events: Vec<Value>) -> (String, tokio::task::JoinHandle<()>) {
         axum::serve(listener, app).await.unwrap();
     });
     (url, task)
+}
+async fn relay(events: Vec<Value>) -> (String, tokio::task::JoinHandle<()>) {
+    relay_ordered(events, false).await
 }
 async fn html(path: &std::path::Path, uri: &str) -> (StatusCode, String) {
     let app = router(App {
@@ -323,6 +338,51 @@ async fn sdk_relay_to_atomic_fts_http_policy_and_expiry() {
     );
     assert_eq!(html(&path, "/?q=bridgeword").await.0, StatusCode::OK);
     eprintln!("SDK→events→view/FTS→HTTP verified; forbidden=0, duplicate/replacement stable, policy/expiry delete indexes, restart retained");
+}
+
+#[tokio::test]
+async fn eose_boundary_has_no_late_admitted_write() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("events.sqlite");
+    let sdk = collect::open(&path, collect::PRIMAL_AUTHOR).await.unwrap();
+    let note = signed(
+        &Keys::generate(),
+        1,
+        "after eose",
+        Timestamp::now().as_secs(),
+        vec![],
+    );
+    let (url, task) =
+        relay_ordered(vec![serde_json::from_str(&note.as_json()).unwrap()], true).await;
+    let policy = Arc::new(policy::Policy::new(Default::default(), Default::default()));
+    let client = collect::client(sdk.clone(), policy.clone());
+    client.add_relay(&url).await.unwrap();
+    client.connect().await;
+    let observed = collect::scan(
+        &client,
+        &policy,
+        &url,
+        Filter::new().id(note.id),
+        Duration::from_secs(2),
+    )
+    .await
+    .unwrap();
+    let at_return = sdk.check_id(&note.id).await.unwrap();
+    Connection::open(&path)
+        .unwrap()
+        .execute(
+            "INSERT INTO collection_gaps VALUES(?1,0,0,'EOSE boundary checked',unixepoch())",
+            [&url],
+        )
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(sdk.check_id(&note.id).await.unwrap(), at_return);
+    assert_eq!(
+        matches!(at_return, DatabaseEventStatus::Saved),
+        observed.accepted.contains(&note.id)
+    );
+    client.shutdown().await;
+    task.abort();
 }
 
 #[tokio::test]

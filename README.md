@@ -14,7 +14,7 @@ The repository selects nightly Cargo and enforces an eight-day minimum dependenc
 
 New, Relevance, Conversations and Social preserve the original ranking rules. Search URLs, 50-post pages, dates, expansion, thread context, profiles/NIP-05 and status are implemented. Markdown uses pulldown-cmark and ammonia; post bodies cannot load images/scripts. The reader hides stored policy exclusions and Primal NSFW members, and preserves other warning labels.
 
-Set `MEATYBROTH_READ_ONLY=1` only to inspect an existing projection without collection. Public collection is currently a capped recent-page slice: status and logs do not claim complete relay coverage. Durable cursors, exhaustive backfill, moderation refresh and same-second gap recovery remain incomplete. Embeddings and topics are not integrated, and the original runtime has not been removed pending replacement verification.
+Set `MEATYBROTH_READ_ONLY=1` only to inspect an existing projection without collection. Public collection keeps durable five-minute forward/backfill cursors and records interrupted or unreconciled intervals as gaps. It tries NIP-77 inventory reconciliation before advancing; selected public relays currently report it unsupported, so their EOSE-backed fallback remains explicitly incomplete, including same-second caps. Signed moderation snapshots refresh hourly before further admission, and an invalid refresh stops collection. Embeddings and topics are not integrated, and the original runtime has not been removed pending replacement verification.
 
 ```sh
 cargo test --locked

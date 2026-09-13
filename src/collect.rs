@@ -4,9 +4,13 @@ use crate::{
     Error,
 };
 use futures_util::{SinkExt, StreamExt};
-use nostr_sdk::prelude::{
-    Client, DatabaseEventStatus, Event, EventId, Filter, Kind, NostrDatabase, PublicKey,
-    RelayMessage, RelayNotification, SubscriptionId, Timestamp,
+use nostr_sdk::{
+    error::ErrorKind,
+    prelude::{
+        Client, DatabaseEventStatus, Event, EventId, Filter, Kind, NostrDatabase, PublicKey,
+        RelayMessage, RelayNotification, ReqExitPolicy, SubscribeAutoCloseOptions, SubscriptionId,
+        SyncOptions, Timestamp,
+    },
 };
 use nostr_sqlite::store::NostrSqlite;
 use rusqlite::{Connection, OptionalExtension};
@@ -14,6 +18,139 @@ use std::{collections::BTreeSet, path::Path, sync::Arc, time::Duration};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 pub const PRIMAL_AUTHOR: &str = "5d8282fc89410f1c57681a2c3b8be57afd1566c262fd1deb543999d39d141cb4";
+const PAGE_LIMIT: usize = 500;
+const COVERAGE_STEP: i64 = 300;
+const MODERATION_REFRESH: u64 = 3600;
+
+#[derive(Clone, Copy)]
+struct Cursor {
+    forward_at: i64,
+    backfill_before: i64,
+}
+
+fn admin(path: &Path) -> Result<Connection, Error> {
+    let conn = Connection::open(path)?;
+    conn.busy_timeout(Duration::from_secs(10))?;
+    Ok(conn)
+}
+
+fn recover_interrupted(path: &Path, now: i64) -> Result<(), Error> {
+    let mut conn = admin(path)?;
+    let tx = conn.transaction()?;
+    tx.execute(
+        "INSERT INTO collection_gaps(relay,since_at,until_at,reason,checked_at)
+         SELECT relay,since_at,until_at,'interrupted before EOSE; partial arrivals retained',?1
+         FROM collection_runs WHERE finished_at IS NULL",
+        [now],
+    )?;
+    tx.execute(
+        "UPDATE collection_runs SET finished_at=?1,eose=0,accepted=0,rejected=0
+         WHERE finished_at IS NULL",
+        [now],
+    )?;
+    tx.commit()?;
+    Ok(())
+}
+
+fn cursor(path: &Path, relay: &str, now: i64) -> Result<Cursor, Error> {
+    let conn = admin(path)?;
+    let (first, last): (Option<i64>, Option<i64>) = conn.query_row(
+        "SELECT min(e.created_at),max(e.created_at) FROM events e WHERE e.kind=1",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    let first = first.unwrap_or(now - WINDOW);
+    let last = last.unwrap_or(first);
+    conn.execute(
+        "INSERT OR IGNORE INTO collection_cursors(relay,forward_at,backfill_before,updated_at)
+         VALUES(?1,?2,?3,?4)",
+        (relay, last + 1, first, now),
+    )?;
+    conn.query_row(
+        "SELECT forward_at,backfill_before FROM collection_cursors WHERE relay=?1",
+        [relay],
+        |row| {
+            Ok(Cursor {
+                forward_at: row.get(0)?,
+                backfill_before: row.get(1)?,
+            })
+        },
+    )
+    .map_err(Into::into)
+}
+
+fn begin_run(
+    path: &Path,
+    relay: &str,
+    phase: &str,
+    since: i64,
+    until: i64,
+    now: i64,
+) -> Result<i64, Error> {
+    let conn = admin(path)?;
+    conn.execute(
+        "INSERT INTO collection_runs(relay,phase,since_at,until_at,started_at)
+         VALUES(?1,?2,?3,?4,?5)",
+        (relay, phase, since, until, now),
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+fn finish_run(
+    path: &Path,
+    id: i64,
+    observed: &Observation,
+    cursor_update: (&str, &str, i64),
+) -> Result<(), Error> {
+    let now = i64::try_from(Timestamp::now().as_secs())?;
+    let mut conn = admin(path)?;
+    let tx = conn.transaction()?;
+    tx.execute(
+        "UPDATE collection_runs SET finished_at=?1,eose=1,accepted=?2,rejected=?3 WHERE id=?4",
+        (
+            now,
+            i64::try_from(observed.accepted_notes.len())?,
+            i64::try_from(observed.rejected)?,
+            id,
+        ),
+    )?;
+    let (relay, column, value) = cursor_update;
+    let sql = format!("UPDATE collection_cursors SET {column}=?1,updated_at=?2 WHERE relay=?3");
+    tx.execute(&sql, (value, now, relay))?;
+    tx.commit()?;
+    Ok(())
+}
+
+fn finish_unreconciled(
+    path: &Path,
+    id: i64,
+    observed: &Observation,
+    cursor_update: (&str, &str, i64),
+) -> Result<(), Error> {
+    let now = i64::try_from(Timestamp::now().as_secs())?;
+    let mut conn = admin(path)?;
+    let tx = conn.transaction()?;
+    tx.execute(
+        "UPDATE collection_runs SET finished_at=?1,eose=1,accepted=?2,rejected=?3 WHERE id=?4",
+        (
+            now,
+            i64::try_from(observed.accepted_notes.len())?,
+            i64::try_from(observed.rejected)?,
+            id,
+        ),
+    )?;
+    tx.execute(
+        "INSERT INTO collection_gaps(relay,since_at,until_at,reason,checked_at)
+         SELECT relay,since_at,until_at,'EOSE received but relay inventory cannot be reconciled',?1
+         FROM collection_runs WHERE id=?2",
+        (now, id),
+    )?;
+    let (relay, column, value) = cursor_update;
+    let sql = format!("UPDATE collection_cursors SET {column}=?1,updated_at=?2 WHERE relay=?3");
+    tx.execute(&sql, (value, now, relay))?;
+    tx.commit()?;
+    Ok(())
+}
 
 pub async fn open(path: &Path, primal_author: &str) -> Result<NostrSqlite, Error> {
     if path.exists() {
@@ -45,6 +182,9 @@ pub async fn open(path: &Path, primal_author: &str) -> Result<NostrSqlite, Error
         PublicKey::from_hex(primal_author)?;
         conn.execute_batch(&include_str!("schema.sql").replace("{primal_author}", primal_author))?;
     }
+    conn.execute_batch(include_str!("coverage.sql"))?;
+    drop(conn);
+    recover_interrupted(path, i64::try_from(Timestamp::now().as_secs())?)?;
     Ok(sdk)
 }
 
@@ -117,23 +257,20 @@ async fn fetch_list(identifier: &str) -> Result<Event, Error> {
 }
 pub async fn bootstrap(sdk: &NostrSqlite) -> Result<BTreeSet<PublicKey>, Error> {
     let author = PublicKey::from_hex(PRIMAL_AUTHOR)?;
-    for id in ["nsfw_list", "spam_list"] {
-        let event = fetch_list(id).await?;
-        sdk.save_event(&event).await?;
+    let mut snapshots = Vec::new();
+    for identifier in ["nsfw_list", "spam_list"] {
+        let event = fetch_list(identifier).await?;
+        let members = list_members(&event, author, identifier)?;
+        snapshots.push((identifier, event, members));
     }
-    let current = sdk
-        .query(
-            Filter::new()
-                .author(author)
-                .kind(Kind::from(30000))
-                .identifier("nsfw_list")
-                .limit(1),
-        )
-        .await?
+    for (_, event, _) in &snapshots {
+        sdk.save_event(event).await?;
+    }
+    snapshots
         .into_iter()
-        .next()
-        .ok_or("No verified NSFW list stored")?;
-    list_members(&current, author, "nsfw_list")
+        .find(|(identifier, _, _)| *identifier == "nsfw_list")
+        .map(|(_, _, members)| members)
+        .ok_or_else(|| "No verified NSFW list fetched".into())
 }
 
 pub fn client(sdk: NostrSqlite, policy: Arc<Policy>) -> Client {
@@ -157,7 +294,15 @@ pub async fn scan(
     let id = SubscriptionId::generate();
     policy.begin(id.clone(), filter.clone());
     let mut messages = relay.notifications();
-    relay.subscribe(vec![filter]).with_id(id.clone()).await?;
+    relay
+        .subscribe(vec![filter])
+        .with_id(id.clone())
+        .close_on(
+            SubscribeAutoCloseOptions::default()
+                .exit_policy(ReqExitPolicy::ExitOnEOSE)
+                .timeout(Some(timeout)),
+        )
+        .await?;
     let eose=tokio::time::timeout(timeout,async {
         while let Some(notification)=messages.next().await {
             if let RelayNotification::Message{message,..}=notification {
@@ -170,12 +315,176 @@ pub async fn scan(
     relay.unsubscribe(&id).await?;
     observed.eose = eose;
     for event_id in observed.accepted_notes.iter().filter(|_| eose) {
-        if client.database().check_id(event_id).await? == DatabaseEventStatus::NotExistent {
-            return Err(format!("SDK did not persist admitted note {event_id}").into());
-        }
+        tokio::time::timeout(timeout, async {
+            loop {
+                match client.database().check_id(event_id).await? {
+                    DatabaseEventStatus::Saved | DatabaseEventStatus::Deleted => {
+                        return Ok::<_, Error>(())
+                    }
+                    DatabaseEventStatus::NotExistent => {
+                        tokio::time::sleep(Duration::from_millis(10)).await
+                    }
+                }
+            }
+        })
+        .await
+        .map_err(|_| format!("SDK did not persist admitted note {event_id}"))??;
     }
     Ok(observed)
 }
+
+fn merge(into: &mut Observation, from: Observation) {
+    into.ids.extend(from.ids);
+    into.accepted.extend(from.accepted);
+    into.accepted_notes.extend(from.accepted_notes);
+    into.rejected += from.rejected;
+    into.oldest = match (into.oldest, from.oldest) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (a, b) => a.or(b),
+    };
+    into.eose &= from.eose;
+}
+
+async fn reconcile_window(
+    client: &Client,
+    policy: &Policy,
+    sdk: &NostrSqlite,
+    relay_url: &str,
+    filter: Filter,
+) -> Result<Option<Observation>, Error> {
+    let local_count = sdk.count(filter.clone()).await?;
+    let local = sdk.query(filter.clone()).await?;
+    if local.len() != local_count {
+        return Err(format!(
+            "Local reconciliation inventory truncated: query={} count={local_count}",
+            local.len()
+        )
+        .into());
+    }
+    let relay = client
+        .relay(relay_url)
+        .await?
+        .ok_or("Relay not registered")?;
+    let summary = match relay
+        .sync(filter)
+        .items(local.iter().map(|event| (event.id, event.created_at)))
+        .opts(SyncOptions::new().dry_run())
+        .await
+    {
+        Ok(summary) => summary,
+        Err(error) if error.kind() == ErrorKind::Unsupported => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    if summary.remote.len() > 10_000 {
+        return Err(format!(
+            "Remote reconciliation inventory too large: {}",
+            summary.remote.len()
+        )
+        .into());
+    }
+    let mut observed = Observation {
+        eose: true,
+        ..Observation::default()
+    };
+    let remote: Vec<_> = summary.remote.into_iter().collect();
+    for ids in remote.chunks(PAGE_LIMIT) {
+        let expected: BTreeSet<_> = ids.iter().copied().collect();
+        let batch = scan(
+            client,
+            policy,
+            relay_url,
+            Filter::new().ids(expected.iter().copied()),
+            Duration::from_secs(15),
+        )
+        .await?;
+        if !batch.eose || batch.ids != expected {
+            return Err(format!(
+                "Exact reconciliation fetch incomplete: expected={} observed={} eose={}",
+                expected.len(),
+                batch.ids.len(),
+                batch.eose
+            )
+            .into());
+        }
+        merge(&mut observed, batch);
+    }
+    Ok(Some(observed))
+}
+
+struct DurableObservation {
+    observed: Observation,
+    reconciled: bool,
+}
+
+struct CoverageWindow<'a> {
+    relay: &'a str,
+    phase: &'a str,
+    since: i64,
+    until: i64,
+    cursor_column: &'a str,
+    cursor_value: i64,
+    reconciliation_unsupported: bool,
+}
+
+async fn durable_window(
+    path: &Path,
+    client: &Client,
+    policy: &Policy,
+    sdk: &NostrSqlite,
+    window: CoverageWindow<'_>,
+) -> Result<DurableObservation, Error> {
+    let CoverageWindow {
+        relay,
+        phase,
+        since,
+        until,
+        cursor_column,
+        cursor_value,
+        reconciliation_unsupported,
+    } = window;
+    let id = begin_run(
+        path,
+        relay,
+        phase,
+        since,
+        until,
+        i64::try_from(Timestamp::now().as_secs())?,
+    )?;
+    let filter = Filter::new()
+        .kind(Kind::TextNote)
+        .since(Timestamp::from(u64::try_from(since)?))
+        .until(Timestamp::from(u64::try_from(until)?));
+    if !reconciliation_unsupported {
+        if let Some(observed) = reconcile_window(client, policy, sdk, relay, filter.clone()).await?
+        {
+            finish_run(path, id, &observed, (relay, cursor_column, cursor_value))?;
+            return Ok(DurableObservation {
+                observed,
+                reconciled: true,
+            });
+        }
+    }
+    let observed = scan(
+        client,
+        policy,
+        relay,
+        filter.limit(PAGE_LIMIT),
+        Duration::from_secs(15),
+    )
+    .await?;
+    if !observed.eose {
+        return Err(format!(
+            "Unreconciled {phase} scan timed out for {relay}; partial arrivals retained"
+        )
+        .into());
+    }
+    finish_unreconciled(path, id, &observed, (relay, cursor_column, cursor_value))?;
+    Ok(DurableObservation {
+        observed,
+        reconciled: false,
+    })
+}
+
 async fn hydrate_notes(
     client: &Client,
     policy: &Policy,
@@ -199,7 +508,10 @@ async fn hydrate_notes(
         })
         .collect();
     let metadata = if authors.is_empty() {
-        Observation::default()
+        Observation {
+            eose: true,
+            ..Observation::default()
+        }
     } else {
         scan(
             client,
@@ -213,8 +525,16 @@ async fn hydrate_notes(
         )
         .await?
     };
+    if !metadata.eose {
+        return Err(
+            format!("Metadata scan timed out for {relay_url}; partial arrivals retained").into(),
+        );
+    }
     let parents = if parent_ids.is_empty() {
-        Observation::default()
+        Observation {
+            eose: true,
+            ..Observation::default()
+        }
     } else {
         scan(
             client,
@@ -228,6 +548,11 @@ async fn hydrate_notes(
         )
         .await?
     };
+    if !parents.eose {
+        return Err(
+            format!("Parent scan timed out for {relay_url}; partial arrivals retained").into(),
+        );
+    }
     Ok((metadata, parents))
 }
 
@@ -278,35 +603,186 @@ pub async fn run(path: &Path, sdk: NostrSqlite, relays: Vec<String>) -> Result<(
         Ok(values)
     };
     let policy = Arc::new(Policy::new(load_blocks()?, bootstrap(&sdk).await?));
+    let mut moderation_refresh_at = Timestamp::now().as_secs() + MODERATION_REFRESH;
     let client = client(sdk.clone(), policy.clone());
     for relay in &relays {
         client.add_relay(relay).await?;
     }
+    for relay in &relays {
+        cursor(path, relay, i64::try_from(Timestamp::now().as_secs())?)?;
+    }
     client.connect().await;
+    let mut unsupported_reconciliation = BTreeSet::new();
     loop {
         *policy.blocked.write().unwrap() = load_blocks()?;
-        prune(&sdk, &policy, Timestamp::now().as_secs()).await?;
+        let now_u64 = Timestamp::now().as_secs();
+        let now = i64::try_from(now_u64)?;
+        if now_u64 >= moderation_refresh_at {
+            let nsfw = bootstrap(&sdk).await?;
+            *policy.nsfw.write().unwrap() = nsfw;
+            moderation_refresh_at = now_u64 + MODERATION_REFRESH;
+            eprintln!("Verified Primal moderation snapshots refreshed before further admission");
+        }
+        prune(&sdk, &policy, now_u64).await?;
         for relay in &relays {
-            let now = Timestamp::now();
-            let filter = Filter::new()
-                .kind(Kind::TextNote)
-                .since(Timestamp::from(now.as_secs() - WINDOW as u64))
-                .until(now)
-                .limit(500);
-            let observed = scan(&client, &policy, relay, filter, Duration::from_secs(15)).await?;
+            let mut admitted = Observation {
+                eose: true,
+                ..Observation::default()
+            };
+            let recent = scan(
+                &client,
+                &policy,
+                relay,
+                Filter::new()
+                    .kind(Kind::TextNote)
+                    .since(Timestamp::from(u64::try_from(now - COVERAGE_STEP)?))
+                    .until(Timestamp::from(now_u64))
+                    .limit(PAGE_LIMIT),
+                Duration::from_secs(15),
+            )
+            .await?;
+            if !recent.eose {
+                return Err(format!(
+                    "Recent scan timed out for {relay}; partial arrivals retained"
+                )
+                .into());
+            }
+            merge(&mut admitted, recent);
+
+            let state = cursor(path, relay, now)?;
+            let mut reconciliation_supported = !unsupported_reconciliation.contains(relay);
+            if state.forward_at <= now {
+                let until = (state.forward_at + COVERAGE_STEP - 1).min(now);
+                let result = durable_window(
+                    path,
+                    &client,
+                    &policy,
+                    &sdk,
+                    CoverageWindow {
+                        relay,
+                        phase: "forward",
+                        since: state.forward_at,
+                        until,
+                        cursor_column: "forward_at",
+                        cursor_value: until + 1,
+                        reconciliation_unsupported: !reconciliation_supported,
+                    },
+                )
+                .await?;
+                reconciliation_supported &= result.reconciled;
+                if !result.reconciled {
+                    unsupported_reconciliation.insert(relay.clone());
+                }
+                merge(&mut admitted, result.observed);
+            }
+            let cutoff = now - WINDOW;
+            if state.backfill_before > cutoff {
+                let since = state
+                    .backfill_before
+                    .saturating_sub(COVERAGE_STEP)
+                    .max(cutoff);
+                let until = state.backfill_before - 1;
+                let result = durable_window(
+                    path,
+                    &client,
+                    &policy,
+                    &sdk,
+                    CoverageWindow {
+                        relay,
+                        phase: "backfill",
+                        since,
+                        until,
+                        cursor_column: "backfill_before",
+                        cursor_value: since,
+                        reconciliation_unsupported: !reconciliation_supported,
+                    },
+                )
+                .await?;
+                reconciliation_supported &= result.reconciled;
+                if !result.reconciled {
+                    unsupported_reconciliation.insert(relay.clone());
+                }
+                merge(&mut admitted, result.observed);
+            }
             let (metadata, parents) =
-                hydrate_notes(&client, &policy, &sdk, relay, &observed.accepted_notes).await?;
+                hydrate_notes(&client, &policy, &sdk, relay, &admitted.accepted_notes).await?;
             eprintln!(
-                "SDK notes={} rejected={} eose={}; metadata={} metadata_eose={}; parents={} parents_eose={}; relay={relay}; coverage not established",
-                observed.accepted_notes.len(),
-                observed.rejected,
-                observed.eose,
+                "SDK notes={} rejected={}; metadata={} metadata_eose={}; parents={} parents_eose={}; reconciliation_supported={}; relay={relay}; completed reconciliation windows are durable, full retention coverage not established",
+                admitted.accepted_notes.len(),
+                admitted.rejected,
                 metadata.ids.len(),
                 metadata.eose,
                 parents.accepted_notes.len(),
                 parents.eose,
+                reconciliation_supported,
             );
         }
         tokio::time::sleep(Duration::from_secs(30)).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn coverage_cursor_survives_restart_and_interruption_becomes_gap() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.sqlite");
+        let now = i64::try_from(Timestamp::now().as_secs()).unwrap();
+        let sdk = open(&path, PRIMAL_AUTHOR).await.unwrap();
+        let initial = cursor(&path, "wss://relay.example", now).unwrap();
+        let complete = Observation {
+            eose: true,
+            ..Observation::default()
+        };
+        let forward = begin_run(
+            &path,
+            "wss://relay.example",
+            "forward",
+            initial.forward_at,
+            initial.forward_at + COVERAGE_STEP - 1,
+            now,
+        )
+        .unwrap();
+        finish_run(
+            &path,
+            forward,
+            &complete,
+            (
+                "wss://relay.example",
+                "forward_at",
+                initial.forward_at + COVERAGE_STEP,
+            ),
+        )
+        .unwrap();
+        let advanced = cursor(&path, "wss://relay.example", now + 1).unwrap();
+        assert_eq!(advanced.forward_at, initial.forward_at + COVERAGE_STEP);
+        begin_run(
+            &path,
+            "wss://relay.example",
+            "backfill",
+            initial.backfill_before - COVERAGE_STEP,
+            initial.backfill_before - 1,
+            now,
+        )
+        .unwrap();
+        drop(sdk);
+        let _reopened = open(&path, PRIMAL_AUTHOR).await.unwrap();
+        let conn = admin(&path).unwrap();
+        let gap: String = conn
+            .query_row(
+                "SELECT reason FROM collection_gaps ORDER BY rowid DESC LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(gap, "interrupted before EOSE; partial arrivals retained");
+        assert_eq!(
+            cursor(&path, "wss://relay.example", now + 2)
+                .unwrap()
+                .backfill_before,
+            initial.backfill_before
+        );
     }
 }

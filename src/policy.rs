@@ -37,6 +37,7 @@ pub struct Observation {
     pub ids: BTreeSet<EventId>,
     pub oldest: Option<Timestamp>,
     pub rejected: usize,
+    pub accepted: BTreeSet<EventId>,
     pub accepted_notes: BTreeSet<EventId>,
     pub eose: bool,
 }
@@ -103,6 +104,7 @@ impl AdmitPolicy for Policy {
                 observed.rejected += 1;
                 Ok(AdmitStatus::rejected("collection policy"))
             } else {
+                observed.accepted.insert(event.id);
                 if event.kind == Kind::TextNote {
                     observed.accepted_notes.insert(event.id);
                 }
