@@ -1,3 +1,5 @@
+mod collect;
+mod policy;
 mod queries;
 mod render;
 
@@ -368,19 +370,51 @@ fn router(app: App) -> Router {
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let path = PathBuf::from(std::env::var("MEATYBROTH_DB")?);
-    Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let read_only = std::env::var("MEATYBROTH_READ_ONLY").as_deref() == Ok("1");
+    let sdk = if read_only {
+        Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        None
+    } else {
+        Some(collect::open(&path, collect::PRIMAL_AUTHOR).await?)
+    };
     let root = std::env::var("MEATYBROTH_ROOT").unwrap_or_else(|_| ROOT.into());
     let app = router(App {
-        path,
+        path: path.clone(),
         root,
         templates: templates()?,
     });
     let addr = std::env::var("MEATYBROTH_ADDR").unwrap_or_else(|_| "127.0.0.1:8083".into());
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     eprintln!("Rust reader listening on http://{addr}");
-    axum::serve(listener, app).await?;
+    if let Some(sdk) = sdk {
+        let relays = std::env::var("MEATYBROTH_RELAYS")
+            .unwrap_or_else(|_| "wss://relay.damus.io,wss://relay.primal.net".into())
+            .split(',')
+            .map(str::to_owned)
+            .collect();
+        supervise(listener, app, collect::run(&path, sdk, relays)).await?;
+    } else {
+        axum::serve(listener, app).await?;
+    }
     Ok(())
 }
 
+async fn supervise(
+    listener: tokio::net::TcpListener,
+    app: Router,
+    collector: impl std::future::Future<Output = Result<(), Error>>,
+) -> Result<(), Error> {
+    tokio::try_join!(
+        async {
+            axum::serve(listener, app).await?;
+            Ok::<_, Error>(())
+        },
+        collector
+    )?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod sdk_tests;
 #[cfg(test)]
 mod tests;

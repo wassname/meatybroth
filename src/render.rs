@@ -216,6 +216,20 @@ fn warnings(db: &Connection, p: &Post) -> Result<Vec<String>, Error> {
             reasons.push(label);
         }
     }
+    for label in crate::policy::text_labels(&p.text) {
+        if !reasons.contains(&label) {
+            reasons.push(label);
+        }
+    }
+    let duplicate: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM events WHERE kind=1 AND pubkey=unhex(?1)
+        AND content=?2 AND id!=unhex(?3) AND created_at>=unixepoch()-?4)",
+        rusqlite::params![p.author_id, p.text, p.source_id, queries::WINDOW],
+        |r| r.get(0),
+    )?;
+    if duplicate && !reasons.iter().any(|r| r.contains("duplicate-content")) {
+        reasons.push("auto-flagged: spam duplicate-content".into());
+    }
     Ok(reasons)
 }
 fn hides(reasons: &[String]) -> bool {
