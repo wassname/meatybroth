@@ -1,6 +1,6 @@
 # Rust production deployment handover
 
-Status 2026-09-13T15:24Z: deployment authorized but paused. Old production is still serving. No CloudFormation, instance, volume, Caddy-upstream or application-service change occurred.
+Status 2026-09-13T17:35Z: final deployable revision `bc08fc791f6833d75cafc6544f1e95cfd8e18910` and a moderation-clean SDK snapshot passed the hardened off-host smoke. Deployment remains paused for a human-attended AWS login issuer-region test. Old production is still serving. No CloudFormation, instance, volume, Caddy-upstream or application-service change occurred.
 
 ## Evidence and retained production state
 
@@ -28,17 +28,21 @@ Confirm the authorization host is `us-east-1.signin.aws.amazon.com`; then make o
 
 Expected identity: account `275713940406`, `arn:aws:iam::275713940406:user/wassname100`. Titan metadata in us-west-2 was ACTIVE/AUTHORIZED/AVAILABLE. Do not log tokens or cache contents.
 
-## Off-host artifacts
+## Final off-host artifacts
 
-Compatibility/transfer proof bundle only: `/tmp/meatybroth-deploy-3970a76/`; archive: `/tmp/meatybroth-deploy-3970a76.tar`. Do not deploy it. A later app fix removes stale-telemetry Similar leakage, and this snapshot may retain those vectors; wait for the approved cleanup/moderation SHA and a fresh consistent snapshot.
+Final local bundle: `/tmp/meatybroth-deploy-bc08fc7/`. It has not been transferred. Build and smoke evidence is in `slop/verification/2026-09-13_production-rust-deployment.log`.
 
-- source: `3970a769ca5152bd5ddfd8ec1402e26b1d06eef5`, built from an isolated exact worktree with the committed lockfile
-- binary SHA-256: `47bbff8ef64657b75a171d4fc2e116a96e643a0b578450877ecb8c66c3e772d9`
-- image: `meatybroth-rust:3970a76`, ID `sha256:6dc413104651e7e3a6e29093197a66dd69823a344b26fe1964dd275787ae3bf3`, 48,181,324 bytes
+- source: `bc08fc791f6833d75cafc6544f1e95cfd8e18910`, built from an isolated exact worktree with the committed lockfile
+- binary SHA-256: `a0f41dd23ed8f37320505e9c53bc22a285f662f288e6167d2075994c60938af6`
+- image: `meatybroth-rust:bc08fc7`, ID `sha256:d1b642c1a149fdded4d6b3ded8e53e0fdb6ac16f95c683ba723bcc00dde54b26`, 48,197,116 bytes
 - runtime base: `ubuntu:24.04@sha256:a61567bd31828687156d735ea8eb01ba4e37636e225dd6a48ba94136a70d9d61`
-- consistent SDK snapshot: 225,124,352 bytes, SHA-256 `efe16d6e03fd0c14e01a21251748eb2883384281307b14855f577a1d5c6fc322`, integrity OK; 9,016 signed events, 174,216 social edges, `sqlite_stat1`, cached Titan119 and six Titan topics assigning all119
-- transfer archive: 130,191,360 bytes, SHA-256 `f2470fd1c3fef51efefd1762d43a883124b1acb2c162a8cf4710bd2023a632d4`
+- moderation-clean SDK snapshot: 387,764,224 bytes, SHA-256 `4aabaecc632017f11d5dcb20de86b7b052f3e5226349c13637e76a2b7b55ec32`, integrity OK; 16,403 canonical events, 12,510 reader posts, 289,884 social edges, 11,595 MiniLM vectors, 119 cached Titan vectors and six Titan topics assigning all 119
 - runtime env: `READ_ONLY=1`, `DEFAULT_EMBEDDING=titan`, DB and address only; no embed backend or AWS variables
+- exact telemetry fixtures `3516…1995` and `56e0…bf53`: canonical event present, reader-ineligible, zero vector/chunk/topic rows, Context 404, Similar 400
+- eligible JSON control `84c9…dcb4`: Context 200 and one MiniLM vector/chunk/topic row; its MiniLM Similar is intentionally 400 because production does not configure MiniLM
+- eligible cached-Titan control `00000004…f710`: Context 200 and Titan Similar 200
+
+The older compatibility bundle `/tmp/meatybroth-deploy-3970a76/` is superseded and must not be deployed.
 
 AL2023 native linking is invalid: `ort-sys` rc13 requires glibc ≥2.38 `__isoc23_strto*` and newer libstdc++; AL2023 has glibc2.34/GCC11. Use the Ubuntu runtime container, not an AL-native binary or an app feature change. Stable Cargo ignores the age configuration, but `--locked` prevented resolution; the app owner's age-held lockfile was retained.
 

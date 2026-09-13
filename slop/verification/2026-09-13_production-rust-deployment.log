@@ -63,10 +63,49 @@ Transfer archive `/tmp/meatybroth-deploy-3970a76.tar` is 130,191,360 bytes with 
 
 ## Conditions before the public Caddy upstream change
 
-- parent confirms `3970a769ca5152bd5ddfd8ec1402e26b1d06eef5` is published to `rust-rewrite`; app tests, Clippy, release, integrated latency and private container/Caddy checks are green
+- parent confirms `bc08fc791f6833d75cafc6544f1e95cfd8e18910` is published to `rust-rewrite`; app tests, Clippy, release, integrated latency and private container/Caddy checks are green
 - Rust uses its own canonical signed-event database; the old unsigned Python corpus is preserved but not fabricated into SDK events
 - long-running service exposes the cached Titan 512 space without an invocation-capable continuous Bedrock worker; MiniLM, if retained, is explicitly labelled fallback/demo and not silently presented as Titan
 - Rust joins the existing `meatybroth_default` Docker network, binds inside the container, and publishes only host `127.0.0.1:8088`; a temporary private Caddy verifies `meatybroth-rust:8088` before the existing Caddy upstream reload
 - old web/collector/Caddy definition, certificates and config volumes stay available until public HTTPS verification; rollback restores the old `web:8081` upstream
+
+## Final revision and moderation smoke
+
+At 17:35Z, final deployable revision `bc08fc791f6833d75cafc6544f1e95cfd8e18910` was built from an isolated exact worktree with `cargo +stable build --locked --release`.
+
+- binary SHA-256: `a0f41dd23ed8f37320505e9c53bc22a285f662f288e6167d2075994c60938af6`
+- image: `meatybroth-rust:bc08fc7`
+- image ID: `sha256:d1b642c1a149fdded4d6b3ded8e53e0fdb6ac16f95c683ba723bcc00dde54b26`
+- OCI revision label: exact full revision above
+- image size: 48,197,116 bytes
+- snapshot: 387,764,224 bytes; SHA-256 `4aabaecc632017f11d5dcb20de86b7b052f3e5226349c13637e76a2b7b55ec32`; integrity `ok`; 16,403 canonical events; 12,510 reader posts; 289,884 social edges; 11,595 MiniLM vectors; 119 cached Titan vectors; six Titan topics assigning all 119
+
+Hardened container settings observed through `docker inspect`: user `10001:10001`; read-only root filesystem; `no-new-privileges`; all capabilities dropped; read-only application mode; default embedding Titan; no backend or AWS environment variables.
+
+HTTP and database observations:
+
+```text
+root                           http=200
+status                         http=200
+zone-context                   http=404
+zone-context-titan-similar     http=400
+presence-context               http=404
+presence-context-titan-similar http=400
+price-context                  http=200
+price-minilm-similar           http=400
+titan-positive-context         http=200
+titan-positive-similar         http=200
+uncached-titan-meaning         http=400
+
+label           canonical  eligible  vectors  chunks  topics
+zone            1          0         0        0       0
+presence        1          0         0        0       0
+price           1          1         1        1       1
+titan_positive  1          1         2        2       2
+```
+
+`zone` is exact ID `3516c300b7111d26772b1e962d4bcf1c1855cb1ded526a300326572617b51995`; `presence` is `56e0a2a9140405925aee80c1fc7df3ae57e14170c08c3526f1d74a72f2afbf53`; `price` is `84c9f33ff9009803f713080b7c158b760348cc12b71a321410c0bbbd968d7cb4`; `titan_positive` is `00000004727e4f56792a27ae2c4a013f914f5accde89ccf41614dc1494edf710`.
+
+The JSON price control has only a MiniLM vector. Its Similar request returns the explicit `MiniLM cache is not configured` response because production intentionally configures cached Titan only. The separate eligible Titan source demonstrates that Similar is not blanket-blocked. The two telemetry fixtures remain canonical for provenance but are absent from reader eligibility, vectors, chunks and topics. No AWS call, transfer or production mutation occurred.
 
 -- Pi/gpt-5.6-sol
