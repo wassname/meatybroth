@@ -366,10 +366,11 @@ def test_filters_reject_secrets_flag_spam_and_honor_nip36(store):
     clean = sign_event(1, "my doctor changed my HRT dose", created_at=NOW - 73, secret=KEY_C)
     linkfarm = sign_event(1, "check " + " ".join(f"https://x.example/{i}" for i in range(6)),
                           created_at=NOW - 74, secret=KEY_C)
+    explicit_note = sign_event(1, "this has an explicit sex scene", created_at=NOW - 75, secret=KEY_C)
     report = collect_once(store, ROOT, max_requests=40,
                           relays=MockRelay()) if False else None
     relay = MockRelay()
-    relay.responses = {url: ([follow, nsec_note, akia_note, cw_note, clean, linkfarm], True)
+    relay.responses = {url: ([follow, nsec_note, akia_note, cw_note, clean, linkfarm, explicit_note], True)
                        for url in BOOTSTRAP_RELAYS + CONFIGURED_RELAYS}
     report = collect_once(store, ROOT, max_requests=40, relays=relay)["nostr"]
     assert store.get(f"nostr:{nsec_note['id']}", now=NOW) is None  # never persisted
@@ -380,7 +381,8 @@ def test_filters_reject_secrets_flag_spam_and_honor_nip36(store):
     assert store.content_warnings([linkfarm["id"]])[linkfarm["id"]] == ["auto-flagged: spam link-farm"]
     assert report["filter_stats"]["secret"] == 2
     assert report["filter_stats"]["cw"] == 1
-    assert report["filter_stats"].get("explicit", 0) == 0  # HRT health discussion untouched
+    assert report["filter_stats"]["explicit"] == 1
+    assert store.content_warnings([clean["id"]]) == {}  # HRT health discussion untouched
 
 
 def test_blocklist_prevents_reingestion(store, tmp_path):

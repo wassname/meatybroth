@@ -329,12 +329,21 @@ class Store:
                   attempted_at=excluded.attempted_at, error=excluded.error""",
                 (source, identifier, attempted_at, error))
 
+    def purge_primal_nsfw(self, members: set[str]) -> int:
+        """Remove listed authors from posts, FTS, search, counts, and context.
+        A list removal needs relay re-sync; deleted bodies cannot be restored."""
+        if not members:
+            return 0
+        marks = ",".join("?" for _ in members)
+        with self.connect() as db:
+            return db.execute(f"DELETE FROM posts WHERE author_id IN ({marks})", sorted(members)).rowcount
+
     def reconcile_primal_list(self, identifier: str, members: set[str], *, now: int) -> int:
-        """Replace only this Primal category across retained Nostr posts.
-        Local spam/author labels use other categories and are therefore untouched."""
-        category = "primal-spam" if identifier == "spam_list" else "primal-nsfw"
-        reason = ("auto-flagged: spam Primal snapshot" if identifier == "spam_list"
-                  else "curated-nsfw: Primal snapshot")
+        """Apply Primal spam labels or fully exclude Primal NSFW authors."""
+        if identifier == "nsfw_list":
+            return self.purge_primal_nsfw(members)
+        category = "primal-spam"
+        reason = "auto-flagged: spam Primal snapshot"
         with self.connect() as db:
             db.execute("DELETE FROM content_warnings WHERE category=?", (category,))
             if not members:

@@ -61,7 +61,17 @@ def test_status_renders_primal_provenance(store):
     assert "wss://cache2.primal.net/v1" in text
 
 
-def test_primal_spam_labels_and_nsfw_hides(store):
+def test_primal_nsfw_membership_deletes_stored_posts_and_removal_needs_resync(store):
+    post = sign_event(1, "stored", created_at=NOW - 60, secret=KEY_C)
+    store.upsert(ingest.nostr_post(post, "test"), now=NOW)
+    assert store.reconcile_primal_list("nsfw_list", {PUB_C}, now=NOW) == 1
+    assert store.get(f"nostr:{post['id']}", now=NOW) is None
+    assert store.count(now=NOW) == 0
+    assert store.reconcile_primal_list("nsfw_list", set(), now=NOW + 1) == 0
+    assert store.get(f"nostr:{post['id']}", now=NOW) is None  # requires relay re-sync
+
+
+def test_primal_spam_labels_and_nsfw_excludes_before_storage(store):
     # A synthetic signed post by the synthetic direct follow becomes a member of
     # both verified snapshots; normal collection applies distinct categories.
     store.set_moderation_list("primal", "spam_list", event_id="1" * 64, author=PUB_C,
@@ -71,9 +81,6 @@ def test_primal_spam_labels_and_nsfw_hides(store):
     post = sign_event(1, "synthetic member post", created_at=NOW - 60, secret=KEY_C)
     root_follow = sign_event(3, "", created_at=NOW - 7200, tags=[["p", PUB_C]], secret=SECRET)
     report = run(store, {"wss://purplepag.es": ([root_follow, post], True)})
-    warnings = store.content_warnings([post["id"]])
-    assert set(warnings[post["id"]]) == {
-        "auto-flagged: spam Primal snapshot", "curated-nsfw: Primal snapshot"}
-    assert report["nostr"]["filter_stats"]["spam"] == 1
-    assert not _warning_hides(["auto-flagged: spam Primal spam snapshot"])
-    assert _warning_hides(["curated-nsfw: Primal snapshot"])
+    assert store.get(f"nostr:{post['id']}", now=NOW) is None
+    assert report["nostr"]["filter_stats"]["primal_nsfw"] == 1
+    assert store.content_warnings([post["id"]]) == {}

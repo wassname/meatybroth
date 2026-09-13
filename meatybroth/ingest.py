@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import hashlib
 import json
 import re
@@ -83,6 +84,10 @@ def verify_event(event: dict) -> bool:
         return False
 
 
+def utc_time(timestamp: int) -> str:
+    return datetime.fromtimestamp(timestamp, timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 def primal_list_members(event: dict, identifier: str, *, author: str = PRIMAL_LIST_AUTHOR) -> set[str]:
     """Validate one Primal cached NIP-33 list before trusting its p tags."""
     if not verify_event(event):
@@ -133,7 +138,9 @@ def refresh_primal_lists(store: Store, *, now: int) -> dict:
                 "last_error": attempt["error"]}
             if cached is not None:
                 detail["lists"][identifier]["using_cached"] = {"event_id": cached["event_id"],
-                    "event_created_at": cached["event_created_at"], "checked_at": cached["checked_at"],
+                    "event_created_at": cached["event_created_at"],
+                    "event_created_at_utc": utc_time(cached["event_created_at"]),
+                    "checked_at": cached["checked_at"],
                     "members": len(cached["members"])}
             continue
         try:
@@ -143,20 +150,27 @@ def refresh_primal_lists(store: Store, *, now: int) -> dict:
                 raise ValueError("Primal list event is future-dated")
             if cached is not None and event["created_at"] < cached["event_created_at"]:
                 raise ValueError("Primal list event rolls back verified snapshot")
+            previous_members = set() if cached is None else cached["members"]
             store.set_moderation_list("primal", identifier, event_id=event["id"], author=event["pubkey"],
                                       event_created_at=event["created_at"], members=members, checked_at=now)
             store.record_moderation_refresh_attempt("primal", identifier, attempted_at=now, error=None)
             reconciled = store.reconcile_primal_list(identifier, members, now=now)
             detail["lists"][identifier] = {"event_id": event["id"],
-                "event_created_at": event["created_at"], "checked_at": now,
-                "members": len(members), "reconciled_posts": reconciled, "refresh": "verified"}
+                "event_created_at": event["created_at"],
+                "event_created_at_utc": utc_time(event["created_at"]),
+                "checked_at": now,
+                "members": len(members), "reconciled_posts": reconciled,
+                "resync_required_authors": len(previous_members - members) if identifier == "nsfw_list" else 0,
+                "refresh": "verified"}
         except (OSError, websocket.WebSocketException, json.JSONDecodeError, ValueError, RuntimeError) as error:
             store.record_moderation_refresh_attempt("primal", identifier, attempted_at=now,
                                                     error=f"{type(error).__name__}: {error}")
             detail["lists"][identifier] = {"refresh": "error", "error": f"{type(error).__name__}: {error}"}
             if cached is not None:
                 detail["lists"][identifier]["using_cached"] = {"event_id": cached["event_id"],
-                    "event_created_at": cached["event_created_at"], "checked_at": cached["checked_at"],
+                    "event_created_at": cached["event_created_at"],
+                    "event_created_at_utc": utc_time(cached["event_created_at"]),
+                    "checked_at": cached["checked_at"],
                     "members": len(cached["members"])}
     store.set_status("primal-moderation", detail, now=now)
     return detail
@@ -457,6 +471,11 @@ def collect_nostr(store: Store, root_pubkey: str, relays, budget: Budget, *, now
                     cw_reason = next((t[1] if len(t) >= 2 and t[1] else "unspecified"
                                       for t in event.get("tags", []) if t[0] == "content-warning"), None)
                     explicit = bool(EXPLICIT_TERMS.search(event["content"]))
+                    if event["pubkey"] in primal_nsfw:
+                        if event["id"] not in report.setdefault("_primal_nsfw_ids", set()):
+                            report["_primal_nsfw_ids"].add(event["id"])
+                            report["filter_stats"]["primal_nsfw"] += 1
+                        continue
                     # flags refresh on every sighting, independent of the body
                     # upsert: preexisting unchanged posts acquire tags too
                     if cw_reason is not None:
@@ -474,6 +493,9 @@ def collect_nostr(store: Store, root_pubkey: str, relays, budget: Budget, *, now
                     if cw_reason is not None and event["id"] not in report.setdefault("_cw_ids", set()):
                         report["_cw_ids"].add(event["id"])
                         report["filter_stats"]["cw"] += 1
+                    if explicit and event["id"] not in report.setdefault("_explicit_ids", set()):
+                        report["_explicit_ids"].add(event["id"])
+                        report["filter_stats"]["explicit"] += 1
                     post = nostr_post(event, author_name(store, event["pubkey"]))
                     if store.upsert(post, now=now):
                         report["posts_upserted"] += 1
@@ -784,7 +806,7 @@ def collect_once(store: Store, root_pubkey: str, *, max_requests: int = 40, rela
                 db.execute("DELETE FROM posts WHERE canonical_id=?", (canonical_id,))
                 nostr["filter_stats"]["secret_purged"] += 1
                 logger.info("purged stored event {}: secret pattern {}", canonical_id[:16], secret)
-    for internal in ("_rejected_ids", "_spam_ids", "_cw_ids"):
+    for internal in ("_rejected_ids", "_spam_ids", "_cw_ids", "_explicit_ids", "_primal_nsfw_ids"):
         nostr.pop(internal, None)  # internal uniqueness tracking
     nostr["filter_stats"] = dict(nostr["filter_stats"])  # JSON-serializable for status
     store.set_status("nostr", nostr, now=now)
