@@ -57,11 +57,13 @@ Do not set `AWS_PROFILE` or static AWS credentials on EC2. `aws-config` uses the
 ## Current production and remaining checks
 
 - Public commit `cb71d87` is live. Independent root: HTTP 200 in 0.816 seconds. Actual public UAT under the writer: empty Topics 0.79 s, Similar 100 posts 7.18 s, cached Semantic 100 posts 8.75 s, and Latest 100 posts TTFB 4.99 s / total 15.09 s without requested response compression.
-- `13a286f` is the next scheduling candidate: admissions after process start outrank historical backlog and are FIFO by `received_at`. It removes newest-first starvation but cannot make an arrival burst faster than provider capacity.
-- Full freshness acceptance is open. At 518 seconds, production admitted 1,595 eligible posts but embedded 465; 495 pending posts were already older than five minutes. Completed-only latency was selection-biased and must not be used as the denominator.
+- `91568ab` supersedes the process-start-only scheduling candidate. It persists recent-scan admissions separately from reconciliation/backfill, prioritizes those live rows FIFO across restarts, and never lets a later history scan demote them. It removes newest-first and rollout-boundary starvation but cannot make an arrival burst faster than provider capacity.
+- Full freshness acceptance is open. At 518 seconds, production admitted 1,595 eligible posts but embedded 465; 495 pending posts were already older than five minutes. Admission was about 3.08 posts/s versus 0.90 embedded posts/s. Completed-only latency was selection-biased and must not be used as the denominator.
 - Preserve all provider history. Besides the original uncertain request `18209` and reserved requests `18560`–`18562`, the missing-CA deployment produced 64 uncertain attempts; a later forced stop added eight uncertain and two reserved attempts. Audit before any explicit recovery. Do not automatically retry uncertain/reserved rows.
 - The runtime CA bundle is required for AWS SDK HTTPS. `cb71d87` also stops paid calls after one failed preflight, supports one-call diagnostic mode, and drains in-flight calls on SIGTERM/SIGINT before exit.
 - Stop the verified duplicate legacy Python collector, preserving rollback configuration. Do not stop the Rust writer for routine checks.
+- Production resource sample before that stop: CPU 52.7% average/69% maximum with no T3 credit or cgroup throttle; Rust RSS about 1.293 GiB on a 1.865 GiB host, 157 MiB available, no swap, load 3.25; database 1.029 GB plus 401.5 MB WAL; Rust block I/O 15.8 GB read/5.04 GB write. The old Python collector used another 10.4% CPU. These are observations, not a single-cause diagnosis.
+- Reader connections currently allocate a 64 MiB SQLite page cache, 256 MiB mmap, and memory temp store; blocking HTTP tasks have no concurrency limit. Do not count mmap as RSS without measurement. Next inspect a two-request bound, smaller reader cache, disk-backed temp storage, and cached status aggregation. Preserve the canonical disk temp path.
 - DBSCAN/fixed-k Topics and `Similar replies:` are implemented as work in progress but are not yet the deployed checkpoint.
 
 ## Follow-up after live review
