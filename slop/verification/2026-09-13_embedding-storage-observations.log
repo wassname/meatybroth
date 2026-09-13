@@ -1,0 +1,66 @@
+Embedding storage observations and projection verification
+observed_at_utc=2026-09-13T12:15:37Z
+e9dc1afd32b0897ecc5c3295fff02dd52e239b29fccfdb8fd2954e423b351a8e  /workspace/meatybroth-rust/src/embed.sql
+
+database=/workspace/meatybroth/.local/meatybroth.db
+main_file_bytes=28495872
+wal_file_bytes=0
+logical_bytes=28495872
+events=absent
+reader_events=absent
+posts=7937
+embedding_spaces=absent
+embedding_chunks=absent
+post_embeddings=absent
+
+database=/workspace/meatybroth/.local/sdk-parity/events.sqlite
+main_file_bytes=244772864
+wal_file_bytes=0
+logical_bytes=244772864
+events=10001
+reader_events=absent
+posts=7543
+embedding_spaces=absent
+embedding_chunks=absent
+post_embeddings=absent
+
+database=/workspace/meatybroth-rust/.local/rust-coverage-8088/events.sqlite
+main_file_bytes=5550080
+logical_bytes=5550080
+events=461
+reader_events=461
+posts=absent
+embedding_spaces=absent
+embedding_chunks=absent
+post_embeddings=absent
+
+current_rust_kind_counts_and_indexed_tags:
+kind=0 events=36 indexed_tags=3
+kind=1 events=382 indexed_tags=636
+kind=3 events=23 indexed_tags=12167
+kind=10002 events=18 indexed_tags=135
+kind=30000 events=2 indexed_tags=158
+
+note_only_copy_from_online_backup:
+notes_only_bytes=929792
+empty_schema_bytes=323584
+notes=382 incremental_bytes=606208 incremental_bytes_per_note=1586.93
+
+synthetic_exact_embedding_schema_dimensions=384
+posts=10000
+chunks=11690
+requests=11690
+embedding_allocated_bytes=49827840
+ledger_allocated_bytes=2945024
+synthetic_exact_embedding_schema_dimensions=512
+posts=10000
+chunks=10057
+requests=10057
+embedding_allocated_bytes=87048192
+ledger_allocated_bytes=2531328
+
+MiniLM: raw_vectors_GiB=2.8484 embedding_schema_GiB=4.2601 base_notes_GiB=1.3568 total_GiB=5.6168 total_plus_25pct_GiB=7.0210 ledger_GiB_per_month=0.2518
+Titan: raw_vectors_GiB=3.5118 embedding_schema_GiB=7.4422 base_notes_GiB=1.3568 total_GiB=8.7990 total_plus_25pct_GiB=10.9987 ledger_GiB_per_month=0.2164
+base_notes=918000 assumed_tokens=74541600 cost_at_USD_0.02_per_million=1.490832
+low_notes=459000 low_cost_USD=0.7454
+high_notes=2754000 high_cost_USD=4.4725
