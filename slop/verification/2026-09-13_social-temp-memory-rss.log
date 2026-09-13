@@ -1,0 +1,6 @@
+run=1 status=200 seconds=1.489710 bytes=236808
+VmHWM:	  266168 kB VmRSS:	   66356 kB
+run=2 status=200 seconds=1.912665 bytes=236808
+VmHWM:	  279584 kB VmRSS:	   79516 kB
+run=3 status=200 seconds=1.849090 bytes=236808
+VmHWM:	  279840 kB VmRSS:	   79520 kB

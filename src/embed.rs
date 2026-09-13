@@ -458,6 +458,10 @@ fn pending(
          WHERE e.kind=1 AND e.created_at BETWEEN ?1 AND ?2 AND trim(e.content)!=''
            AND NOT EXISTS (
              SELECT 1 FROM post_embeddings v WHERE v.event_id=e.id AND v.space_id=?3)
+           AND NOT EXISTS (
+             SELECT 1 FROM embedding_requests request
+             WHERE request.event_id=e.id AND request.space_id=?3
+               AND request.status IN ('reserved','uncertain'))
          ORDER BY CASE WHEN ?4='bedrock' THEN e.id END,
                   CASE WHEN ?4!='bedrock' THEN e.created_at END DESC,e.id LIMIT ?5",
     )?;
@@ -512,7 +516,8 @@ fn reserve(
         };
     }
     // Reserve before transport; uncertain requests still count because billing may have occurred. -- Pi/gpt-5.6-sol
-    let reserved = i64::try_from(input_bytes)? * space.price_nusd_per_token;
+    let reserved = i64::try_from(input_bytes.checked_add(8).ok_or("Input size overflow")?)?
+        * space.price_nusd_per_token;
     let total: i64 = tx.query_row(
         "SELECT coalesce(sum(CASE status WHEN 'succeeded' THEN actual_nusd ELSE reserved_nusd END),0)
          FROM embedding_requests",
