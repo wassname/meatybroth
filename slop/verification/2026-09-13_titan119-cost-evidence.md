@@ -16,9 +16,9 @@ Matched MiniLM comparison on the exact same 119 event IDs:
 - 54.71 MiniLM tokens/post
 - Titan/MiniLM token ratio: 7,247 / 6,511 = 1.113
 
-The old 81.2-token proxy predicts 9,662.8 tokens and $0.000193256 for 119 posts. Observed Titan ledger cost is 25.0% lower for this cohort. This is not a calibration of the retained corpus: all 119 Titan events have NIP-13 nonce tags and IDs beginning with four zero hex digits because `ORDER BY event_id` selected proof-of-work notes first. Among 6,381 eligible non-Titan notes, only 267 have nonce tags and 262 begin with four zero hex digits.
+The old 81.2-token proxy predicts 9,662.8 tokens and $0.000193256 for 119 posts. The proxy is 33.3% above actual usage; actual usage is 25.0% below the proxy. This is not a calibration of the retained corpus: all 119 Titan events have NIP-13 nonce tags and IDs beginning with four zero hex digits because `ORDER BY event_id` selected proof-of-work notes first. Among 6,381 eligible non-Titan notes, only 267 have nonce tags and 262 begin with four zero hex digits.
 
-The database ledger is application evidence, not an AWS invoice. Account billing was not fetched. Full-corpus Titan cost and production-host throughput remain unmeasured.
+The database ledger is application evidence, not an AWS invoice. Account billing was not fetched. The user authorized only the one-off run with a $5 total ceiling, not recurring monthly Bedrock spending. Full-corpus Titan cost and production-host throughput remain unmeasured.
 
 Read-only SQL result:
 
