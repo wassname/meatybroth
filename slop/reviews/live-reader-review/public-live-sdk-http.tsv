@@ -1,0 +1,4 @@
+observed_utc	url	request_count	result	duration_seconds	response_bytes	note
+2026-09-13T22:26Z	https://meatybroth.com/status	1	HTTP 200	6.181681	24247	Fresh live collection/embedding status captured
+2026-09-13T22:26Z	https://meatybroth.com/	1	curl 28 timeout	20.000726	0	No retry; feed review deferred
+2026-09-13T22:29Z	https://meatybroth.com/?mode=meaning&embedding=titan&q=meatybroth+role+preflight+20260914+0611+UTC	1	timeout exit 124	75	0	Deployer-supplied cached query; no retry and no screenshot
