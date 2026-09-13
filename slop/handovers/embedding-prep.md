@@ -19,7 +19,7 @@ Meaning, Similar, and keyword-labelled Topics use the selected, provenance-separ
 
 ## Titan one-off cache
 
-The approved one-off Titan V2 settings are `amazon.titan-embed-text-v2:0`, 512 dimensions, normalized, `us-west-2`, with US$5 total and monthly ceilings. Native `aws-sdk-bedrockruntime` replaced the per-note CLI. It overlaps at most four provider awaits while all reservation/completion SQLite sections remain synchronous in one task. SDK retries are one and operation timeout is 30 seconds. Each call reserves the documented 8,192-token maximum; actual tokens settle afterward.
+The approved one-off Titan V2 settings are `amazon.titan-embed-text-v2:0`, 512 dimensions, normalized, `us-west-2`, with a US$5 total authorization. The implementation also has a US$5 monthly safety guard; that guard is not a separate monthly spending authorization. Native `aws-sdk-bedrockruntime` replaced the per-note CLI. It overlaps at most four provider awaits while all reservation/completion SQLite sections remain synchronous in one task. SDK retries are one and operation timeout is 30 seconds. Each call reserves the documented 8,192-token maximum; actual tokens settle afterward.
 
 Authentication refreshes `cds-login` through its issuer region `us-east-2`, evaluates temporary credentials only in process memory, unsets `AWS_PROFILE`, and calls Bedrock in `us-west-2`. The bounded script is `slop/scripts/2026-09-13_resume_titan_native.sh`. It refreshes before each segment and passes an absolute expiry-minus-120-second deadline. The embedder checks that deadline before each concurrency window and every chunk; partial chunks resume in the next segment. Tests, Clippy, release build, and the two-chunk resume regression passed at immutable commit `18b4f62`.
 
@@ -27,7 +27,7 @@ Active job: Pueue API task `1401` (`titan-native-per-chunk-deadline`), follow pr
 
 Four historical incomplete requests are excluded from automatic retry: one `uncertain` request `18209` with known 60 nUSD actual cost, and three `reserved` requests `18560`–`18562` left by a killed concurrency window, each holding the conservative 163,840 nUSD reservation. After ordinary pending work finishes, make one explicit retry for only those four event IDs. Preserve every old attempt and its actual/reserved cost. Final audit must separately report missing vectors, successful recovery requests, and historical uncertain/reserved charge range. Evidence: `slop/verification/2026-09-13_titan-killed-window-audit.log`.
 
-Titan Similar and Topics can read cached vectors without AWS. Cached-only production disables and removes Meaning/MiniLM controls. Unsupported direct URLs return explicit HTTP 400. The original 119 rows were entirely NIP-13 proof-of-work-tagged; deterministic event-ID order now removes that partial-run ordering bias, but do not use any partial cohort for a global quality claim.
+Titan Similar and Topics can read cached vectors without AWS. Cached-only production disables and removes Meaning/MiniLM controls. Unsupported direct URLs return explicit HTTP 400. The original 119 rows were entirely NIP-13 proof-of-work-tagged. Raw event-ID ascending order is deterministic and resumable but remains proof-of-work-biased while the corpus is partial. Only completion of the full intended cohort removes that selection bias; do not use any partial cohort for a global quality claim.
 
 ## Reader latency and Social
 
