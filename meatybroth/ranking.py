@@ -14,7 +14,7 @@ import re
 
 from meatybroth.store import Store, WINDOW_SECONDS, timestamp
 
-PAGE_SIZE = 20
+PAGE_SIZE = 50
 MODES = ("new", "relevance", "conversations", "discovery")
 MODE_EXPLANATIONS = {
     "new": "Every post from the last 30 days, newest first.",
