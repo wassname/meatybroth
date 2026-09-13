@@ -4,7 +4,7 @@ Date: 2026-09-13. This updates the original Python-era estimate for the Rust SQL
 
 ## Answer
 
-At the observed base rate, one retained month is **918,000 text notes**. Titan V2 API input remains provisionally **$1.49–$2.21/month** using two MiniLM token proxies. An authorized partial run measured 7,247 Titan tokens and $0.00014494 for 119 posts, but `ORDER BY event_id` selected only NIP-13 proof-of-work notes. That cohort cannot calibrate the retained-corpus forecast.
+At the observed base rate, one retained month is **918,000 text notes**. Titan V2 API input remains provisionally **$1.49–$2.21/month** using two MiniLM token proxies. Continuous production Titan embedding is authorized with separate $5 setup/backfill and $5 monthly limits. An authorized partial run measured 7,247 Titan tokens and $0.00014494 for 119 posts, but `ORDER BY event_id` selected only NIP-13 proof-of-work notes. That cohort cannot calibrate the retained-corpus forecast.
 
 The current schema stores each chunk vector and one aggregate vector per post. SQLite allocation is therefore materially larger than `notes × dimensions × 4`:
 
@@ -51,7 +51,7 @@ The completed set holds 4,414,464 aggregate-vector bytes and 5,268,480 chunk-vec
 
 ## Compute alternatives
 
-- **Bedrock production:** inference is remote, so the EC2 host only chunks, sends and stores results. The API price and storage are the relevant embedding increments; web and collection load still need a representative host measurement.
+- **Bedrock production:** inference is remote, so the EC2 host only chunks, sends and stores results. The existing EC2 role permits only `bedrock:InvokeModel` for Titan V2 in us-west-2; the application uses the instance metadata credential provider rather than profile or static credentials. The API price and storage are the relevant embedding increments; web and collection load still need a representative host measurement.
 - **MiniLM CPU development:** the completed Rust command resumed 1,519 posts in 402.69 s: 3.77 posts/s wall time, 0.157 s CPU/post, 0.59 average cores and 571 MiB maximum RSS on an AMD Ryzen 9 5900X host with 12 cores/24 threads and 62 GiB RAM. This whole command also includes a 14.01 s development build and 11-topic clustering; clustering time is not isolated, and the resumed remainder is a biased subset. At the same desktop whole-command rate, 918,000 posts is 67.6 hours, but that arithmetic is not a t3.small forecast. The earlier Python fastembed path measured 17.4 posts/s on a different four-core setup and is not directly comparable.
 - **GPU backfill:** no current Rust/GPU throughput is measured. The original estimate's 5,000–18,000 posts/s range came from an unspecified sentence-transformers benchmark, so it is not adequate evidence to rent hardware. Titan's projected $1.49–$2.21 backfill removes the economic reason to provision a GPU for production.
 
@@ -69,7 +69,7 @@ The partial Titan run completed 119 calls before temporary-login refresh failed.
 
 This is not a representative correction factor. All 119 Titan events have NIP-13 nonce tags and IDs beginning with four zero hex digits; only 267 and 262 respectively of 6,381 eligible non-Titan notes do. Low-ID ordering selected mined content first. [The exact matched-cohort query](../../slop/verification/2026-09-13_titan119-cost-evidence.md) is application-ledger evidence, not an AWS invoice.
 
-Initial backfill costs one ingestion-month equivalent under the matching token assumption. Queries, retries, uncertain requests and re-embedding after a model-space change are additional. The implementation contains both a $5 cumulative limit and a $5 monthly limit, but the user has authorized only one one-off run with a $5 total ceiling; there is no authorization for ongoing monthly Bedrock spending. Mechanically, $5 permits 3.35 ingestion-month equivalents under the 81.2-token proxy or 2.27 under the 120.14-token proxy, including initial backfill. The ×3 high-token case would exceed $5 during its first month. Any continued or recurring paid ingestion requires separate approval and a reviewed cumulative-limit policy. Full-corpus Titan usage and the AWS invoice remain unavailable.
+Initial backfill costs one ingestion-month equivalent under the matching token assumption. Queries, retries, uncertain requests and re-embedding after a model-space change are additional. The user authorized continuous production embedding with a $5 setup/backfill ceiling and a separate $5 monthly ceiling. The setup limit must not become a permanent lifetime block after backfill; recurring calls remain subject to the monthly ledger limit. Mechanically, $5 permits 3.35 ingestion-month equivalents under the 81.2-token proxy or 2.27 under the 120.14-token proxy. The ×3 high-token case would exceed the monthly limit. Full-corpus Titan usage and the AWS invoice remain unavailable.
 
 ## Model context
 

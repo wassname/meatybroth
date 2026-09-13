@@ -8,6 +8,8 @@ At 20:57Z, the existing role `meatybroth-exp-wassname-InstanceRole-y6KZvcRn9Q6K`
 
 CloudFormation change set `meatybroth-titan-role-20260913` was generated from the live stack template. It contained one change only: `InstanceRole` Modify, property `Policies`, replacement `False`, recreation `Never`. Execution completed with stack status `UPDATE_COMPLETE` at 21:00:53Z; the exact policy read back afterward. Saved applied template: `slop/deployment/2026-09-13_live-stack-template-with-titan.yaml`.
 
+The applied template still bootstraps `wassname/meatybroth` with its Python Docker Compose service on instance replacement. It records the current IAM/metadata state but is not a repeatable Rust deployment template. Fixing bootstrap remains required before any stack or instance replacement; it does not affect the existing role proof.
+
 SSM command `fae82b3f-f0b1-46ea-83a1-ac22b03f18ec` unset AWS credential/profile/region variables, obtained the IMDSv2 role name and used default-chain STS. It returned account `275713940406` with the expected assumed-role class. No model invocation was made outside the application ledger.
 
 ## User-visible limitations

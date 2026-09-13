@@ -247,7 +247,19 @@ account=275713940406
 arn_class=expected_assumed_role
 ```
 
-This proves automatic instance-role credentials reach STS without human login or keys. Exact Titan authorization remains unproven until the application makes a ledgered call.
+Host STS alone did not prove container credential discovery. The instance initially required IMDSv2 but set response hop limit 1, which does not cross the Docker bridge. CloudFormation change set `meatybroth-imdsv2-container-hop-20260913` previewed one change only: `ReaderInstance` Modify, `MetadataOptions`, replacement `False`, recreation `Never`. It set hop limit 2 while retaining `HttpTokens=required`; the stack reached `UPDATE_COMPLETE` at 21:05:18Z.
+
+SSM command `376906a9-eb5f-4b6e-a6b8-fbfbb9ef8ccc` then ran inside the actual public Rust container as user10001 with read-only root, dropped capabilities, no-new-privileges and `meatybroth_default` networking. It obtained an IMDSv2 token, matched the expected role name and validated only the credential-document status and required field names. No credential value was printed:
+
+```text
+container_imdsv2=true
+role=meatybroth-exp-wassname-InstanceRole-y6KZvcRn9Q6K
+credential_document_status=Success
+required_fields=present
+values_printed=false
+```
+
+This proves instance-role credentials are reachable inside the hardened container without human login or keys. Exact Titan authorization remains unproven until the application makes a ledgered call.
 
 To avoid unmanaged stack drift, change set `meatybroth-titan-role-20260913` was generated from CloudFormation's live original template. Its complete preview contained one resource change:
 

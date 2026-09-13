@@ -169,7 +169,7 @@ Resources:
       InstanceInitiatedShutdownBehavior: terminate
       MetadataOptions:
         HttpTokens: required
-        HttpPutResponseHopLimit: 1
+        HttpPutResponseHopLimit: 2
       BlockDeviceMappings:
       - DeviceName: /dev/xvda
         Ebs:
