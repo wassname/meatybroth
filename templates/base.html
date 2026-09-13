@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>🍲 meatybroth.com</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<header>
+  <div class="siterow">
+    <h1><a href="/">🍲 meatybroth.com</a></h1>
+    <nav><a href="/status">status</a> · <a href="/about">about</a> · <a href="/tos">terms</a></nav>
+  </div>
+  <p class="tagline"><em>AI slop or human broth? Who cares as long as it’s meaty</em></p>
+  <form method="get" action="/" class="controls">
+    <label for="q-input">Search</label>
+    <input id="q-input" type="search" name="q" value="{{ q or '' }}" placeholder='terms AND terms, "quoted phrase"' aria-label="Search query">
+    {# The Go/Enter submitter adds go=1 -> server selects Relevance; the select's
+       onchange submits via form.submit() with no submitter -> feed change only. #}
+    <button type="submit" name="go" value="1">Go</button>
+    <label for="feed-select">Feed:</label>
+    <select id="feed-select" name="mode" aria-label="Feed algorithm"
+            onchange="document.getElementById('feed-tip').textContent=this.options[this.selectedIndex].dataset.tip; this.form.submit()">
+      {% for m in modes %}
+      <option value="{{ m }}" data-tip="{{ mode_explanations[m] }}" {% if m == mode %}selected{% endif %} title="{{ mode_explanations[m] }}">{{ mode_labels[m] }}</option>
+      {% endfor %}
+    </select>
+    <span class="tipwrap">
+      <button type="button" class="tipbtn" aria-describedby="feed-tip" aria-label="How this feed works">?</button>
+      <span id="feed-tip" role="tooltip" class="tip">{{ mode_explanations[mode] }}</span>
+    </span>
+    {% if mode == 'discovery' %}
+    <label for="reach-select">Reach:</label>
+    <select id="reach-select" name="reach" aria-label="Social graph distance in hops" onchange="this.form.submit()">
+      <option value="1" {% if reach == 1 %}selected{% endif %}>1 hop</option>
+      <option value="2" {% if reach == 2 %}selected{% endif %}>2 hops</option>
+      <option value="3" {% if reach == 3 %}selected{% endif %}>3 hops</option>
+    </select>
+    <label for="order-select">Order:</label>
+    <select id="order-select" name="order" aria-label="Social ranking order" onchange="this.form.submit()">
+      <option value="recent" {% if order == 'recent' %}selected{% endif %}>recent</option>
+      <option value="connections" {% if order == 'connections' %}selected{% endif %}>connections</option>
+    </select>
+    {% endif %}
+  </form>
+</header>
+<main>
+{% block body %}{% endblock %}
+</main>

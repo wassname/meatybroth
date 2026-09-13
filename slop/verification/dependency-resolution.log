@@ -1,0 +1,7 @@
+warning: unused config key `unstable.min-publish-age` in `/home/code/.cargo/config.toml`
+    Updating crates.io index
+     Locking 105 packages to highest compatible versions as of 8 days ago
+      Adding bitflags v2.13.1 (available: v2.13.2, published 3 days ago)
+      Adding matchit v0.8.4 (available: v0.8.6)
+      Adding rusqlite v0.38.0 (available: v0.40.2)
+      Adding smallvec v1.16.0 (available: v1.16.1, published 42 hours ago)

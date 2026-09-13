@@ -1,0 +1,10 @@
+warning: unused config key `resolver.incompatible-publish-age` in `/home/code/.cargo/config.toml`
+   Compiling meatybroth v0.1.0 (/workspace/meatybroth-rust)
+    Finished `test` profile [unoptimized] target(s) in 1.08s
+     Running unittests src/main.rs (target/debug/deps/meatybroth-218502691b53786a)
+
+running 1 test
+test tests::post_text_cannot_insert_html_or_remote_media ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
