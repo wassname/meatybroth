@@ -20,6 +20,6 @@ Set `MEATYBROTH_READ_ONLY=1` only to inspect an existing projection without coll
 cargo test --locked
 ```
 
-The maintained tests exercise real HTTP handlers, including canonical follow metadata without `nostr_state`, nested Markdown images, excluded versus benign posts, cycles and expiry. The ignored matched-corpus test needs the reference Python environment only for verification; see `slop/verification/prepare_reader_parity.py`.
+The maintained tests exercise real HTTP handlers, including canonical follow metadata without `nostr_state`, nested Markdown images, excluded versus benign posts, cycles and expiry. The ignored matched-corpus test reads saved parity fixtures and does not run another language runtime.
 
 Started by Pi/OpenAI; reader implementation by Pi/gpt-6-astra. Architecture review: `/workspace/meatybroth/slop/reviews/2026-09-13_sdk-architecture-review.md`.

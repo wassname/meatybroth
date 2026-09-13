@@ -214,7 +214,7 @@ async fn conversation_context_counts_cycles_and_warning_excerpts() {
         Some(300),
         Some(300),
     );
-    let (_, html) = f.request("/").await;
+    let (_, html) = f.request("/?mode=conversations").await;
     assert_eq!(ids(&html)[0], cid(104));
     assert!(html.contains("2 repliers (24h)"));
     assert!(html.contains("root post not stored"));
@@ -405,7 +405,7 @@ async fn status_exposes_gaps_signed_list_age_and_reader_scope() {
 }
 
 #[test]
-#[ignore = "requires saved matched-corpus databases and Python reader expectations"]
+#[ignore = "requires saved matched-corpus fixtures"]
 fn matched_reference_reader_outputs() {
     let path = PathBuf::from(std::env::var("MEATYBROTH_PARITY").unwrap());
     let expected: Value =
