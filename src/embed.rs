@@ -170,7 +170,7 @@ impl Transport for Bedrock {
                 } else {
                     "uncertain"
                 };
-                format!("{stage}: Titan InvokeModel failed: {error}")
+                format!("{stage}: Titan InvokeModel failed: {error:?}")
             })?;
             let response: serde_json::Value = serde_json::from_slice(response.body.as_ref())?;
             let vector = response["embedding"]

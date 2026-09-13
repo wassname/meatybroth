@@ -937,6 +937,8 @@ async fn main() -> Result<(), Error> {
                 budget: embedding_budget.expect("an embedding transport requires a budget"),
                 queries,
                 error: embedding_error.clone(),
+                disabled: false,
+                validated: false,
             }),
             query_sender,
         )
