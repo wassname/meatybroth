@@ -372,7 +372,11 @@ pub fn parent_excerpt_map<'a>(
     now: i64,
 ) -> Result<HashMap<String, Value>, Error> {
     let posts: Vec<_> = posts.into_iter().collect();
-    let eligible = queries::eligible_map(db, now)?;
+    let parent_ids = posts
+        .iter()
+        .filter_map(|post| post.parent_id.clone())
+        .collect::<Vec<_>>();
+    let eligible = queries::eligible_map_for(db, now, Some(&parent_ids))?;
     let parents: Vec<_> = posts
         .iter()
         .filter_map(|post| post.parent_id.as_ref())

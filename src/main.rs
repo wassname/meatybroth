@@ -19,7 +19,10 @@ use serde_json::{json, Value};
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     time::Duration,
 };
 
@@ -243,6 +246,8 @@ fn templates() -> Result<Environment<'static>, Error> {
 }
 fn page(app: &App, name: &str, data: Value) -> Result<String, Error> {
     let mut shared = json!({"modes":MODES,"feed_modes":FEED_MODES,"window_days":30,"mode":"topics","collecting":app.collecting,
+    "meaning_available":app.embedding.is_some() || app.embedding_queries.is_some(),
+    "minilm_available":app.embedding.is_some(),"embedding":app.default_embedding,
     "mode_labels":{"new":"Latest","relevance":"Keyword search","meaning":"Semantic search","topics":"Topics","conversations":"With replies","discovery":"Network","similar":"Similar posts"},
     "mode_explanations":{
         "new":"Every post from the last 30 days, newest first.",
@@ -331,7 +336,12 @@ fn semantic_feed(
         offset + queries::PAGE_SIZE + 1,
     )?;
     let nearest_at = started.elapsed();
-    let mut eligible = queries::eligible_map(db, now)?;
+    let ranked_ids = ranked
+        .iter()
+        .skip(offset)
+        .map(|(event_id, _)| canonical_event_id(event_id))
+        .collect::<Vec<_>>();
+    let mut eligible = queries::eligible_map_for(db, now, Some(&ranked_ids))?;
     let mut rows = Vec::new();
     for (event_id, score) in ranked.into_iter().skip(offset) {
         if let Some(post) = eligible.remove(&canonical_event_id(&event_id)) {
@@ -370,7 +380,11 @@ fn topic_feed(
         queries::PAGE_SIZE + 1,
         offset,
     )?;
-    let mut eligible = queries::eligible_map(db, now)?;
+    let canonical_ids = event_ids
+        .iter()
+        .map(|id| canonical_event_id(id))
+        .collect::<Vec<_>>();
+    let mut eligible = queries::eligible_map_for(db, now, Some(&canonical_ids))?;
     let mut rows = Vec::new();
     for event_id in event_ids {
         if let Some(post) = eligible.remove(&canonical_event_id(&event_id)) {
@@ -456,60 +470,66 @@ fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, 
         .map(|space| embed::vector_event_ids(&app.path, space, &scored_event_ids))
         .transpose()?
         .unwrap_or_default();
-    let reply_counts = queries::reply_counts(db, now)?;
-    let warning_map = render::warning_map(db, scored.iter().map(|(post, _)| post))?;
-    let identity_map = render::identity_map(db, scored.iter().map(|(post, _)| post))?;
-    let parent_excerpt_map =
-        render::parent_excerpt_map(db, scored.iter().map(|(post, _)| post), now)?;
-    let replies_at = started.elapsed();
-    let results = scored
-        .iter()
-        .map(|(post, similarity)| {
-            let warnings: Vec<_> = warning_map
-                .get(&post.source_id)
-                .into_iter()
-                .chain(warning_map.get(&post.canonical_id))
-                .flatten()
-                .cloned()
-                .collect();
-            let mut card = render::card(
-                db,
-                post,
-                now,
-                &search.mode,
-                true,
-                render::CardCache {
-                    reply_count: Some(*reply_counts.get(&post.canonical_id).unwrap_or(&0)),
-                    warnings: Some(&warnings),
-                    identity: identity_map.get(&post.canonical_id),
-                    parent: parent_excerpt_map.get(&post.canonical_id),
-                },
-            )?;
-            card["embedding"] = json!(&search.embedding);
-            card["similar_available"] = json!(EventId::from_hex(&post.source_id)
-                .map(|id| similar_available.contains(id.as_bytes().as_slice()))?);
-            if semantic {
-                card["score"] = json!(format!(
-                    "{} cosine similarity {similarity:.3}",
-                    if search.embedding == "titan" {
-                        "Titan"
-                    } else {
-                        "MiniLM"
-                    }
-                ));
-            }
-            Ok(card)
-        })
-        .collect::<Result<Vec<_>, Error>>()?;
+    let results = if scored.is_empty() {
+        Vec::new()
+    } else {
+        let card_ids = scored
+            .iter()
+            .map(|(post, _)| post.canonical_id.clone())
+            .collect::<Vec<_>>();
+        let reply_counts = queries::reply_counts_for(db, now, Some(&card_ids))?;
+        let warning_map = render::warning_map(db, scored.iter().map(|(post, _)| post))?;
+        let identity_map = render::identity_map(db, scored.iter().map(|(post, _)| post))?;
+        let parent_excerpt_map =
+            render::parent_excerpt_map(db, scored.iter().map(|(post, _)| post), now)?;
+        scored
+            .iter()
+            .map(|(post, similarity)| {
+                let warnings: Vec<_> = warning_map
+                    .get(&post.source_id)
+                    .into_iter()
+                    .chain(warning_map.get(&post.canonical_id))
+                    .flatten()
+                    .cloned()
+                    .collect();
+                let mut card = render::card(
+                    db,
+                    post,
+                    now,
+                    &search.mode,
+                    true,
+                    render::CardCache {
+                        reply_count: Some(*reply_counts.get(&post.canonical_id).unwrap_or(&0)),
+                        warnings: Some(&warnings),
+                        identity: identity_map.get(&post.canonical_id),
+                        parent: parent_excerpt_map.get(&post.canonical_id),
+                    },
+                )?;
+                card["embedding"] = json!(&search.embedding);
+                card["similar_available"] = json!(EventId::from_hex(&post.source_id)
+                    .map(|id| similar_available.contains(id.as_bytes().as_slice()))?);
+                if semantic {
+                    card["score"] = json!(format!(
+                        "{} cosine similarity {similarity:.3}",
+                        if search.embedding == "titan" {
+                            "Titan"
+                        } else {
+                            "MiniLM"
+                        }
+                    ));
+                }
+                Ok(card)
+            })
+            .collect::<Result<Vec<_>, Error>>()?
+    };
     let cards_at = started.elapsed();
     if cards_at.as_secs() >= 1 {
         eprintln!(
-            "Slow reader mode={} rows={} rank_ms={} replies_ms={} cards_ms={}",
+            "Slow reader mode={} rows={} rank_ms={} total_ms={}",
             search.mode,
             results.len(),
             ranked_at.as_millis(),
-            (replies_at - ranked_at).as_millis(),
-            (cards_at - replies_at).as_millis(),
+            cards_at.as_millis(),
         );
     }
     let html = page(
@@ -853,6 +873,15 @@ async fn backfill_embeddings(
     Ok(())
 }
 
+async fn shutdown_signal() {
+    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .expect("SIGTERM handler must install");
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {}
+        _ = terminate.recv() => {}
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     rustls::crypto::aws_lc_rs::default_provider()
@@ -928,6 +957,7 @@ async fn main() -> Result<(), Error> {
         return Err("MEATYBROTH_DEFAULT_EMBEDDING must be minilm or titan".into());
     }
     let embedding_error = Arc::new(Mutex::new(None));
+    let shutdown_requested = Arc::new(AtomicBool::new(false));
     let (collector_embedding, embedding_queries) = if let Some(transport) = embedding_transport {
         let (sender, queries) = tokio::sync::mpsc::channel(32);
         let query_sender = (transport.space().backend == "bedrock").then_some(sender);
@@ -939,6 +969,9 @@ async fn main() -> Result<(), Error> {
                 error: embedding_error.clone(),
                 disabled: false,
                 validated: false,
+                preflight_only: std::env::var("MEATYBROTH_EMBED_PREFLIGHT_ONLY").as_deref()
+                    == Ok("1"),
+                shutdown: shutdown_requested.clone(),
             }),
             query_sender,
         )
@@ -960,6 +993,8 @@ async fn main() -> Result<(), Error> {
     let addr = std::env::var("MEATYBROTH_ADDR").unwrap_or_else(|_| "127.0.0.1:8083".into());
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     eprintln!("Rust reader listening on http://{addr}");
+    let (shutdown_sender, shutdown_receiver) = tokio::sync::watch::channel(false);
+    let mut collector = None;
     if let Some(sdk) = sdk {
         let relays = std::env::var("MEATYBROTH_RELAYS")
             .unwrap_or_else(|_| "wss://relay.damus.io,wss://relay.primal.net".into())
@@ -971,7 +1006,7 @@ async fn main() -> Result<(), Error> {
             .split(',')
             .map(str::to_owned)
             .collect();
-        tokio::spawn(async move {
+        collector = Some(tokio::spawn(async move {
             if let Err(error) = collect::run(
                 &path,
                 sdk,
@@ -979,6 +1014,7 @@ async fn main() -> Result<(), Error> {
                 profile_relays,
                 root_key,
                 collector_embedding,
+                shutdown_receiver,
             )
             .await
             {
@@ -986,9 +1022,18 @@ async fn main() -> Result<(), Error> {
                     "Collector stopped with an explicit error: {error}; HTTP reader remains available"
                 );
             }
-        });
+        }));
     }
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async move {
+            shutdown_signal().await;
+            shutdown_requested.store(true, Ordering::Release);
+            let _ = shutdown_sender.send(true);
+        })
+        .await?;
+    if let Some(collector) = collector {
+        collector.await?;
+    }
     Ok(())
 }
 

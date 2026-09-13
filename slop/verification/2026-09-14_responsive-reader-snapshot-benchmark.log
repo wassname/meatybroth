@@ -1,0 +1,14 @@
+snapshot=/workspace/meatybroth-rust/.local/deployment-handoff/events-8136.sqlite
+snapshot_titan_vectors=8136
+baseline_binary=/workspace/meatybroth-rust/target/release/meatybroth
+candidate_binary=/tmp/meatybroth-continuous-target/release/meatybroth
+baseline_root_seconds=1.534552
+baseline_new_seconds=1.449501
+baseline_similar_seconds=3.024079
+baseline_similar_stages=query943ms nearest414ms lookup422ms global_card_prep1150ms
+candidate_root_seconds=0.007177
+candidate_new_seconds=1.145326
+candidate_similar_seconds=0.992105
+candidate_http_statuses=root:200,new:200,similar:200
+context=read-only local snapshot on the same host; this isolates the query change but does not predict active t3 latency
+-- PI/gpt-5.6-sol
