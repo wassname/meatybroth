@@ -14,7 +14,8 @@ SELECT
     lower(hex(event.pubkey)),
     json_extract(tag.value, '$[1]')
 FROM events event, json_each(event.tags) tag
-WHERE event.kind = 3
+WHERE NOT EXISTS (SELECT 1 FROM social_edges LIMIT 1)
+  AND event.kind = 3
   AND json_extract(tag.value, '$[0]') = 'p'
   AND length(json_extract(tag.value, '$[1]')) = 64
   AND json_extract(tag.value, '$[1]') NOT GLOB '*[^0-9a-f]*';

@@ -24,7 +24,7 @@
             onchange="document.getElementById('feed-tip').textContent=this.options[this.selectedIndex].dataset.tip; this.form.submit()">
       {% if mode == 'similar' %}<option value="similar" selected data-tip="{{ mode_explanations.similar }}">Similar</option>{% endif %}
       {% for m in modes %}
-      <option value="{{ m }}" data-tip="{{ mode_explanations[m] }}" {% if m == mode %}selected{% endif %} title="{{ mode_explanations[m] }}">{{ mode_labels[m] }}</option>
+      {% if m != 'meaning' or meaning_available %}<option value="{{ m }}" data-tip="{{ mode_explanations[m] }}" {% if m == mode %}selected{% endif %} title="{{ mode_explanations[m] }}">{{ mode_labels[m] }}</option>{% endif %}
       {% endfor %}
     </select>
     {% if similar %}<input type="hidden" name="similar" value="{{ similar }}">{% endif %}
