@@ -31,7 +31,7 @@ After that parent completion notice, I made exactly two serial browser navigatio
 
 These are browser navigation timings. The transfer/encoded/decoded figures are equal within header bytes, so this session did not observe compressed HTML on these two pages. This differs from the parent's root `curl` measurement: that response was a much smaller root/topic index and reported compressed wire bytes. A slow multi-megabyte New100 response is not the prior zero-byte hang.
 
-New100's header says 10,012 cached Titan posts. All 100 newest cards were marked `similar pending`; that is an explicit, honest limitation, and no per-card semantic lookup was attempted.
+New100's header says 10,012 cached Titan posts. All 100 newest cards were marked `similar pending`; that is an explicit, honest limitation, and no per-card semantic lookup was attempted. The full-page capture is too tall to read after ordinary thumbnailing, so I made and opened a local no-HTTP top crop, [`35-new100-top.png`](35-new100-top.png). It makes the populated Latest header/cards legible. It also shows one visible card labelled `auto-flagged: spam duplicate-content` promoting a signup/referral/link campaign. That is a concrete moderation-policy mismatch to investigate: the status/card label alone does not establish it was in the agreed signed exclusion list, but a reader that visibly calls it spam is not hiding it fully.
 
 The cached Similar URL was supplied by the deployment worker and is expected not to invoke a provider or create a query embedding:
 
