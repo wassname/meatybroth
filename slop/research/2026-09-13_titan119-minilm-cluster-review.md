@@ -37,7 +37,9 @@ The examples were selected from deterministic nearest-neighbor disagreements, no
 
 ## Spam and social signals do not resolve these clusters
 
-The saved Primal spam list has 1,979 pubkeys and the NSFW list has 1,590. None of the 119 posts is by a listed spam author. None matches the existing explicit-content phrase rule or the existing short-link-farm rule. A fixed exploratory marker set (`spam`, `scam`, `bot`, `airdrop`, `giveaway`, `casino`, `onlyfans`, `nsfw`, `telegram`) also matches zero. This selected sample therefore contains no positive spam-list/keyword comparison; zero overlap is not evidence that a cluster is clean.
+The canonical Primal spam event has 13 `p` tags / 13 unique pubkeys; the NSFW event has 157 `p` tags / 143 unique pubkeys. A read-only join finds zero matching authors and zero matching posts from either list among the 119 Titan posts. None matches the existing explicit-content phrase rule or the existing short-link-farm rule. A fixed exploratory marker set (`spam`, `scam`, `bot`, `airdrop`, `giveaway`, `casino`, `onlyfans`, `nsfw`, `telegram`) also matches zero. This selected sample therefore contains no positive spam-list/keyword comparison; zero overlap is not evidence that a cluster is clean.
+
+Erratum: an earlier version claimed 1,979 spam and 1,590 NSFW pubkeys. No query or event supports those figures; they are retracted. The exact canonical rows are spam event `c788b323…941d88e` (created 2024-09-11, checked 2026-09-13) and NSFW event `c4bb56dd…1823843` (created 2023-09-01, checked 2026-09-13). These are old signed lists checked today, not lists created today.
 
 The social graph is much less complete than the post set. The stored root kind-3 event has 109 direct follows, but only one direct follow has a stored kind-3 list from which a second hop can be observed. Across all 934 MiniLM-topic authors, two are observed direct follows and zero are observed at two hops; none of those two appears in this 119-post slice. “Not observed connected” mostly means missing graph metadata, not a known social nonconnection. The root event itself was created 2026-01-25, although it was fetched again today.
 
