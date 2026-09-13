@@ -476,10 +476,17 @@ fn pending(
          WHERE e.kind=1 AND e.created_at BETWEEN ?1 AND ?2 AND trim(e.content)!=''
            AND NOT EXISTS (
              SELECT 1 FROM post_embeddings v WHERE v.event_id=e.id AND v.space_id=?3)
-         ORDER BY e.created_at DESC,e.id LIMIT ?4",
+         ORDER BY CASE WHEN ?4='bedrock' THEN e.id END,
+                  CASE WHEN ?4!='bedrock' THEN e.created_at END DESC,e.id LIMIT ?5",
     )?;
     let rows = statement.query_map(
-        (now - WINDOW, now, &space.id, i64::try_from(limit)?),
+        (
+            now - WINDOW,
+            now,
+            &space.id,
+            &space.backend,
+            i64::try_from(limit)?,
+        ),
         |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
     rows.collect::<Result<_, _>>().map_err(Into::into)

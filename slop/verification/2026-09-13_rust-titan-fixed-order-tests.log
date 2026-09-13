@@ -1,0 +1,22 @@
+warning: unused config key `unstable.min-publish-age` in `/home/code/.cargo/config.toml`
+   Compiling meatybroth v0.1.0 (/workspace/meatybroth-rust)
+    Finished `test` profile [unoptimized] target(s) in 5m 27s
+     Running unittests src/main.rs (target/debug/build/meatybroth/bd2721cf4ac52f55/out/meatybroth-bd2721cf4ac52f55)
+
+running 14 tests
+test tests::matched_reference_reader_outputs ... ignored, requires saved matched-corpus fixtures
+test embed::label_tests::labels_remove_english_fragments_and_mark_heterogeneous_clusters ... ok
+test sdk_tests::moderation_refresh_rejects_future_and_rollback_snapshots ... ok
+test sdk_tests::eose_boundary_has_no_late_admitted_write ... ok
+test collect::tests::coverage_cursor_survives_restart_and_interruption_becomes_gap ... ok
+test sdk_tests::machine_presence_envelopes_stay_auditable_but_not_reader_or_embedding_eligible ... ok
+test sdk_tests::sdk_relay_to_atomic_fts_http_policy_and_expiry ... ok
+test sdk_tests::incremental_embeddings_reuse_delete_and_budget_after_sdk_drain ... ok
+test tests::status_exposes_gaps_signed_list_age_and_reader_scope ... ok
+test tests::conversation_context_counts_cycles_and_warning_excerpts ... ok
+test tests::rendering_preserves_safe_text_profiles_warnings_and_exclusions ... ok
+test sdk_tests::sdk_storage_failure_does_not_stop_http_reader ... ok
+test tests::social_uses_canonical_graph_shortest_independent_paths_and_reach ... ok
+test tests::pages_query_state_and_invalid_requests_use_real_handlers ... ok
+
+test result: ok. 13 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 5.76s
