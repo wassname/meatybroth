@@ -890,9 +890,6 @@ pub(crate) async fn collect_relay(
         Duration::from_secs(15),
     )
     .await?;
-    if !recent.eose {
-        return Err("Recent scan timed out; partial arrivals retained".into());
-    }
     embed::mark_admissions(
         path,
         &recent
@@ -903,6 +900,9 @@ pub(crate) async fn collect_relay(
         now,
         true,
     )?;
+    if !recent.eose {
+        return Err("Recent scan timed out; partial arrivals retained and prioritized".into());
+    }
     merge(&mut admitted, recent);
 
     let state = cursor(path, relay, now)?;

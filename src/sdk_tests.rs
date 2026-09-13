@@ -170,7 +170,7 @@ fn signed(keys: &Keys, kind: u16, content: &str, time: u64, tags: Vec<Vec<&str>>
 }
 async fn relay_ordered(
     events: Vec<Value>,
-    eose_first: bool,
+    eose_first: Option<bool>,
 ) -> (String, tokio::task::JoinHandle<()>) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("ws://{}", listener.local_addr().unwrap());
@@ -186,7 +186,7 @@ async fn relay_ordered(
                         };
                         let req: Value = serde_json::from_str(&text).unwrap();
                         if req[0] == "REQ" {
-                            if eose_first {
+                            if eose_first == Some(true) {
                                 socket
                                     .send(Message::Text(json!(["EOSE", req[1]]).to_string().into()))
                                     .await
@@ -200,7 +200,7 @@ async fn relay_ordered(
                                     .await
                                     .unwrap();
                             }
-                            if !eose_first {
+                            if eose_first == Some(false) {
                                 socket
                                     .send(Message::Text(json!(["EOSE", req[1]]).to_string().into()))
                                     .await
@@ -218,7 +218,7 @@ async fn relay_ordered(
     (url, task)
 }
 async fn relay(events: Vec<Value>) -> (String, tokio::task::JoinHandle<()>) {
-    relay_ordered(events, false).await
+    relay_ordered(events, Some(false)).await
 }
 async fn html_with_embedding(
     path: &std::path::Path,
@@ -317,6 +317,54 @@ async fn relay_budget_expires_only_between_drained_policy_scans() {
     .await;
     assert!(result.is_err());
     assert_eq!(policy.active_request_count(), 0);
+    task.abort();
+}
+
+#[tokio::test]
+async fn timed_out_recent_scan_keeps_arrivals_live_across_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("events.sqlite");
+    let sdk = collect::open(&path, collect::PRIMAL_AUTHOR).await.unwrap();
+    let note = signed(
+        &Keys::generate(),
+        1,
+        "retained partial recent arrival",
+        Timestamp::now().as_secs(),
+        vec![],
+    );
+    let (url, task) =
+        relay_ordered(vec![serde_json::from_str(&note.as_json()).unwrap()], None).await;
+    let policy = policy::Policy::new(Default::default(), Default::default());
+    let client = collect::client(sdk.clone(), Arc::new(policy.clone()));
+    client.add_relay(&url).await.unwrap();
+    client.connect().await;
+    let result = collect::collect_relay(
+        &path,
+        &client,
+        &policy,
+        &sdk,
+        &url,
+        &mut std::collections::BTreeSet::new(),
+        tokio::time::Instant::now() + Duration::from_secs(30),
+    )
+    .await;
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("partial arrivals retained"));
+    assert_eq!(policy.active_request_count(), 0);
+    drop(sdk);
+    let reopened = rusqlite::Connection::open(&path).unwrap();
+    assert_eq!(
+        reopened
+            .query_row(
+                "SELECT live FROM embedding_admissions WHERE event_id=?1",
+                [note.id.as_bytes()],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+        1
+    );
     task.abort();
 }
 
@@ -1266,8 +1314,11 @@ async fn eose_boundary_has_no_late_admitted_write() {
         Timestamp::now().as_secs(),
         vec![],
     );
-    let (url, task) =
-        relay_ordered(vec![serde_json::from_str(&note.as_json()).unwrap()], true).await;
+    let (url, task) = relay_ordered(
+        vec![serde_json::from_str(&note.as_json()).unwrap()],
+        Some(true),
+    )
+    .await;
     let policy = Arc::new(policy::Policy::new(Default::default(), Default::default()));
     let client = collect::client(sdk.clone(), policy.clone());
     client.add_relay(&url).await.unwrap();
