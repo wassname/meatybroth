@@ -1,6 +1,12 @@
 # Rust production deployment handover
 
-Status 2026-09-13T19:22Z: Rust revision `1d367334fad3aec55a4a8331e926e2259d87a046` is serving production at `https://meatybroth.com`. Public Social cold/repeat, root, status, cached-Titan Topic/Similar, moderation exclusions and positive controls passed. The old Python web and collector remain running for rollback; CloudFormation, instance and volume were not replaced.
+Status 2026-09-13T20:58Z: Rust revision `1d367334fad3aec55a4a8331e926e2259d87a046` is serving production at `https://meatybroth.com`. Public Social cold/repeat, root, status, cached-Titan Topic/Similar, moderation exclusions and positive controls passed. Continuous collection/Titan is user-authorized but not switched on yet: the isolated collection checkpoint panicked before relay TLS, and the app owner is preparing the explicit rustls-provider/AWS-default-chain checkpoint. The old Python web and collector remain running for rollback; CloudFormation, instance and volume were not replaced.
+
+## Production instance IAM
+
+At 20:57Z, the existing role `meatybroth-exp-wassname-InstanceRole-y6KZvcRn9Q6K` received inline policy `MeatybrothTitanV2InvokeUsWest2`. It allows only `bedrock:InvokeModel` on `arn:aws:bedrock:us-west-2::foundation-model/amazon.titan-embed-text-v2:0`. No wildcard action/resource, new role, new profile or instance change was made. IAM Access Analyzer returned no findings. IAM's policy simulator did not model the Bedrock resource and returned a placeholder implicit deny; this is not invocation evidence.
+
+SSM command `fae82b3f-f0b1-46ea-83a1-ac22b03f18ec` unset AWS credential/profile/region variables, obtained the IMDSv2 role name and used default-chain STS. It returned account `275713940406` with the expected assumed-role class. No model invocation was made outside the application ledger.
 
 ## User-visible limitations
 
@@ -23,7 +29,7 @@ Two user logins produced valid 15-minute access credentials, but proactive refre
 
 AWS CLI issue #10613 confirms the observed failure mode: Sign-In refresh tokens must be redeemed in their issuer region, while the CLI refreshes through the current request region. A bounded decode of only the cached ID token's nonsecret `iss` claim proves the successful login issuer was `us-east-2`. The Titan workload refreshed in `us-west-2`; the later unpaid STS retry refreshed in `us-east-1`. Both were region mismatches. Initial access working and refresh failing at the proactive boundary matches the AWS-documented behavior. An unpaid STS request through the proven `us-east-2` issuer succeeded, confirming region routing as the cause. Deployment used issuer-aware in-memory temporary credentials for `us-east-1` resource calls; no credential was printed, saved or added to the application.
 
-Future Titan collection still requires a fresh `us-west-2` login because a long west workload cannot refresh an east-2 token. Do not mix issuer and request regions, use `--debug`, or print cache values.
+The human login is not used by the production application. Continuous Titan will use the existing EC2 role through IMDS/default credential discovery, with no profile, static key or human refresh.
 
 Expected identity: account `275713940406`, `arn:aws:iam::275713940406:user/wassname100`. Titan metadata in us-west-2 was ACTIVE/AUTHORIZED/AVAILABLE. Do not log tokens or cache contents.
 

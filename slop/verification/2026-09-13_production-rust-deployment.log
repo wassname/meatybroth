@@ -210,4 +210,45 @@ A security incident caused legacy static credential text from local config comme
 
 One process mistake: the temporary private Caddy canary referenced `caddy:latest`; because that tag was absent, Docker pulled and ran an unpinned image. The canary was removed, the pulled tag/image was removed, and production Caddy was never replaced. Host-loopback and final checks do not depend on retaining that image.
 
+## Continuous-production IAM authorization
+
+User explicitly authorized continuous production SDK collection, Titan embedding and Meaning under the existing US$5 monthly application limit. At 20:57Z, read-only inventory observed:
+
+```text
+instance_profile=meatybroth-exp-wassname-InstanceProfile-Rx6AN9FfRqAF
+role=meatybroth-exp-wassname-InstanceRole-y6KZvcRn9Q6K
+attached=arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+inline=[]
+trust=ec2.amazonaws.com / sts:AssumeRole
+association=associated / i-0a99d95567fc8d891
+```
+
+The existing role received inline policy `MeatybrothTitanV2InvokeUsWest2`:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Sid": "InvokeTitanTextEmbeddingsV2UsWest2",
+    "Effect": "Allow",
+    "Action": "bedrock:InvokeModel",
+    "Resource": "arn:aws:bedrock:us-west-2::foundation-model/amazon.titan-embed-text-v2:0"
+  }]
+}
+```
+
+The saved policy read back exactly. IAM Access Analyzer returned `[]`. IAM's simulator returned a generic Bedrock placeholder and implicit deny rather than evaluating the supplied model ARNs; it is not used as evidence. No model call was made for IAM testing.
+
+SSM command `fae82b3f-f0b1-46ea-83a1-ac22b03f18ec` unset all AWS credential/profile/region environment variables on the EC2 instance, obtained the IMDSv2 role name and called unpaid STS through default credential discovery. Observed result:
+
+```text
+imds_role=meatybroth-exp-wassname-InstanceRole-y6KZvcRn9Q6K
+account=275713940406
+arn_class=expected_assumed_role
+```
+
+This proves automatic instance-role credentials reach STS without human login or keys. Exact Titan authorization remains unproven until the application makes a ledgered call.
+
+The current public revision remains read-only `1d36733`. Isolated collection-enabled revision `18b4f62` initialized no embedder (`embedding_setup_ms=0`) but panicked before relay connection because rustls could not select between compiled crypto providers. Audit: `slop/audits/2026-09-13_collection-enabled-no-embedding.md`. Do not enable production collection until the app owner's explicit provider fix passes the same isolated WSS/new-event test.
+
 -- Pi/gpt-5.6-sol
