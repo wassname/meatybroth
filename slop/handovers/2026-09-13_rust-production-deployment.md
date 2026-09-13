@@ -21,7 +21,7 @@ Use official `/usr/local/bin/aws` v2.36.44. Do not use `/snap/bin/aws`, logout, 
 
 Two user logins produced valid 15-minute access credentials, but proactive refresh failed about five minutes before expiry with `CreateOAuth2Token INVALID_REQUEST`. Cache/session hash, owner/mode, DPoP key presence, refresh-token presence, profile association and UTC clock were correct. The second failure was sequential, not a concurrent refresh.
 
-AWS CLI issue #10613 confirms a matching failure mode: Sign-In refresh tokens must be redeemed in their issuer region, while the CLI refreshes through the current request region. The local profile and cache do not record the successful login issuer, so static inspection cannot prove that this caused our failures. The Titan workload explicitly uses `us-west-2`; the next test must keep login and request in that same region.
+AWS CLI issue #10613 confirms the observed failure mode: Sign-In refresh tokens must be redeemed in their issuer region, while the CLI refreshes through the current request region. A bounded decode of only the cached ID token's nonsecret `iss` claim proves the successful login issuer was `us-east-2`. The Titan workload refreshed in `us-west-2`; the later unpaid STS retry refreshed in `us-east-1`. Both were region mismatches. Initial access working and refresh failing at the proactive boundary matches the AWS-documented behavior. The next test must keep login and request in the same workload region.
 
 Next human-attended test, exactly:
 
@@ -30,7 +30,7 @@ Next human-attended test, exactly:
 /usr/local/bin/aws sts get-caller-identity --profile cds-login --region us-west-2
 ```
 
-Confirm the authorization host is `us-west-2.signin.aws.amazon.com`; then make one serial unpaid STS call in `us-west-2` after the 15-minute refresh boundary. Do not mix issuer and request regions, poll authentication, use `--debug`, or print cache values. Until a human attends this test, make no AWS or production mutation.
+Confirm the authorization host is `us-west-2.signin.aws.amazon.com`; then make one serial unpaid STS call in `us-west-2` after the 15-minute refresh boundary. Existing east-2 credentials could be refreshed through east-2 and exported temporarily for west, but this is only a short routing workaround. Do not mix issuer and request regions, poll authentication, use `--debug`, or print cache values. Until a human attends this test, make no AWS or production mutation.
 
 Expected identity: account `275713940406`, `arn:aws:iam::275713940406:user/wassname100`. Titan metadata in us-west-2 was ACTIVE/AUTHORIZED/AVAILABLE. Do not log tokens or cache contents.
 
