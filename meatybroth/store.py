@@ -46,10 +46,6 @@ class Store:
         self.blocklist_path = self.path.parent / "blocklist.txt"
         if not self.path.exists():
             self.blocklist_path.touch(exist_ok=True)
-        # Operator keyword file (keywordPolicy equivalent): seeded with the
-        # documented default on first collection, never overwritten after;
-        # an emptied file means no keyword labels.
-        self.keywords_path = self.path.parent / "filter-keywords.txt"
         with self.connect() as db:
             db.execute("PRAGMA journal_mode=WAL")
             db.executescript("""
@@ -207,28 +203,6 @@ class Store:
                     db.execute("DELETE FROM nostr_state WHERE event_id=?", (row["event_id"],))
                     removed += 1
         return removed
-
-    def clear_spam_keyword_flags(self, event_id: str) -> int:
-        """Drop a stored keyword spam label for one event (operator removed the
-        phrase, or it no longer matches). Matches ONLY the keyword reason, so
-        duplicate/link-farm spam rows and author labels are kept. One row per
-        (event, category) exists at most. Returns rows removed."""
-        with self.connect() as db:
-            cur = db.execute(
-                "DELETE FROM content_warnings WHERE event_id=? AND category='spam' "
-                "AND reason='auto-flagged: spam keyword'", (event_id,))
-            return cur.rowcount
-
-    def clear_auto_explicit_flags(self) -> int:
-        """One-shot migration off the removed regex classifier: delete stored
-        'auto-flagged: explicit' rows (category 'explicit') so old content is
-        no longer hidden behind click-to-show under the new ToS semantics.
-        Author NIP-36 labels (category 'author-cw') are kept. Returns rows removed."""
-        with self.connect() as db:
-            cur = db.execute(
-                "DELETE FROM content_warnings WHERE category='explicit' "
-                "AND reason='auto-flagged: explicit'")
-            return cur.rowcount
 
     def purge_blocklisted(self, entries: set[str]) -> int:
         """Operator block action: remove stored posts by blocked event id or

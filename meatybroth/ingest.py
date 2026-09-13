@@ -292,7 +292,9 @@ class Budget:
 
 
 # ---------------------------------------------------------------- content filters
-# Secrets and blocklists reject; spam and author warnings label rendered posts.
+# Minimal content controls:
+# secrets reject before persistence; spam counts; NIP-36/explicit flags render-side.
+# All synthetic-test only; counts land in the collector report, never deleted silently.
 
 SECRET_PATTERNS = [
     ("nsec key", re.compile(r"nsec1[0-9a-z]{30,}")),
@@ -303,64 +305,8 @@ SECRET_PATTERNS = [
     ("github token", re.compile(r"gh[pousr]_[A-Za-z0-9]{30,}\b")),
 ]
 URL_RE = re.compile(r"https?://\S+")
-
-# Defaults: Ditto's bot greeting plus the 13 complete spam signatures from
-# xbol0/nostr-spam-words words.txt (MIT, 2023-02-27). Do not split its lines:
-# generic individual terms are not safe signals, while full source signatures
-# identify narrow Telegram/crypto spam campaigns.
-KEYWORD_SEED = [
-    "Gm, from wss://",
-    "人工 公安 开房 户籍 t.me",
-    "ChatGPT 中文之家 OpenAI 互联网 免费 攻略",
-    "电报 众筹 平台",
-    "电视剧 狂飙 全集 t.me",
-    "互关 共同 友好 认证 进群 微信 推广 自助 t.me",
-    "enthusiasts isab blockchain EVM decentralized",
-    "Web3 Twitter Spaces twitterspace.co",
-    "灰产 开车 资源 t.me",
-    "互联网 从业者 内部 之家 高质量 币圈",
-    "成人 抖阴 下载 推广 下单 翻墙",
-    "全球 华人 社区 WeChat 动态 扫码 交流",
-    "明星 公链 零门槛 大佬 站台 邀请",
-    "优惠券 下单 领取",
-]
-KEYWORD_FILE_HEADER = (
-    "# Operator keyword labels (case-insensitive full signatures).\n"
-    "# One signature per line; lines starting with # are comments. An empty list\n"
-    "# means NO keyword labels. Hits get a visible spam label; the body stays readable.\n"
-    "# Defaults: Ditto relay bot signature (MIT) plus xbol0/nostr-spam-words\n"
-    "# 13 full signatures (MIT). Do not split source lines into generic words.\n"
-)
-
-
-def keywords_path(store: Store) -> Path:
-    """Anchor to the DB's directory like the blocklist; env override for tests."""
-    import os
-    env = os.environ.get("MEATYBROTH_KEYWORDS")
-    if env:
-        return Path(env)
-    return store.keywords_path
-
-
-def load_keywords(store: Store) -> list[str]:
-    """Operator signature list. A missing file is seeded once and logged; an
-    emptied file means no keyword labels."""
-    path = keywords_path(store)
-    if not path.exists():
-        path.write_text(KEYWORD_FILE_HEADER + "".join(f"{k}\n" for k in KEYWORD_SEED))
-        logger.info("keyword file {} seeded with operator default", path)
-    return [line.strip() for line in path.read_text().splitlines()
-            if line.strip() and not line.startswith("#")]
-
-
-def keyword_hit(content: str, keywords: list[str]) -> str | None:
-    """First matching phrase (keywordPolicy semantics: case-insensitive
-    substring on content), or None."""
-    lowered = content.lower()
-    for keyword in keywords:
-        if keyword.lower() in lowered:
-            return keyword
-    return None
+EXPLICIT_TERMS = re.compile(
+    r"\b(hardcore sex|uncensored nudity|explicit sex scene)\b", re.I)
 
 
 def find_secret(text: str) -> str | None:
@@ -393,27 +339,13 @@ def load_blocklist(store: Store) -> set[str]:
             if line.strip() and not line.startswith("#")}
 
 
-def hashtag_spam(event: dict) -> bool:
-    """Damus default: more than three signed Nostr `t` tags marks hashtag spam.
-    Count tags, not `#` characters, so URL fragments/Markdown cannot match."""
-    return sum(1 for tag in event["tags"] if len(tag) >= 2 and tag[0] == "t") > 3
-
-
-def nsfw_tag(event: dict) -> bool:
-    """Damus's #nsfw convention over signed Nostr `t` tags."""
-    return any(tag[1].lower() == "nsfw" for tag in event["tags"]
-               if len(tag) >= 2 and tag[0] == "t")
-
-
 def spam_reasons(event: dict, store: Store) -> list[str]:
-    """Cheap spam labels: same-author duplicate, link farm, Damus tag count."""
+    """Cheap spam flags: same-author duplicate content in-window, link-farm."""
     reasons = []
     urls = URL_RE.findall(event["content"])
     words = len(event["content"].split())
     if len(urls) > 5 and words < 40:
         reasons.append("link-farm")
-    if hashtag_spam(event):
-        reasons.append("hashtag-spam")
     with store.connect() as db:
         dup = db.execute(
             "SELECT COUNT(*) FROM posts WHERE author_id=? AND text=? AND canonical_id != ?",
@@ -453,7 +385,6 @@ def collect_nostr(store: Store, root_pubkey: str, relays, budget: Budget, *, now
     }
     start_used = budget.used
     blocklist = load_blocklist(store)
-    keywords = load_keywords(store)
     primal_spam = (store.moderation_list("primal", "spam_list") or {"members": set()})["members"]
     primal_nsfw = (store.moderation_list("primal", "nsfw_list") or {"members": set()})["members"]
 
@@ -514,8 +445,6 @@ def collect_nostr(store: Store, root_pubkey: str, relays, budget: Budget, *, now
             if event["kind"] == 1:
                 if posts:
                     spam = spam_reasons(event, store)
-                    if keywords and keyword_hit(event["content"], keywords):
-                        spam.append("keyword")
                     primal_spam_member = event["pubkey"] in primal_spam
                     seen_spam = report.setdefault("_spam_ids", set())
                     for reason in spam:
@@ -527,18 +456,16 @@ def collect_nostr(store: Store, root_pubkey: str, relays, budget: Budget, *, now
                         report["filter_stats"]["spam"] += 1
                     cw_reason = next((t[1] if len(t) >= 2 and t[1] else "unspecified"
                                       for t in event.get("tags", []) if t[0] == "content-warning"), None)
-                    # Damus also honors signed Nostr #nsfw `t` tags. NIP-36
-                    # content-warning wins where authors include both.
-                    if cw_reason is None and nsfw_tag(event):
-                        cw_reason = "nsfw tag"
+                    explicit = bool(EXPLICIT_TERMS.search(event["content"]))
                     # flags refresh on every sighting, independent of the body
                     # upsert: preexisting unchanged posts acquire tags too
                     if cw_reason is not None:
                         store.save_content_warning(event["id"], "author-cw", f"author: {cw_reason}", now=now)
+                    if explicit:
+                        store.save_content_warning(event["id"], "explicit", "auto-flagged: explicit", now=now)
                     if event["pubkey"] in primal_nsfw:
                         store.save_content_warning(event["id"], "primal-nsfw",
                                                    "curated-nsfw: Primal snapshot", now=now)
-                    store.clear_spam_keyword_flags(event["id"])
                     for reason in spam:
                         store.save_content_warning(event["id"], "spam", f"auto-flagged: spam {reason}", now=now)
                     if primal_spam_member:
@@ -848,7 +775,6 @@ def collect_once(store: Store, root_pubkey: str, *, max_requests: int = 40, rela
     # durable operator block action: remove stored content for blocked
     # ids/authors so it never renders again, not just block new ingress
     nostr["purged_blocklisted"] = store.purge_blocklisted(load_blocklist(store))
-    nostr["auto_explicit_cleared"] = store.clear_auto_explicit_flags()
     nostr["metadata_secret_purged"] = store.purge_metadata_with_secrets(find_secret)
     # purge already-stored copies carrying secrets (backfill scan)
     with store.connect() as db:
