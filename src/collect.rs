@@ -261,6 +261,12 @@ pub async fn bootstrap(sdk: &NostrSqlite) -> Result<BTreeSet<PublicKey>, Error> 
     for identifier in ["nsfw_list", "spam_list"] {
         let event = fetch_list(identifier).await?;
         let members = list_members(&event, author, identifier)?;
+        eprintln!(
+            "Verified Primal {identifier} snapshot id={} signed_at={} members={}",
+            event.id,
+            event.created_at,
+            members.len()
+        );
         snapshots.push((identifier, event, members));
     }
     for (_, event, _) in &snapshots {
