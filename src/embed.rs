@@ -750,17 +750,31 @@ fn finalize(
     Ok(())
 }
 
+fn deadline_reached(deadline: Option<u64>) -> bool {
+    deadline.is_some_and(|deadline| {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            >= deadline
+    })
+}
+
 async fn embed_event(
     path: &Path,
     transport: &(impl Transport + ?Sized),
     budget: Budget,
+    deadline: Option<u64>,
     now: i64,
     event_id: &[u8],
     text: &str,
-) -> Result<(), Error> {
+) -> Result<bool, Error> {
     let space = transport.space();
     let text_chunks = transport.split(text)?;
     for (chunk_index, text_chunk) in text_chunks.iter().enumerate() {
+        if deadline_reached(deadline) {
+            return Ok(false);
+        }
         let Some(request_id) = reserve(
             path,
             event_id,
@@ -801,7 +815,7 @@ async fn embed_event(
         tokio::task::yield_now().await;
     }
     finalize(path, event_id, text_chunks.len(), space, now)?;
-    Ok(())
+    Ok(true)
 }
 
 /// Embeds eligible posts after collection scans have drained all admitted SDK writes.
@@ -817,35 +831,39 @@ pub async fn embed_pending(
     now: i64,
     limit: usize,
 ) -> Result<usize, Error> {
-    let space = transport.space();
-    register_space(path, space, now)?;
-    let posts = pending(path, space, now, limit)?;
     let deadline = std::env::var("MEATYBROTH_EMBED_DEADLINE_EPOCH")
         .ok()
         .map(|value| value.parse::<u64>())
         .transpose()?;
+    embed_pending_until(path, transport, budget, deadline, now, limit).await
+}
+
+pub(crate) async fn embed_pending_until(
+    path: &Path,
+    transport: &(impl Transport + ?Sized),
+    budget: Budget,
+    deadline: Option<u64>,
+    now: i64,
+    limit: usize,
+) -> Result<usize, Error> {
+    let space = transport.space();
+    register_space(path, space, now)?;
+    let posts = pending(path, space, now, limit)?;
     let mut embedded = 0;
     for window in posts.chunks(transport.concurrency()) {
-        if deadline.is_some_and(|deadline| {
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs()
-                >= deadline
-        }) {
+        if deadline_reached(deadline) {
             break;
         }
         // SQLite sections finish synchronously; only provider awaits overlap. -- Pi/gpt-5.6-sol
-        let results = futures_util::future::join_all(
-            window
-                .iter()
-                .map(|(event_id, text)| embed_event(path, transport, budget, now, event_id, text)),
-        )
+        let results = futures_util::future::join_all(window.iter().map(|(event_id, text)| {
+            embed_event(path, transport, budget, deadline, now, event_id, text)
+        }))
         .await;
         let mut first_error = None;
         for result in results {
             match result {
-                Ok(()) => embedded += 1,
+                Ok(true) => embedded += 1,
+                Ok(false) => {}
                 Err(error) if first_error.is_none() => first_error = Some(error),
                 Err(_) => {}
             }

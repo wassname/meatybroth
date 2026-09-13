@@ -65,6 +65,10 @@ for segment in $(seq 1 100); do
       echo "Titan pending set exhausted with no missing or uncertain rows"
       exit 0
     fi
+    if (( $(date +%s) >= expiry_epoch - 120 )); then
+      echo "segment=$segment reached its credential deadline; refreshing before remaining=$missing"
+      continue
+    fi
     echo "Titan stopped incomplete: missing=$missing uncertain=$uncertain"
     echo "Do not declare completion: audit each uncertain row, preserve its actual/reserved cost, then explicitly archive it as failed before a bounded recovery call."
     exit 2

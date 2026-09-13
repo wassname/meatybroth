@@ -64,6 +64,34 @@ impl embed::Transport for MockEmbedder {
     }
 }
 
+struct SlowTwoChunkEmbedder {
+    inner: MockEmbedder,
+}
+
+impl embed::Transport for SlowTwoChunkEmbedder {
+    fn space(&self) -> &embed::Space {
+        &self.inner.space
+    }
+
+    fn split(&self, _text: &str) -> Result<Vec<String>, Error> {
+        Ok(vec!["first".into(), "second".into()])
+    }
+
+    fn embed<'a>(
+        &'a self,
+        text: &'a str,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<embed::Output, Error>> + Send + 'a>,
+    > {
+        Box::pin(async move {
+            if self.inner.calls.load(Ordering::SeqCst) == 0 {
+                tokio::time::sleep(Duration::from_secs(2)).await;
+            }
+            self.inner.embed(text).await
+        })
+    }
+}
+
 fn signed(keys: &Keys, kind: u16, content: &str, time: u64, tags: Vec<Vec<&str>>) -> Event {
     EventBuilder::new(Kind::from(kind), content)
         .custom_created_at(Timestamp::from(time))
@@ -427,6 +455,48 @@ async fn sdk_relay_to_atomic_fts_http_policy_and_expiry() {
     );
     assert_eq!(html(&path, "/?q=bridgeword").await.0, StatusCode::OK);
     eprintln!("SDK→events→view/FTS→HTTP verified; forbidden=0, duplicate/replacement stable, policy/expiry delete indexes, restart retained");
+}
+
+#[tokio::test]
+async fn provider_deadline_stops_before_a_second_chunk_and_resumes_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("events.sqlite");
+    let sdk = collect::open(&path, collect::PRIMAL_AUTHOR).await.unwrap();
+    let now = i64::try_from(Timestamp::now().as_secs()).unwrap();
+    let event = signed(&Keys::generate(), 1, "two chunks", now as u64, vec![]);
+    sdk.save_event(&event).await.unwrap();
+    let model = SlowTwoChunkEmbedder {
+        inner: MockEmbedder::default(),
+    };
+    let deadline = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        + 1;
+    let budget = embed::Budget {
+        total_nusd: i64::MAX,
+        monthly_nusd: i64::MAX,
+    };
+    assert_eq!(
+        embed::embed_pending_until(&path, &model, budget, Some(deadline), now, 1)
+            .await
+            .unwrap(),
+        0
+    );
+    let conn = Connection::open(&path).unwrap();
+    assert_eq!(count(&conn, "SELECT count(*) FROM embedding_chunks"), 1);
+    assert_eq!(count(&conn, "SELECT count(*) FROM post_embeddings"), 0);
+    drop(conn);
+    assert_eq!(
+        embed::embed_pending_until(&path, &model, budget, None, now, 1)
+            .await
+            .unwrap(),
+        1
+    );
+    let conn = Connection::open(&path).unwrap();
+    assert_eq!(count(&conn, "SELECT count(*) FROM embedding_chunks"), 2);
+    assert_eq!(count(&conn, "SELECT count(*) FROM post_embeddings"), 1);
+    assert_eq!(model.inner.calls.load(Ordering::SeqCst), 2);
 }
 
 #[tokio::test]
