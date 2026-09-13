@@ -204,7 +204,7 @@ meaning-unavailable            http=400 bytes=5024
 PUBLIC_FINAL_SMOKE_PASS
 ```
 
-Production now routes to `meatybroth-rust:8088`; Rust restart count was zero. Old web and collector remain running. CloudFormation, instance and volume were not changed.
+Production now routes to `meatybroth-rust:8088`; Rust restart count was zero. Old web and collector remain running. CloudFormation, instance and volume were not changed. A separate parent-session check independently received the complete public Rust Social response: HTTP 200, 246,053 bytes, 100 cards in 3.24 seconds; status returned HTTP 200 in 1.46 seconds.
 
 A security incident caused legacy static credential text from local config comments to enter a private tool transcript during S3 diagnosis. Values are not repeated here. Current-account key status was `Inactive`, last used 2026-07-06T11:59Z by IAM. A second-account key remains unassessed and was not used or disabled. My changed deployment docs/bundle/image/DB archives contained zero credential-pattern matches; transfer objects were deleted. Full private record: `.local/security/2026-09-13_private-aws-config-transcript-exposure.md`. The malformed nested S3 setting that triggered diagnosis was fixed in yadm commit `7d58fd5`.
 
