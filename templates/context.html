@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% from "_post.html" import post_card %}
+{% block body %}
+<h2>Thread context</h2>
+{% if missing_parent_id %}
+<p class="scope-note">Parent post not stored (expired or never collected): <code>{{ missing_parent_id }}</code>.</p>
+{% endif %}
+{% if cycle_cut %}
+<p class="scope-note">A stored reply cycle was omitted.</p>
+{% endif %}
+{% for ancestor in ancestors %}
+<section class="context-ancestor">{{ post_card(ancestor) }}</section>
+{% endfor %}
+<section class="context-current">
+  <h3>This post</h3>
+  {{ post_card(post) }}
+</section>
+<section class="reply-tree" aria-label="available stored replies">
+  <h3>{% if available_reply_count %}{{ available_reply_count }} available {% if available_reply_count == 1 %}reply{% else %}replies{% endif %}{% else %}Available replies{% endif %}</h3>
+  {% for r in replies %}
+  <div class="reply-node" style="--tree-depth: {{ r.tree_depth }}">{{ post_card(r) }}</div>
+  {% else %}
+  <p class="empty">No replies stored.</p>
+  {% endfor %}
+</section>
+{% endblock %}

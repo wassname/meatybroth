@@ -1,29 +1,152 @@
+mod queries;
+mod render;
+
 use axum::{
-    extract::{Query, State},
+    extract::{OriginalUri, State},
     http::StatusCode,
-    response::Html,
+    response::{Html, IntoResponse, Response},
     routing::get,
     Router,
 };
-use minijinja::{context, Environment};
+use chrono::{NaiveDate, Utc};
+use minijinja::Environment;
 use rusqlite::{Connection, OpenFlags};
-use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{
+    collections::{HashMap, HashSet},
     path::PathBuf,
     sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
+const ROOT: &str = "60c052cf19fbfb973c1779585df423e3982a3a251fc826d4c76f8063621c5bb6";
+const MODES: [&str; 4] = ["new", "relevance", "conversations", "discovery"];
 
-#[derive(Deserialize, Default)]
+struct App {
+    path: PathBuf,
+    root: String,
+    templates: Environment<'static>,
+}
+
 struct Search {
-    #[serde(default)]
     q: String,
-    #[serde(default)]
-    page: u32,
-    mode: Option<String>,
+    mode: String,
+    page: i64,
+    before: Option<i64>,
+    reach: i64,
+    order: String,
+    expression: Option<String>,
+    error: Option<String>,
+}
+impl Search {
+    fn parse(raw: &str, now: i64) -> Self {
+        let args: HashMap<String, String> = url::form_urlencoded::parse(raw.as_bytes())
+            .into_owned()
+            .collect();
+        let arg = |key: &str| args.get(key).map(String::as_str).unwrap_or("");
+        let number =
+            |key: &str, default: i64| arg(key).parse::<i64>().map(|n| n.max(0)).unwrap_or(default);
+        let q = arg("q").trim().to_owned();
+        let mut mode = arg("mode");
+        if mode == "recent" {
+            mode = "new";
+        }
+        if !q.is_empty() && args.contains_key("go") {
+            mode = "relevance";
+        } else if !MODES.contains(&mode) {
+            mode = if q.is_empty() {
+                "conversations"
+            } else {
+                "relevance"
+            };
+        }
+        if q.is_empty() && mode == "relevance" {
+            mode = "conversations";
+        }
+        let timestamp = match number("before", 0) {
+            0 => NaiveDate::parse_from_str(arg("date"), "%Y-%m-%d")
+                .ok()
+                .map(|d| d.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp())
+                .unwrap_or(0),
+            n => n,
+        };
+        let before = if timestamp > 0 && timestamp < now {
+            Some(timestamp)
+        } else {
+            None
+        };
+        let parsed = if q.is_empty() {
+            Ok(None)
+        } else {
+            parse_fts(&q).map(Some)
+        };
+        let (expression, error) = match parsed {
+            Ok(e) => (e, None),
+            Err(e) => (None, Some(e)),
+        };
+        Self {
+            q,
+            mode: mode.into(),
+            page: number("page", 0),
+            before,
+            reach: match number("reach", 2) {
+                n @ 1..=3 => n,
+                _ => 2,
+            },
+            order: if arg("order") == "connections" {
+                "connections"
+            } else {
+                "recent"
+            }
+            .into(),
+            expression,
+            error,
+        }
+    }
+    fn query_string(&self) -> String {
+        let mut qs = url::form_urlencoded::Serializer::new(String::new());
+        if !self.q.is_empty() {
+            qs.append_pair("q", &self.q);
+        }
+        qs.append_pair("mode", &self.mode);
+        if let Some(before) = self.before {
+            qs.append_pair("before", &before.to_string());
+        }
+        if self.mode == "discovery" {
+            qs.append_pair("reach", &self.reach.to_string())
+                .append_pair("order", &self.order);
+        }
+        format!("{}&", qs.finish())
+    }
+}
+fn parse_fts(q: &str) -> Result<String, String> {
+    if q.matches('"').count() % 2 != 0 {
+        return Err("Unmatched quotation mark in search query.".into());
+    }
+    let words = regex::Regex::new(r"[\p{L}\p{N}_]+").unwrap();
+    let parts: Vec<_> = q.split('"').collect();
+    let mut clauses: Vec<String> = parts
+        .iter()
+        .skip(1)
+        .step_by(2)
+        .map(|p| {
+            words
+                .find_iter(p)
+                .map(|m| m.as_str())
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .filter(|s| !s.is_empty())
+        .map(|s| format!("\"{s}\""))
+        .collect();
+    for part in parts.iter().step_by(2) {
+        clauses.extend(words.find_iter(part).map(|m| format!("\"{}\"", m.as_str())));
+    }
+    if clauses.is_empty() {
+        return Err("Search query has no searchable terms.".into());
+    }
+    Ok(clauses.join(" AND "))
 }
 
 fn templates() -> Result<Environment<'static>, Error> {
@@ -32,117 +155,204 @@ fn templates() -> Result<Environment<'static>, Error> {
         ("base.html", include_str!("../templates/base.html")),
         ("feed.html", include_str!("../templates/feed.html")),
         ("_post.html", include_str!("../templates/_post.html")),
-        (
-            "text.html",
-            "<p style=\"white-space:pre-wrap\">{{ text }}</p>",
-        ),
+        ("context.html", include_str!("../templates/context.html")),
+        ("about.html", include_str!("../templates/about.html")),
+        ("tos.html", include_str!("../templates/tos.html")),
+        ("status.html", include_str!("../templates/status.html")),
     ] {
         env.add_template(name, source)?;
     }
     Ok(env)
 }
+fn page(app: &App, name: &str, data: Value) -> Result<String, Error> {
+    let mut shared = json!({"modes":MODES,"window_days":30,"mode":"new",
+    "mode_labels":{"new":"New","relevance":"Relevance","conversations":"Conversations","discovery":"Social"},
+    "mode_explanations":{
+        "new":"Every post from the last 30 days, newest first.",
+        "relevance":"Posts matching your terms, best match first (BM25: lower = closer); newer breaks ties.",
+        "conversations":"Threads with the most distinct recent repliers first; with a query, only matching threads.",
+        "discovery":"Recent posts within the selected 1–3 hop reach. Connections favours authors supported by more independent accounts you follow; lower distance score ranks first. Based on the collected, incomplete follow graph."
+    }});
+    shared
+        .as_object_mut()
+        .unwrap()
+        .extend(data.as_object().unwrap().clone());
+    Ok(app.templates.get_template(name)?.render(shared)?)
+}
 
-fn render(path: &PathBuf, search: Search) -> Result<String, Error> {
-    let mode = search.mode.as_deref().unwrap_or(if search.q.is_empty() {
-        "recent"
+fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, String), Error> {
+    let search = Search::parse(raw, now);
+    let mut rows = if search.error.is_none() {
+        queries::feed(db, &search, &app.root, now)?
     } else {
-        "relevance"
-    });
-    if !["recent", "relevance"].contains(&mode) {
-        return Err("This first Rust slice supports recent and lexical search only".into());
-    }
-    let db = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-    let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as i64;
-    let env = templates()?;
-    let select = "SELECT p.canonical_id,p.author_name,p.author_id,p.text,p.created_at,
-        (SELECT json_group_array(reason) FROM content_warnings WHERE event_id=p.canonical_id)";
-    let from = if search.q.is_empty() {
-        "FROM posts p WHERE p.created_at>=?1"
-    } else {
-        "FROM posts_fts JOIN posts p ON p.rowid=posts_fts.rowid WHERE p.created_at>=?1 AND posts_fts MATCH ?3"
+        Vec::new()
     };
-    let order = if !search.q.is_empty() && mode == "relevance" {
-        "bm25(posts_fts),p.created_at DESC,p.canonical_id"
-    } else {
-        "p.created_at DESC,p.canonical_id"
-    };
-    let mut statement = db.prepare(&format!(
-        "{select} {from} ORDER BY {order} LIMIT 51 OFFSET ?2"
-    ))?;
-    let offset = i64::from(search.page) * 50;
-    let since = now - 30 * 86400;
-    let params: Vec<&dyn rusqlite::ToSql> = if search.q.is_empty() {
-        vec![&since, &offset]
-    } else {
-        vec![&since, &offset, &search.q]
-    };
-    let mut rows = statement.query(params.as_slice())?;
-    let mut posts = Vec::new();
-    while let Some(row) = rows.next()? {
-        let id: String = row.get(0)?;
-        let author: String = row.get(1)?;
-        let author_id: String = row.get(2)?;
-        let text: String = row.get(3)?;
-        let created: i64 = row.get(4)?;
-        let warnings: Vec<String> = serde_json::from_str(&row.get::<_, String>(5)?)?;
-        let full_html = env
-            .get_template("text.html")?
-            .render(context!(text => text))?;
-        let preview: String = text.chars().take(280).collect();
-        let rest_chars = text.chars().count().saturating_sub(280);
-        let preview_html = if rest_chars > 0 {
-            Some(
-                env.get_template("text.html")?
-                    .render(context!(text => preview))?,
-            )
+    let has_next = rows.len() > queries::PAGE_SIZE;
+    rows.truncate(queries::PAGE_SIZE);
+    let results = rows
+        .iter()
+        .map(|p| render::card(db, p, now, &search.mode, true))
+        .collect::<Result<Vec<_>, _>>()?;
+    let html = page(
+        app,
+        "feed.html",
+        json!({"q":search.q,"mode":search.mode,"page":search.page,"error":search.error,
+        "results":results,"has_next":has_next,"qs_base":search.query_string(),"now":now,"before":search.before,
+        "reach":if search.mode=="discovery"{Some(search.reach)}else{None},
+        "order":if search.mode=="discovery"{Some(&search.order)}else{None},"state_fields":[]}),
+    )?;
+    Ok((
+        if search.error.is_some() {
+            StatusCode::BAD_REQUEST
         } else {
-            None
+            StatusCode::OK
+        },
+        html,
+    ))
+}
+
+fn thread(app: &App, db: &Connection, id: &str, now: i64) -> Result<(StatusCode, String), Error> {
+    let Some(post) = queries::get(db, id, now)? else {
+        return Ok((
+            StatusCode::NOT_FOUND,
+            "Post not stored in the current window.".into(),
+        ));
+    };
+    let mut seen = HashSet::from([id.to_string()]);
+    let (mut ancestors, mut replies) = (Vec::new(), Vec::new());
+    let (mut missing, mut cycle) = (None, false);
+    let mut parent = post.parent_id.clone();
+    while let Some(id) = parent {
+        if !seen.insert(id.clone()) {
+            cycle = true;
+            break;
+        }
+        let Some(p) = queries::get(db, &id, now)? else {
+            missing = Some(id);
+            break;
         };
-        posts.push(json!({
-            "canonical_id": id, "source": "nostr", "source_id": id,
-            "author": author, "author_id": author_id,
-            "profile_url": format!("https://njump.me/{author_id}"),
-            "original_url": format!("https://njump.me/{id}"),
-            "age": format!("{}h", (now-created).max(0)/3600), "when": created.to_string(),
-            "named": author != author_id.chars().take(16).collect::<String>(),
-            "full_html": full_html, "preview_html": preview_html, "rest_chars": rest_chars,
-            "warning": warnings.join(", "), "warning_hides": !warnings.is_empty()
-        }));
+        parent = p.parent_id.clone();
+        ancestors.push(render::card(db, &p, now, "", false)?);
     }
-    let has_next = posts.len() > 50;
-    posts.truncate(50);
-    let qs = url::form_urlencoded::Serializer::new(String::new())
-        .append_pair("q", &search.q)
-        .append_pair("mode", mode)
-        .finish();
-    Ok(env.get_template("feed.html")?.render(context!(
-        q => search.q, mode => mode, page => search.page, results => posts,
-        modes => ["recent", "relevance"],
-        mode_labels => json!({"recent":"Recent", "relevance":"Words"}),
-        mode_explanations => json!({"recent":"Newest posts first", "relevance":"SQLite FTS5 BM25"}),
-        now => now, has_next => has_next, qs_base => format!("{qs}&"),
-        state_fields => Vec::<Value>::new(),
-        error => "Rust-only reader prototype: collection, full ranking, Markdown and context routes are not connected yet. Database opened read-only."
-    ))?)
+    ancestors.reverse();
+    let mut pending: Vec<_> = queries::children(db, &post.canonical_id, now)?
+        .into_iter()
+        .rev()
+        .map(|p| (p, 1))
+        .collect();
+    while let Some((p, depth)) = pending.pop() {
+        if !seen.insert(p.canonical_id.clone()) {
+            cycle = true;
+            continue;
+        }
+        pending.extend(
+            queries::children(db, &p.canonical_id, now)?
+                .into_iter()
+                .rev()
+                .map(|p| (p, depth + 1)),
+        );
+        let mut view = render::card(db, &p, now, "", false)?;
+        view["tree_depth"] = json!(depth.min(6));
+        replies.push(view);
+    }
+    Ok((
+        StatusCode::OK,
+        page(
+            app,
+            "context.html",
+            json!({"post":render::card(db,&post,now,"",false)?,
+        "ancestors":ancestors,"available_reply_count":replies.len(),"replies":replies,"missing_parent_id":missing,"cycle_cut":cycle}),
+        )?,
+    ))
 }
 
-async fn feed(
-    State(path): State<Arc<PathBuf>>,
-    Query(search): Query<Search>,
-) -> Result<Html<String>, (StatusCode, String)> {
-    tokio::task::spawn_blocking(move || render(&path, search))
-        .await
-        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
-        .map(Html)
-        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
+fn status(app: &App, db: &Connection, now: i64) -> Result<String, Error> {
+    let mut rows = Vec::new();
+    let mut statement =
+        db.prepare("SELECT source,updated_at,detail FROM source_status ORDER BY source")?;
+    let records = statement.query_map([], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, i64>(1)?,
+            r.get::<_, String>(2)?,
+        ))
+    })?;
+    for row in records {
+        let (source, updated, detail) = row?;
+        rows.push(json!({"source":source,"updated":render::time(updated),"detail":serde_json::from_str::<Value>(&detail)?}));
+    }
+    let mut statement=db.prepare("SELECT relay,since_at,until_at,reason,checked_at FROM collection_gaps ORDER BY relay,since_at")?;
+    let gaps=statement.query_map([],|r|Ok(json!({"relay":r.get::<_,String>(0)?,"since":render::time(r.get(1)?),
+        "until":render::time(r.get(2)?),"reason":r.get::<_,String>(3)?,"checked":render::time(r.get(4)?)})))?.collect::<Result<Vec<_>,_>>()?;
+    let mut statement=db.prepare("SELECT coalesce(l.source,a.source),coalesce(l.identifier,a.identifier),l.event_id,l.event_created_at,l.checked_at,json_array_length(l.members_json),
+        a.attempted_at,a.error FROM moderation_lists l FULL OUTER JOIN moderation_refresh_attempts a USING(source,identifier) ORDER BY 1,2")?;
+    let lists=statement.query_map([],|r|Ok(json!({"source":r.get::<_,String>(0)?,"identifier":r.get::<_,String>(1)?,
+        "event_id":r.get::<_,Option<String>>(2)?,"signed":r.get::<_,Option<i64>>(3)?.map(render::time),
+        "checked":r.get::<_,Option<i64>>(4)?.map(render::time),"members":r.get::<_,Option<i64>>(5)?,
+        "attempted":r.get::<_,Option<i64>>(6)?.map(render::time),"error":r.get::<_,Option<String>>(7)?})))?.collect::<Result<Vec<_>,_>>()?;
+    let counts = queries::count(db, now, None)?;
+    page(
+        app,
+        "status.html",
+        json!({"now":render::time(now),"eligible_posts":counts,"status_rows":rows,"gaps":gaps,"lists":lists}),
+    )
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Error> {
-    let path = PathBuf::from(std::env::var("MEATYBROTH_DB")?);
-    Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-    let app = Router::new()
-        .route("/", get(feed))
+fn handle(app: &App, path: &str, raw: &str, now: i64) -> Result<(StatusCode, String), Error> {
+    let db = Connection::open_with_flags(&app.path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    db.busy_timeout(Duration::from_secs(10))?;
+    db.execute_batch("BEGIN")?;
+    match path {
+        "/" => feed(app, &db, raw, now),
+        "/about" | "/tos" => Ok((
+            StatusCode::OK,
+            page(app, &format!("{}.html", &path[1..]), json!({}))?,
+        )),
+        "/status" => Ok((StatusCode::OK, status(app, &db, now)?)),
+        _ => {
+            if let Some(id) = path
+                .strip_prefix("/context/")
+                .and_then(|s| s.split_once('/'))
+            {
+                let id = format!("{}:{}", id.0, id.1);
+                thread(app, &db, &id, now)
+            } else {
+                Ok((StatusCode::NOT_FOUND, "Not found".into()))
+            }
+        }
+    }
+}
+async fn request(State(app): State<Arc<App>>, OriginalUri(uri): OriginalUri) -> Response {
+    if uri.path() == "/search" {
+        return (
+            StatusCode::MOVED_PERMANENTLY,
+            [("location", format!("/?{}", uri.query().unwrap_or("")))],
+        )
+            .into_response();
+    }
+    let result = tokio::task::spawn_blocking(move || {
+        handle(
+            &app,
+            uri.path(),
+            uri.query().unwrap_or(""),
+            Utc::now().timestamp(),
+        )
+    })
+    .await;
+    match result {
+        Ok(Ok((status, html))) => (status, Html(html)).into_response(),
+        error => {
+            eprintln!("Reader request failed: {error:?}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Reader request failed; see server log.",
+            )
+                .into_response()
+        }
+    }
+}
+fn router(app: App) -> Router {
+    Router::new()
         .route(
             "/static/style.css",
             get(|| async {
@@ -152,36 +362,25 @@ async fn main() -> Result<(), Error> {
                 )
             }),
         )
-        .fallback(|| async {
-            (
-                StatusCode::NOT_IMPLEMENTED,
-                "Not implemented in the first Rust reader slice",
-            )
-        })
-        .with_state(Arc::new(path));
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:8083").await?;
-    eprintln!("Rust reader listening on http://localhost:8083");
+        .fallback(get(request))
+        .with_state(Arc::new(app))
+}
+#[tokio::main]
+async fn main() -> Result<(), Error> {
+    let path = PathBuf::from(std::env::var("MEATYBROTH_DB")?);
+    Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let root = std::env::var("MEATYBROTH_ROOT").unwrap_or_else(|_| ROOT.into());
+    let app = router(App {
+        path,
+        root,
+        templates: templates()?,
+    });
+    let addr = std::env::var("MEATYBROTH_ADDR").unwrap_or_else(|_| "127.0.0.1:8083".into());
+    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    eprintln!("Rust reader listening on http://{addr}");
     axum::serve(listener, app).await?;
     Ok(())
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn post_text_cannot_insert_html_or_remote_media() {
-        let env = templates().unwrap();
-        let html = env
-            .get_template("text.html")
-            .unwrap()
-            .render(context!(
-                text => "<script>alert(1)</script><img src=https://tracker.invalid/pixel>"
-            ))
-            .unwrap();
-        assert!(!html.contains("<script"));
-        assert!(!html.contains("<img"));
-        assert!(html.contains("&lt;script&gt;"));
-        assert!(html.contains("tracker.invalid"));
-    }
-}
+mod tests;

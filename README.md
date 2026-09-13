@@ -1,13 +1,21 @@
-# meatybroth — Rust replacement in progress
+# meatybroth (Rust reader)
 
-First slice: one Rust executable serves the existing reader templates/CSS and reads the SDK SQLite database in-process. No Python or SQLite subprocess. It opens the reference database read-only.
+One Cargo executable serves the existing reader templates and CSS. It reads SQLite in-process; no Python runtime or SQL subprocess.
 
 ```sh
 MEATYBROTH_DB=/workspace/meatybroth/.local/sdk-parity/events.sqlite cargo run --locked
 ```
 
-Listens on `http://localhost:8083`. The existing comparison reader remains on port 8082.
+Open http://localhost:8083. `MEATYBROTH_ADDR` overrides the bind address; `MEATYBROTH_ROOT` sets the Social root public key.
 
-Not yet parity: collection, conversation/social ranking, Markdown rendering, context/status routes, embeddings and clusters remain unimplemented. The visible page labels this limitation. Original templates/CSS are copied from the reference project, not rewritten.
+New, Relevance, Conversations and Social preserve the original ranking rules. Search URLs, 50-post pages, dates, expansion, thread context, profiles/NIP-05 and status are implemented. Markdown uses pulldown-cmark and ammonia; post bodies cannot load images/scripts. The reader hides stored policy exclusions and Primal NSFW members, and preserves other warning labels.
 
-Replacement work started by Pi/OpenAI. Do not adopt the earlier collector architecture wholesale; see `/workspace/meatybroth/slop/reviews/2026-09-13_sdk-architecture-review.md`.
+This slice opens an existing SDK database read-only, including its current `posts`/FTS projection. Collection, schema ownership, cleanup, embeddings and topics are not integrated. Original runtime code has not been removed. This is not the completed application replacement.
+
+```sh
+cargo test --locked
+```
+
+The maintained tests exercise real HTTP handlers, including canonical follow metadata without `nostr_state`, nested Markdown images, excluded versus benign posts, cycles and expiry. The ignored matched-corpus test needs the reference Python environment only for verification; see `slop/verification/prepare_reader_parity.py`.
+
+Started by Pi/OpenAI; reader implementation by Pi/gpt-6-astra. Architecture review: `/workspace/meatybroth/slop/reviews/2026-09-13_sdk-architecture-review.md`.

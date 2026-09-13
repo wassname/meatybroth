@@ -1,0 +1,15 @@
+warning: unused config key `resolver.incompatible-publish-age` in `/home/code/.cargo/config.toml`
+   Compiling meatybroth v0.1.0 (/workspace/meatybroth-rust)
+    Finished `test` profile [unoptimized] target(s) in 3.60s
+     Running unittests src/main.rs (target/debug/deps/meatybroth-fa5876d46c400ea0)
+
+running 6 tests
+test tests::matched_reference_reader_outputs ... ignored, requires saved matched-corpus databases and Python reader expectations
+test tests::status_exposes_gaps_signed_list_age_and_reader_scope ... ok
+test tests::rendering_preserves_safe_text_profiles_warnings_and_exclusions ... ok
+test tests::conversation_context_counts_cycles_and_warning_excerpts ... ok
+test tests::social_uses_canonical_graph_shortest_independent_paths_and_reach ... ok
+test tests::pages_query_state_and_invalid_requests_use_real_handlers ... ok
+
+test result: ok. 5 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 2.10s
+

@@ -1,0 +1,55 @@
+warning: unused config key `unstable.min-publish-age` in `/home/code/.cargo/config.toml`
+    Updating crates.io index
+     Locking 51 packages to highest compatible versions as of 8 days ago
+      Adding aho-corasick v1.1.5
+      Adding ammonia v4.1.4
+      Adding android_system_properties v0.1.6
+      Adding autocfg v1.5.1
+      Adding bech32 v0.11.1 (available: v0.12.0)
+      Adding chrono v0.4.45
+      Adding core-foundation-sys v0.8.7
+      Adding cssparser v0.37.0
+      Adding dtoa v1.0.11
+      Adding dtoa-short v0.3.5
+      Adding errno v0.3.14
+      Adding fastrand v2.5.0
+      Adding getrandom v0.4.3
+      Adding html5ever v0.39.0
+      Adding iana-time-zone v0.1.65
+      Adding iana-time-zone-haiku v0.1.2
+      Adding linkify v0.10.0 (available: v0.11.0)
+      Adding linux-raw-sys v0.12.1
+      Adding lock_api v0.4.14
+      Adding maplit v1.0.2
+      Adding markup5ever v0.39.0
+      Adding new_debug_unreachable v1.0.6
+      Adding num-traits v0.2.19
+      Adding parking_lot v0.12.5
+      Adding parking_lot_core v0.9.12
+      Adding phf v0.13.1
+      Adding phf_codegen v0.13.1
+      Adding phf_generator v0.13.1
+      Adding phf_shared v0.13.1
+      Adding precomputed-hash v0.1.1
+      Adding pulldown-cmark v0.13.4
+      Adding pulldown-cmark-escape v0.11.0
+      Adding r-efi v6.0.0
+      Adding redox_syscall v0.5.18
+      Adding regex v1.13.1
+      Adding regex-automata v0.4.18
+      Adding regex-syntax v0.8.11
+      Adding rustix v1.1.4
+      Adding scopeguard v1.2.0
+      Adding siphasher v1.0.3
+      Adding string_cache v0.9.0
+      Adding string_cache_codegen v0.6.1
+      Adding tempfile v3.27.0
+      Adding tendril v0.5.1
+      Adding unicase v2.9.0
+      Adding web_atoms v0.2.6
+      Adding windows-core v0.62.2
+      Adding windows-implement v0.60.2
+      Adding windows-interface v0.59.3
+      Adding windows-result v0.4.1
+      Adding windows-strings v0.5.1
+note: pass `--verbose` to see 4 unchanged dependencies behind latest

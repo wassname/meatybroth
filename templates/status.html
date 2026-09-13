@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block body %}
+<h2>Collector status</h2>
+<p>As of {{ now }}. {{ eligible_posts }} eligible Nostr posts in the last {{ window_days }} days.</p>
+<p>This Rust reader opens the reference database read-only. It does not run collection or cleanup yet. Counts describe the stored corpus, not per-relay coverage.</p>
+{% for s in status_rows %}
+<h3>{{ s.source }}</h3>
+<p>Last report {{ s.updated }}</p>
+<pre>{{ s.detail|tojson(indent=2) }}</pre>
+{% else %}<p>No collector has reported status yet.</p>{% endfor %}
+<h3>Unresolved collection gaps</h3>
+{% for g in gaps %}<p>{{ g.relay }} · {{ g.since }} to {{ g.until }} · {{ g.reason }} · checked {{ g.checked }}</p>
+{% else %}<p>No gaps recorded. This does not establish complete relay coverage.</p>{% endfor %}
+<h3>Moderation lists</h3>
+{% for l in lists %}
+<p>{{ l.source }} / {{ l.identifier }}{% if l.signed %} · {{ l.members }} members · signed {{ l.signed }} · checked {{ l.checked }}{% else %} · no signed list stored{% endif %}{% if l.attempted %} · last attempt {{ l.attempted }}{% endif %}{% if l.error %} · error: {{ l.error }}{% endif %}</p>
+{% if l.event_id %}<p>Event <code>{{ l.event_id }}</code></p>{% endif %}
+{% else %}<p>No signed moderation lists stored.</p>{% endfor %}
+{% endblock %}
