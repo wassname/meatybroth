@@ -7,6 +7,7 @@ import time
 
 import pytest
 
+from meatybroth.ranking import PAGE_SIZE
 from meatybroth.store import Post, Store
 from meatybroth.web import create_app
 
@@ -42,8 +43,8 @@ def profile_event(pubkey, name, nip05=None, created_at=None):
 @pytest.fixture()
 def store(tmp_path):
     store = Store(tmp_path / "db.sqlite")
-    # Direct-follow posts deliberately crowd out a full page.
-    for i in range(25):
+    # Direct-follow posts deliberately crowd out a full page plus extras.
+    for i in range(PAGE_SIZE + 5):
         store.upsert(make_post("nostr", f"crowd{i}", DIRECT, f"crowd note {i}", NOW - i), now=NOW)
     store.upsert(make_post("nostr", "twohop", TWO_HOP, "friend of a friend mentions activation steering",
                            NOW - 100, url="https://example.com/twohop"), now=NOW)
@@ -309,13 +310,13 @@ def test_pagination(client):
     assert ids_in_order(page0) != ids_in_order(page1)
     assert "older" in page0
     first_page1 = ids_in_order(page1)[0]
-    assert first_page1 == "nostr:crowd20"  # page 1 continues the recency order without overlap
+    assert first_page1 == f"nostr:crowd{PAGE_SIZE}"  # page 1 continues the recency order without overlap
 
 
 def test_older_link_traversal_preserves_query_state(client):
     """Following the rendered 'older' href keeps q/mode/prev_q."""
     import html as html_mod
-    for url in ("/?q=crowd&mode=new&prev_q=crowd",  # queried New, 25 matches
+    for url in ("/?q=crowd&mode=new&prev_q=crowd",  # queried New, PAGE_SIZE + 5 matches
                 "/?q=crowd&mode=relevance"):  # relevance filter
         page = client.get(url)
         assert page.status_code == 200
