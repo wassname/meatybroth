@@ -2,6 +2,10 @@
 
 Status 2026-09-13T17:35Z: final deployable revision `bc08fc791f6833d75cafc6544f1e95cfd8e18910` and a moderation-clean SDK snapshot passed the hardened off-host smoke. Deployment remains paused for a human-attended AWS login issuer-region test. Old production is still serving. No CloudFormation, instance, volume, Caddy-upstream or application-service change occurred.
 
+## User-visible limitations
+
+This is a cached-Titan deployment candidate, not complete embedding-search functionality. Meaning queries have no cached query vector and return HTTP 400. The MiniLM selector also returns HTTP 400 because production does not load or configure MiniLM. The smoke tests prove these failures are explicit and that cached-Titan Similar works; they do not prove functional Meaning search. Do not expose Meaning or MiniLM as available controls until the UI marks or disables them.
+
 ## Evidence and retained production state
 
 - Full action log: `slop/verification/2026-09-13_production-rust-deployment.log`
