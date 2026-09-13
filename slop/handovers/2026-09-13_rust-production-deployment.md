@@ -88,8 +88,8 @@ A private Caddy canary on an existing-network equivalent resolved `meatybroth-ru
 4. Direct monitoring proved the spill was a deleted-open `/tmp/etilqs_*` file while host disk had 27 GiB free and `/data` stayed at 32 KiB. Rust now uses dedicated disk-backed `/opt/meatybroth-rust/tmp`, owner10001 mode0700, bind-mounted writable at `/tmp`; the canonical DB remains read-only. Private Social cold/repeat both returned 200 with identical 246,053-byte bodies, prior controls passed, temp files returned to zero and restart count stayed zero.
 5. `/opt/meatybroth/Caddyfile.pre-rust-final` retains the prior upstream. Existing Caddy was validated and reloaded after changing only `web:8081` to `meatybroth-rust:8088`.
 6. Independent final public checks passed: Social cold/repeat each HTTP 200 and 246,053 bytes; root/status/Titan Topic/Titan Similar/eligible contexts HTTP 200; exact telemetry contexts 404 and Similar 400; unavailable Meaning and MiniLM direct URLs 400.
-7. Rollback: copy `Caddyfile.pre-rust-final` over `Caddyfile`, validate/reload `meatybroth-caddy-1`, then remove only `meatybroth-rust`. Old web, collector, data volume and Caddy remain running.
+7. Historical rollback: copy `Caddyfile.pre-rust-final` over `Caddyfile`, validate/reload `meatybroth-caddy-1`, then remove only `meatybroth-rust`. The old Python web remains running. The old collector is stopped with restart policy `no`; its Compose definition, image and DB volume remain available.
 
-Cached Titan119 is explicitly a partial NIP-13 PoW-biased cohort. Production status must say partial; do not call it retained-corpus parity or enable recurring Bedrock ingestion.
+Cached Titan119 is explicitly a partial NIP-13 PoW-biased cohort. Do not call it retained-corpus parity. Continuous role-backed Bedrock ingestion is now authorized and runs against the separate canonical Rust database.
 
 -- Pi/gpt-5.6-sol

@@ -367,4 +367,26 @@ ledger succeeded=16132 uncertain=73 reserved=4 (active sample)
 
 Completed-only latency is selection-biased. At this observation only 29.2% of newly admitted eligible posts had embeddings, and 31.0% of the full denominator remained pending past 300 seconds. New arrivals were about 3.08 posts/s while completed embeddings averaged about 0.90 posts/s. The production process is healthy and prioritizes some new posts quickly, but this sample does not support a universal five-minute freshness claim.
 
+At 23:17:55Z, a read-only resource sample found healthy T3 CPU credits (`CPUCreditBalance=315.99`, surplus zero), recent instance CPU 52.7% average/69.0% maximum, and no Rust CPU quota. The Rust container used 23.8% CPU and 1.293 GiB of the 1.865 GiB host; only 157 MiB was available and swap was disabled. The canonical DB was 1.029 GB with a 401.5 MB WAL. Rust block I/O since start was 15.8 GB read and 5.04 GB written. This rules out CPU-credit exhaustion at that time. Memory/page-cache pressure and global SQLite work remain plausible but are not proven causes.
+
+Caddy configuration added `encode zstd gzip`, validated and loaded without restarting the writer. Canonical config: `slop/deployment/2026-09-14_Caddyfile`, SHA-256 `c1b36ad2fdec5c8ce6d8cb6bdfbced3439affb18cfdba0e58bd3127bcfc26ca6`. This changes transfer encoding, not server-side query latency.
+
+The replaced Python collector was retired at 23:19:41Z:
+
+```text
+container=meatybroth-collector-1
+compose service=collector
+compose file=/opt/meatybroth/docker-compose.yml
+before pid=2592 status=running restart_policy=unless-stopped
+after pid=0 status=exited exit=143 restart_policy=no
+command=python -m meatybroth collect --db /var/lib/meatybroth/meatybroth.db --loop --interval 600 --max-requests 80
+volume=/var/lib/docker/volumes/meatybroth_meatybroth-data/_data -> /var/lib/meatybroth
+rollback DB=/var/lib/docker/volumes/meatybroth_meatybroth-data/_data/meatybroth.db
+rollback DB owner=root:root mode=0644 bytes=28753920
+systemd meatybroth units/timers=none
+compose wrapper processes=none
+```
+
+Its Compose definition, image and DB remain for rollback. Immediately afterward the Rust writer remained running with restart count zero; its latest received event was epoch `1789341558`, latest Titan embedding `1789341510`, and vector count 10,526. A public Status request made in the same command timed out after 20 seconds; this does not negate the DB continuity evidence and remains a reader-responsiveness failure.
+
 -- Pi/gpt-5.6-sol

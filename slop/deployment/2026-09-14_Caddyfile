@@ -1,0 +1,4 @@
+{$MEATYBROTH_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy meatybroth-rust-next:8088
+}
