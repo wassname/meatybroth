@@ -1,0 +1,19 @@
+frozen_event_ids_equal=True baseline=12179 unique=12179
+hungarian_aligned_same=9120 changed=3059 changed_pct=25.12
+baseline_id	unique_id	overlap	baseline_n	unique_n	jaccard	baseline_label	unique_label	baseline_unique_author_content	unique_unique_author_content
+0	0	291	565	628	0.323	mixed	mixed	398	562
+1	1	784	954	851	0.768	mixed	mixed	904	808
+2	2	580	720	594	0.790	trump · news	mixed	698	591
+3	3	869	910	1132	0.741	mixed	mixed	889	981
+4	4	390	433	805	0.460	mixed	mixed	419	533
+5	11	100	722	135	0.132	agents · register	nlogpost · shots · build	408	135
+6	6	1768	1794	1770	0.984	mixed	mixed	1772	1748
+7	7	230	309	294	0.617	connecting · connection · service	connecting · connection · error	254	274
+8	5	583	902	623	0.619	mixed	mixed	875	622
+9	9	552	666	605	0.768	bitcoin · price · sats	bitcoin · price · sats	618	540
+10	10	602	640	723	0.791	mixed	mixed	612	680
+11	8	15	322	927	0.012	mixed	news · photo · flickr	319	918
+12	12	523	641	652	0.679	mixed	mixed	610	549
+13	13	312	323	809	0.380	trading · bots · sylunara	trading · bots · live	133	521
+14	14	624	752	701	0.753	mixed	mixed	646	681
+15	15	897	1526	930	0.575	news · photo · flickr	mixed	1504	916

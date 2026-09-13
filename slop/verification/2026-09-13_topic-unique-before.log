@@ -1,0 +1,21 @@
+# before topics
+topic_id  label                       post_count
+--------  --------------------------  ----------
+1         mixed                       1030
+7         news · photo · flickr       649
+8         mixed                       506
+13        bitcoin · price · sats      406
+12        mixed                       328
+6         mixed                       322
+9         mixed                       310
+5         conviction · map · trading  292
+2         mixed                       266
+0         mixed                       244
+11        mixed                       213
+3         mixed                       199
+4         nostr · hope                100
+10        mixed                       55
+# corpus
+rows   unique_author_content
+-----  ---------------------
+12179  11059
