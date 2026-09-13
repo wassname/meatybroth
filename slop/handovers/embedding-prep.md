@@ -68,4 +68,8 @@ The status page now reports each embedding space's provenance, stored/eligible/p
 
 Topic labels use the pinned MIT stopwords-iso English list at commit `ccc8898`. Clusters without two terms recurring in at least one fifth of posts are labelled `mixed`. The offline rebuild assigned all 119 partial Titan vectors across six topics; this does not remove the documented proof-of-work cohort bias.
 
-The next runtime check starts the integrated SDK collector with local MiniLM on port 8088. Titan remains cached and no automatic Titan request path is enabled.
+Integrated SDK collection with local MiniLM started on 8088 at epoch `1789312839`; Titan stayed cached with no request path. Event `5ead12eda0399cf3200955d7dfbef8aa545ee6986f254515500172ae86456489` was created at `1789313070`, received at `1789313208`, and gained a MiniLM vector. The first Similar request overlapped a 100-post embedding batch and completed after 24.7 seconds, so the current follow-up reduces background batches to 10 and enables a 64 MiB reader page cache plus 256 MiB SQLite mmap. Retest under integrated collection before acceptance.
+
+Live review also found whole-message `presence` and `zone_presence` envelopes in feeds. `src/posts.sql` now excludes only well-formed envelopes with the expected top-level schema from reader and embedding eligibility. Events remain in the canonical SDK store. JSON price cards and prose that quotes a presence payload remain eligible; the maintained SDK test distinguishes these cases.
+
+The pending follow-up also adds a Similar heading/source-context link, preserves the Similar feed label, updates About to selected-relay collection, and puts the exact cached Titan count plus proof-of-work cohort bias in the banner. Rebuild both topic spaces after applying `posts.sql`, then restart the integrated process and verify status, new-event Similar, telemetry absence, and concurrent latency.

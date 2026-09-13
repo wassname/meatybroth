@@ -430,6 +430,89 @@ async fn sdk_relay_to_atomic_fts_http_policy_and_expiry() {
 }
 
 #[tokio::test]
+async fn machine_presence_envelopes_stay_auditable_but_not_reader_or_embedding_eligible() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("events.sqlite");
+    let sdk = collect::open(&path, collect::PRIMAL_AUTHOR).await.unwrap();
+    let now = i64::try_from(Timestamp::now().as_secs()).unwrap();
+    let keys = Keys::generate();
+    let presence = signed(
+        &keys,
+        1,
+        r#"{"type":"presence","payload":"online"}"#,
+        now as u64,
+        vec![],
+    );
+    let zone = signed(
+        &keys,
+        1,
+        r#"{"type":"zone_presence","zone":"zone-a","devicePk":"device","role":"gateway","metrics":{"clients":0},"ts":123,"ttl":120}"#,
+        now as u64,
+        vec![],
+    );
+    let price = signed(
+        &keys,
+        1,
+        r#"{"type":"price","title":"XMR $535.76","body":"market update"}"#,
+        now as u64,
+        vec![],
+    );
+    let explained = signed(
+        &keys,
+        1,
+        r#"Example payload: {"type":"presence","payload":"online"}"#,
+        now as u64,
+        vec![],
+    );
+    for event in [&presence, &zone, &price, &explained] {
+        sdk.save_event(event).await.unwrap();
+    }
+    let conn = Connection::open(&path).unwrap();
+    assert_eq!(count(&conn, "SELECT count(*) FROM events WHERE kind=1"), 4);
+    assert_eq!(count(&conn, "SELECT count(*) FROM posts"), 2);
+    assert!(
+        crate::queries::get(&conn, &canonical_event_id(price.id.as_bytes()), now)
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        crate::queries::get(&conn, &canonical_event_id(explained.id.as_bytes()), now)
+            .unwrap()
+            .is_some()
+    );
+    drop(conn);
+
+    let mock = MockEmbedder::default();
+    assert_eq!(
+        embed::embed_pending(
+            &path,
+            &mock,
+            embed::Budget {
+                total_nusd: i64::MAX,
+                monthly_nusd: i64::MAX,
+            },
+            now,
+            10,
+        )
+        .await
+        .unwrap(),
+        2
+    );
+    let conn = Connection::open(&path).unwrap();
+    assert_eq!(count(&conn, "SELECT count(*) FROM post_embeddings"), 2);
+    assert_eq!(
+        count(
+            &conn,
+            "SELECT count(*) FROM post_embeddings WHERE event_id IN (
+               SELECT id FROM events
+               WHERE CASE WHEN json_valid(content) THEN json_extract(content,'$.type') END
+                 IN ('presence','zone_presence'))"
+        ),
+        0
+    );
+}
+
+#[tokio::test]
 async fn incremental_embeddings_reuse_delete_and_budget_after_sdk_drain() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("events.sqlite");
@@ -525,12 +608,22 @@ async fn incremental_embeddings_reuse_delete_and_budget_after_sdk_drain() {
     assert_eq!(status, StatusCode::OK);
     assert!(similar.contains("<article"));
     assert!(similar.contains(&second.id.to_hex()));
+    assert!(similar.contains("<h2>Similar posts</h2>"));
+    assert!(similar.contains("source post and thread context"));
+    assert!(similar.contains("value=\"similar\" selected"));
     let topic_id = embed::topics(&path, &mock.space).unwrap()[0].id;
     let topic_uri = format!("/?mode=topics&topic={topic_id}");
     let (status, topic) = html_with_embedding(&path, &topic_uri, Some(semantic)).await;
     assert_eq!(status, StatusCode::OK);
     assert!(topic.contains("<article"));
     assert!(topic.contains("embedding=minilm"));
+    let titan_topic_uri = format!("/?mode=topics&topic={topic_id}&embedding=titan");
+    let (status, titan_topic) = html_with_embedding(&path, &titan_topic_uri, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(titan_topic.contains("<article"));
+    assert!(titan_topic.contains("Titan has 2 cached posts"));
+    assert!(titan_topic.contains("partial cohort is proof-of-work-biased"));
+    assert!(titan_topic.contains("embedding=titan"));
     let (status, cache_status) = html_with_embedding(&path, "/status", None).await;
     assert_eq!(status, StatusCode::OK);
     assert!(cache_status.contains("Embedding caches"));

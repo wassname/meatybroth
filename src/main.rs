@@ -374,6 +374,18 @@ fn topic_feed(
 fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, String), Error> {
     let started = std::time::Instant::now();
     let mut search = Search::parse(raw, now, &app.default_embedding);
+    let titan_vectors = if search.embedding == "titan" {
+        selected_space(app, &search)
+            .ok()
+            .map(|space| embed::vector_count(&app.path, &space))
+            .transpose()?
+    } else {
+        None
+    };
+    let similar_context = search.similar.as_deref().and_then(|id| {
+        id.split_once(':')
+            .map(|(source, source_id)| format!("/context/{source}/{source_id}"))
+    });
     let semantic = ["meaning", "similar"].contains(&search.mode.as_str());
     let topic_mode = search.mode == "topics";
     let topics = if topic_mode {
@@ -466,8 +478,9 @@ fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, 
         app,
         "feed.html",
         json!({"q":search.q,"mode":search.mode,"page":search.page,"error":search.error,
-        "embedding":search.embedding,"results":results,"has_next":has_next,"qs_base":search.query_string(),"now":now,"before":search.before,
-        "topics":topics,"selected_topic":search.topic,
+        "embedding":search.embedding,"titan_vectors":titan_vectors,"results":results,"has_next":has_next,
+        "qs_base":search.query_string(),"now":now,"before":search.before,"similar":search.similar,
+        "similar_context":similar_context,"topics":topics,"selected_topic":search.topic,
         "reach":if search.mode=="discovery"{Some(search.reach)}else{None},
         "order":if search.mode=="discovery"{Some(&search.order)}else{None},
         "state_fields":[["embedding",search.embedding.as_str()]]}),
@@ -593,6 +606,8 @@ fn status(app: &App, db: &Connection, now: i64) -> Result<String, Error> {
 fn handle(app: &App, path: &str, raw: &str, now: i64) -> Result<(StatusCode, String), Error> {
     let db = Connection::open_with_flags(&app.path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     db.busy_timeout(Duration::from_secs(10))?;
+    db.pragma_update(None, "cache_size", -65_536)?;
+    db.pragma_update(None, "mmap_size", 268_435_456)?;
     db.execute_batch("BEGIN")?;
     match path {
         "/" => feed(app, &db, raw, now),

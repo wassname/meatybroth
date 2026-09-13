@@ -22,10 +22,12 @@
     <label for="feed-select">Feed:</label>
     <select id="feed-select" name="mode" aria-label="Feed algorithm"
             onchange="document.getElementById('feed-tip').textContent=this.options[this.selectedIndex].dataset.tip; this.form.submit()">
+      {% if mode == 'similar' %}<option value="similar" selected data-tip="{{ mode_explanations.similar }}">Similar</option>{% endif %}
       {% for m in modes %}
       <option value="{{ m }}" data-tip="{{ mode_explanations[m] }}" {% if m == mode %}selected{% endif %} title="{{ mode_explanations[m] }}">{{ mode_labels[m] }}</option>
       {% endfor %}
     </select>
+    {% if similar %}<input type="hidden" name="similar" value="{{ similar }}">{% endif %}
     <span class="tipwrap">
       <button type="button" class="tipbtn" aria-describedby="feed-tip" aria-label="How this feed works">?</button>
       <span id="feed-tip" role="tooltip" class="tip">{{ mode_explanations[mode] }}</span>
@@ -51,6 +53,6 @@
   </form>
 </header>
 <main>
-<p class="scope-note">{% if collecting %}Live SDK collection and reader.{% else %}Reader snapshot; collection is paused in this process.{% endif %} Recent coverage is incomplete; see status.{% if embedding == 'titan' %} Titan is an incomplete cached one-off corpus; browsing does not call AWS.{% endif %}</p>
+<p class="scope-note">{% if collecting %}Live SDK collection and reader.{% else %}Reader snapshot; collection is paused in this process.{% endif %} Recent coverage is incomplete; see status.{% if embedding == 'titan' %} Titan has {{ titan_vectors }} cached posts. This partial cohort is proof-of-work-biased; browsing does not call AWS.{% endif %}</p>
 {% block body %}{% endblock %}
 </main>

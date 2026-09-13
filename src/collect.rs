@@ -27,6 +27,7 @@ pub const PRIMAL_AUTHOR: &str = "5d8282fc89410f1c57681a2c3b8be57afd1566c262fd1de
 const PAGE_LIMIT: usize = 500;
 const COVERAGE_STEP: i64 = 300;
 const MODERATION_REFRESH: u64 = 3600;
+const LOCAL_EMBED_BATCH: usize = 10;
 
 #[derive(Clone, Copy)]
 struct Cursor {
@@ -204,6 +205,7 @@ pub async fn open(path: &Path, primal_author: &str) -> Result<NostrSqlite, Error
         PublicKey::from_hex(primal_author)?;
         conn.execute_batch(&include_str!("schema.sql").replace("{primal_author}", primal_author))?;
     }
+    conn.execute_batch(include_str!("posts.sql"))?;
     conn.execute_batch(include_str!("coverage.sql"))?;
     conn.execute_batch(include_str!("embed.sql"))?;
     conn.execute_batch(include_str!("social.sql"))?;
@@ -950,7 +952,7 @@ pub async fn run(
                     monthly_nusd: i64::MAX,
                 },
                 now,
-                100,
+                LOCAL_EMBED_BATCH,
             )
             .await
             {

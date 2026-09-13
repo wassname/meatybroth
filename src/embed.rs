@@ -470,7 +470,7 @@ fn pending(
     let mut statement = conn.prepare(
         "SELECT e.id,e.content
          FROM events e
-         JOIN reader_events r ON r.event_id=e.id
+         JOIN reader_post_events r ON r.event_id=e.id
          WHERE e.kind=1 AND e.created_at BETWEEN ?1 AND ?2 AND trim(e.content)!=''
            AND NOT EXISTS (SELECT 1 FROM policy_exclusions x WHERE x.event_id=lower(hex(e.id)))
            AND lower(hex(e.pubkey)) NOT IN (
@@ -923,7 +923,7 @@ pub fn cache_status(db: &Connection, now: i64) -> Result<Vec<CacheStatus>, Error
         "WITH eligible AS MATERIALIZED (
            SELECT event.id
            FROM events event
-           JOIN reader_events reader ON reader.event_id=event.id
+           JOIN reader_post_events reader ON reader.event_id=event.id
            WHERE event.kind=1 AND event.created_at BETWEEN ?1 AND ?2
              AND NOT EXISTS (
                SELECT 1 FROM policy_exclusions exclusion
@@ -1048,7 +1048,7 @@ pub fn cluster_topics(path: &Path, space: &Space, now: i64) -> Result<usize, Err
         "SELECT embedding.event_id,embedding.vector,event.content
          FROM post_embeddings embedding
          JOIN events event ON event.id=embedding.event_id
-         JOIN reader_events reader ON reader.event_id=event.id
+         JOIN reader_post_events reader ON reader.event_id=event.id
          WHERE embedding.space_id=?1 AND event.created_at BETWEEN ?2 AND ?3
            AND NOT EXISTS (
              SELECT 1 FROM policy_exclusions exclusion
@@ -1206,7 +1206,7 @@ pub fn topic_events(
     let mut statement = conn.prepare(
         "SELECT topic.event_id FROM post_topics topic
          JOIN events event ON event.id=topic.event_id
-         JOIN reader_events reader ON reader.event_id=event.id
+         JOIN reader_post_events reader ON reader.event_id=event.id
          WHERE topic.space_id=?1 AND topic.topic_id=?2 AND event.created_at BETWEEN ?3 AND ?4
            AND NOT EXISTS (
              SELECT 1 FROM policy_exclusions exclusion
@@ -1231,6 +1231,15 @@ pub fn topic_events(
         .collect::<Result<_, _>>()
         .map_err(Into::into);
     events
+}
+
+/// Counts cached post vectors in one exact space.
+pub fn vector_count(path: &Path, space: &Space) -> Result<i64, Error> {
+    Ok(db(path)?.query_row(
+        "SELECT count(*) FROM post_embeddings WHERE space_id=?1",
+        [&space.id],
+        |row| row.get(0),
+    )?)
 }
 
 /// Loads one event vector from the model's exact space.
@@ -1269,7 +1278,7 @@ pub fn nearest(
         "SELECT embedding.event_id,embedding.vector
          FROM post_embeddings embedding
          JOIN events event ON event.id=embedding.event_id
-         JOIN reader_events reader ON reader.event_id=event.id
+         JOIN reader_post_events reader ON reader.event_id=event.id
          WHERE embedding.space_id=?1 AND event.created_at BETWEEN ?2 AND ?3
            AND NOT EXISTS (
              SELECT 1 FROM policy_exclusions exclusion

@@ -9,23 +9,6 @@ CREATE TABLE reader_events (
 CREATE INDEX reader_parent ON reader_events(parent_id);
 CREATE INDEX reader_root ON reader_events(root_id);
 
-CREATE VIEW posts AS
-SELECT
-    r.id AS rowid,
-    'nostr:' || lower(hex(e.id)) AS canonical_id,
-    'nostr' AS source,
-    lower(hex(e.id)) AS source_id,
-    lower(hex(e.pubkey)) AS author_id,
-    substr(lower(hex(e.pubkey)), 1, 16) AS author_name,
-    e.content AS text,
-    e.created_at,
-    'https://njump.me/' || lower(hex(e.id)) AS url,
-    r.parent_id,
-    r.root_id
-FROM events e
-JOIN reader_events r ON r.event_id = e.id
-WHERE e.kind = 1;
-
 CREATE VIRTUAL TABLE posts_fts USING fts5(
     text,
     content = 'posts',

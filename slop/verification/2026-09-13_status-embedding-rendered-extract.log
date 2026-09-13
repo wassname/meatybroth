@@ -1,0 +1,9 @@
+ Embedding caches
+
+ bedrock · amazon.titan-embed-text-v2:0 · 512 dimensions · 119 eligible / 119 stored · 6315 eligible pending
+ 119 completed requests · 7247 input tokens · US$0.000144940 recorded cost · 0 uncertain requests
+ Revision provider-managed Model SHA-256 provider-managed Tokenizer SHA-256 provider-managed
+
+ minilm · sentence-transformers&#x2f;all-MiniLM-L6-v2 · 384 dimensions · 4930 eligible / 5789 stored · 1504 eligible pending
+ 6916 completed requests · 697591 input tokens · US$0.000000000 recorded cost · 0 uncertain requests
+ Revision 5f1b8cd78bc4fb444dd171e59b18f3a3af89a079 Model SHA-256 bbd7b466f6d58e646fdc2bd5fd67b2f5e93c0b687011bd4548c420f7bd46f0c5 Tokenizer SHA-256 da0e79933b9ed51798a3ae27893d3c5fa4a201126cef75586296df9b4d2c62a0

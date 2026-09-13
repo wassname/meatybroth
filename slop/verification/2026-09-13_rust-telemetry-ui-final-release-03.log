@@ -1,0 +1,2 @@
+warning: unused config key `unstable.min-publish-age` in `/home/code/.cargo/config.toml`
+    Finished `release` profile [optimized] target(s) in 2.03s

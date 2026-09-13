@@ -1,0 +1,3 @@
+warning: unused config key `unstable.min-publish-age` in `/home/code/.cargo/config.toml`
+warning: unused config key `unstable.min-publish-age` in `/home/code/.cargo/config.toml`
+    Finished `dev` profile [unoptimized] target(s) in 1.80s

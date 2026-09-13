@@ -1,0 +1,13 @@
+new_similar rc=0 status=200 seconds=0.590096 bytes=260830 cards=100
+root rc=0 status=200 seconds=0.448050 bytes=235644 cards=100
+social rc=0 status=200 seconds=1.252290 bytes=247041 cards=100
+status rc=0 status=200 seconds=0.228105 bytes=23932 cards=0
+titan_topic rc=0 status=200 seconds=0.501962 bytes=87339 cards=37
+0d2afb8491e5385964aaef3d0945dfbb26b931d292d202b9cc62788259f196e7 status=404 seconds=0.018101
+8fceb2419e8c7ac3a6dc3de8c23f8aa0f38996956d7b99ce6e87b5056fe5af7e status=404 seconds=0.016240
+f6ffc32f04d445ed4079914ff393c35aae83bf0f7e1e5d0e1bf715e35701f07f status=404 seconds=0.017202
+84c9f33ff9009803f713080b7c158b760348cc12b71a321410c0bbbd968d7cb4 status=200 seconds=0.038934
+status_embedding_section=yes
+banner_integrated_live=yes
+similar_heading=yes
+similar_source_context=yes

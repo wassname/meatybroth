@@ -4,6 +4,10 @@
 {% if error %}
 <p class="error">Search error: {{ error }}</p>
 {% endif %}
+{% if mode == 'similar' and similar_context %}
+<h2>Similar posts</h2>
+<p>Compared with the <a href="{{ similar_context }}">source post and thread context</a> in the {{ embedding }} cache.</p>
+{% endif %}
 {% if mode == 'discovery' and q and not results and not error %}
 <p class="hint">No Social matches for this query. <a href="/?q={{ q|urlencode }}&mode=relevance">Search everything instead</a>.</p>
 {% endif %}
