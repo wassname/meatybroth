@@ -1,0 +1,21 @@
+total  same_topic_id  changed_topic_id
+-----  -------------  ----------------
+12179  12179          0
+topic_id  baseline_label                     discriminative_label             post_count
+--------  ---------------------------------  -------------------------------  ----------
+6         mixed                              mixed                            1794
+15        news · photo · flickr              news · photo · flickr            1526
+1         mixed                              bitcoin · crypto · money         954
+3         mixed                              nostr · 70u · news               910
+8         mixed                              scene · nostr · photo            902
+14        mixed                              nostr · account · pura           752
+5         agents · register                  register · agents · signal       722
+2         trump · news                       trump · iran · finally           720
+9         bitcoin · price · sats             bitcoin · price · block          666
+12        mixed                              agent · tech · data              641
+10        mixed                              people · life · true             640
+0         mixed                              morning · day                    565
+4         mixed                              podcast · playing · hits         433
+13        trading · bots · sylunara          trading · trade · signals        323
+11        mixed                              yas · weekend · marina           322
+7         connecting · connection · service  connecting · connection · error  309

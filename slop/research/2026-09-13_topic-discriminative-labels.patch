@@ -1,0 +1,158 @@
+diff --git a/src/embed.rs b/src/embed.rs
+index 44195d2..fcdc878 100644
+--- a/src/embed.rs
++++ b/src/embed.rs
+@@ -1033,24 +1033,104 @@ fn topic_label(texts: &[&str]) -> String {
+     }
+ }
+
++fn discriminative_topic_labels(
++    rows: &[(Vec<u8>, Vec<f32>, String, Vec<u8>)],
++    assignments: &[usize],
++    cluster_count: usize,
++) -> Vec<String> {
++    static STOP: LazyLock<std::collections::HashSet<&'static str>> =
++        LazyLock::new(|| include_str!("data/english-stopwords.txt").lines().collect());
++    let urls = regex::Regex::new(r"(?i)https?://\S+").unwrap();
++    let words = regex::Regex::new(r"(?i)[\p{L}\p{N}][\p{L}\p{N}_-]{2,}").unwrap();
++    let terms: Vec<std::collections::HashSet<String>> = rows
++        .iter()
++        .map(|(_, _, text, _)| {
++            words
++                .find_iter(&urls.replace_all(text, " "))
++                .map(|word| word.as_str().to_lowercase())
++                .filter(|word| {
++                    word.is_ascii()
++                        && word
++                            .chars()
++                            .any(|character| character.is_ascii_alphabetic())
++                        && word.chars().count() <= 32
++                        && !STOP.contains(word.as_str())
++                        && !word.starts_with("http")
++                })
++                .collect()
++        })
++        .collect();
++    let mut global_df = std::collections::HashMap::<String, usize>::new();
++    for document in &terms {
++        for word in document {
++            *global_df.entry(word.clone()).or_default() += 1;
++        }
++    }
++    (0..cluster_count)
++        .map(|cluster| {
++            let cluster_size = assignments
++                .iter()
++                .filter(|value| **value == cluster)
++                .count();
++            let mut support = std::collections::HashMap::<String, usize>::new();
++            let mut authors =
++                std::collections::HashMap::<String, std::collections::HashSet<&[u8]>>::new();
++            for ((_, _, _, author), document) in rows
++                .iter()
++                .zip(&terms)
++                .enumerate()
++                .filter_map(|(index, row)| (assignments[index] == cluster).then_some(row))
++            {
++                for word in document {
++                    *support.entry(word.clone()).or_default() += 1;
++                    authors.entry(word.clone()).or_default().insert(author);
++                }
++            }
++            let minimum_support = 5.max(cluster_size.div_ceil(50));
++            let mut scored: Vec<_> = support
++                .into_iter()
++                .filter(|(word, count)| *count >= minimum_support && authors[word].len() >= 3)
++                .map(|(word, count)| {
++                    let score = count as f64 / cluster_size as f64
++                        * ((rows.len() + 1) as f64 / (global_df[&word] + 1) as f64).ln();
++                    (word, score)
++                })
++                .collect();
++            scored.sort_by(|left, right| {
++                right
++                    .1
++                    .total_cmp(&left.1)
++                    .then_with(|| left.0.cmp(&right.0))
++            });
++            let selected: Vec<_> = scored.into_iter().take(3).map(|(word, _)| word).collect();
++            if selected.len() < 2 {
++                "mixed".into()
++            } else {
++                selected.join(" · ")
++            }
++        })
++        .collect()
++}
++
+ /// Recomputes deterministic cosine clusters and labels from current post text.
+ pub fn cluster_topics(path: &Path, space: &Space, now: i64) -> Result<usize, Error> {
+     let mut conn = db(path)?;
+     let mut statement = conn.prepare(
+-        "SELECT embedding.event_id,embedding.vector,event.content
++        "SELECT embedding.event_id,embedding.vector,event.content,event.pubkey
+          FROM post_embeddings embedding
+          JOIN events event ON event.id=embedding.event_id
+          JOIN reader_post_events reader ON reader.event_id=event.id
+          WHERE embedding.space_id=?1 AND event.created_at BETWEEN ?2 AND ?3
+          ORDER BY embedding.event_id",
+     )?;
+-    let rows: Vec<(Vec<u8>, Vec<f32>, String)> = statement
++    let rows: Vec<(Vec<u8>, Vec<f32>, String, Vec<u8>)> = statement
+         .query_map((&space.id, now - WINDOW, now), |row| {
+             Ok((
+                 row.get(0)?,
+                 decode_vector(&row.get::<_, Vec<u8>>(1)?, space.dimensions)
+                     .map_err(rusqlite::Error::ToSqlConversionFailure)?,
+                 row.get(2)?,
++                row.get(3)?,
+             ))
+         })?
+         .collect::<Result<_, _>>()?;
+@@ -1082,7 +1162,7 @@ pub fn cluster_topics(path: &Path, space: &Space, now: i64) -> Result<usize, Err
+     }
+     let mut assignments = vec![0; rows.len()];
+     for _ in 0..8 {
+-        for (assignment, (_, vector, _)) in assignments.iter_mut().zip(&rows) {
++        for (assignment, (_, vector, _, _)) in assignments.iter_mut().zip(&rows) {
+             *assignment = centroids
+                 .iter()
+                 .enumerate()
+@@ -1096,7 +1176,7 @@ pub fn cluster_topics(path: &Path, space: &Space, now: i64) -> Result<usize, Err
+         }
+         let mut sums = vec![vec![0.0_f32; space.dimensions]; cluster_count];
+         let mut sizes = vec![0; cluster_count];
+-        for (assignment, (_, vector, _)) in assignments.iter().zip(&rows) {
++        for (assignment, (_, vector, _, _)) in assignments.iter().zip(&rows) {
+             sizes[*assignment] += 1;
+             for (sum, value) in sums[*assignment].iter_mut().zip(vector) {
+                 *sum += value;
+@@ -1109,18 +1189,7 @@ pub fn cluster_topics(path: &Path, space: &Space, now: i64) -> Result<usize, Err
+             }
+         }
+     }
+-    let labels: Vec<_> = (0..cluster_count)
+-        .map(|cluster| {
+-            topic_label(
+-                &assignments
+-                    .iter()
+-                    .zip(&rows)
+-                    .filter(|(assignment, _)| **assignment == cluster)
+-                    .map(|(_, (_, _, text))| text.as_str())
+-                    .collect::<Vec<_>>(),
+-            )
+-        })
+-        .collect();
++    let labels = discriminative_topic_labels(&rows, &assignments, cluster_count);
+     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+     tx.execute(
+         "DELETE FROM embedding_topics WHERE space_id=?1",
+@@ -1149,7 +1218,7 @@ pub fn cluster_topics(path: &Path, space: &Space, now: i64) -> Result<usize, Err
+         )?;
+         stored_topics += 1;
+     }
+-    for ((event_id, _, _), topic_id) in rows.iter().zip(assignments) {
++    for ((event_id, _, _, _), topic_id) in rows.iter().zip(assignments) {
+         tx.execute(
+             "INSERT INTO post_topics(event_id,space_id,topic_id) VALUES(?1,?2,?3)",
+             (event_id, &space.id, i64::try_from(topic_id)?),
