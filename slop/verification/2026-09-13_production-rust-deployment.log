@@ -153,4 +153,61 @@ SMOKE_PASS
 
 Database facts for the same four fixtures remain: telemetry zone and presence canonical=1, eligible=0, vectors/chunks/topics=0; JSON price canonical=1, eligible=1, vectors/chunks/topics=1; cached-Titan positive canonical=1, eligible=1, vectors/chunks/topics=2. No transfer, AWS call or production mutation occurred.
 
+## Production deployment and rollback exercise
+
+At 18:20Z an unpaid STS call in the cached token's proven `us-east-2` issuer succeeded for account `275713940406`. This intervention confirms the region-routing diagnosis. Deployment calls exported temporary credentials in memory through east-2 and used them for east-1 resources; no credential was printed or saved.
+
+Pre-change observations: stack `meatybroth-exp-wassname` remained `CREATE_COMPLETE`; instance `i-0a99d95567fc8d891` was running/SSM Online at `34.192.250.76`; root volume `vol-0ae3112f8e21ee374` remained attached with `DeleteOnTermination=true`; 27 GiB was free. Old web, collector and Caddy were running.
+
+Fresh rollback backup SSM command `a37b0ac6-31d6-498c-a365-ba81f01972a9` created `/opt/meatybroth-backups/pre-rust-final-20260913T182229Z`. Python SQLite online backup integrity and a copied restore proof both passed. Counts were `posts=8104`, `follows=33804`; DB SHA-256 was `6d5c6e78d6e51cfcccf17cfe584f7097769cef6e7bb6d4dee666dee212d1a700`. The earlier backup was retained.
+
+The private transfer used two AES256-encrypted objects in a same-region bucket with all four public-access blocks enabled and no bucket policy. The compressed image archive SHA-256 was `cffcff4a5c31c03ea22d16a354dd9fd3ade026913d6c78dc7199a75289b86a49`; compressed DB SHA-256 was `3135d4827368b0876fe06e62430075ea2609792841e9b89cebf1beb873ee160b`. Presigned downloads expired after 15 minutes. SSM verified both transfer hashes and the unpacked DB SHA `4aabaecc632017f11d5dcb20de86b7b052f3e5226349c13637e76a2b7b55ec32`. Both S3 objects were deleted and later `head-object` checks confirmed absence. Docker's local content-store digest was `14f1a88b…`; the saved archive and production Docker daemon consistently identify its config object as `a348a116e77a8c24931630d27e0cf2fa883fc7ee01219890265795812ed0bfef`. OCI revision remained exact `1d367334fad3aec55a4a8331e926e2259d87a046`.
+
+The first private start used noncanonical environment names and failed fast with `Error: NotPresent`. Correcting them to the exact smoke artifact names produced a full private pass. This happened before the first public change.
+
+The first public smoke omitted Social. Fresh review then found four Social HTTP 500 responses. Rust logs quoted the cause:
+
+> `SqliteFailure(Error { code: DiskFull, extended_code: 13 }, Some("database or disk is full"))`
+
+Caddy was restored to `web:8081` by SSM command `4854afbe-b0e5-4d0c-8a15-16384993544b`. Old Social completed HTTP 200 with declared and received Content-Length 49,965 and 20 articles. The Rust container stayed private for diagnosis.
+
+Host disk was not full. A monitored private reproduction observed a deleted-open `/tmp/etilqs_32130b68f69d7d2d` file while the 16 MiB `/tmp` tmpfs was consuming space; `/data` stayed at 32 KiB and host disk had 27 GiB free. This directly locates the SQLite sort spill. The Rust container was recreated with `/opt/meatybroth-rust/tmp`, owner `10001:10001`, mode0700, bind-mounted writable at `/tmp`; the root and canonical DB remained read-only. SSM command `0b97965b-ecc9-42fb-a082-57f1df5d1fa0` then observed:
+
+```text
+social-cold http=200 bytes=246053
+social-repeat http=200 bytes=246053
+root/status/titan-context/titan-similar/titan-topic http=200
+telemetry zone+presence context=404 similar=400
+price context=200 minilm=400
+meaning-unavailable=400
+tmp_files=0 restart_count=0
+PRIVATE_DISK_TEMP_SMOKE_PASS
+```
+
+After Caddy validation/reload, independent public checks returned the same Social body size twice and all earlier controls:
+
+```text
+social-cold                    http=200 bytes=246053
+social-repeat                  http=200 bytes=246053
+root                           http=200 bytes=241503
+status                         http=200 bytes=24179
+zone-context                   http=404 bytes=38
+zone-similar                   http=400 bytes=5260
+presence-context               http=404 bytes=38
+presence-similar               http=400 bytes=5260
+price-context                  http=200 bytes=5848
+price-minilm                   http=400 bytes=5132
+titan-context                  http=200 bytes=7864
+titan-similar                  http=200 bytes=236894
+titan-topic                    http=200 bytes=241503
+meaning-unavailable            http=400 bytes=5024
+PUBLIC_FINAL_SMOKE_PASS
+```
+
+Production now routes to `meatybroth-rust:8088`; Rust restart count was zero. Old web and collector remain running. CloudFormation, instance and volume were not changed.
+
+A security incident caused legacy static credential text from local config comments to enter a private tool transcript during S3 diagnosis. Values are not repeated here. Current-account key status was `Inactive`, last used 2026-07-06T11:59Z by IAM. A second-account key remains unassessed and was not used or disabled. My changed deployment docs/bundle/image/DB archives contained zero credential-pattern matches; transfer objects were deleted. Full private record: `.local/security/2026-09-13_private-aws-config-transcript-exposure.md`. The malformed nested S3 setting that triggered diagnosis was fixed in yadm commit `7d58fd5`.
+
+One process mistake: the temporary private Caddy canary referenced `caddy:latest`; because that tag was absent, Docker pulled and ran an unpinned image. The canary was removed, the pulled tag/image was removed, and production Caddy was never replaced. Host-loopback and final checks do not depend on retaining that image.
+
 -- Pi/gpt-5.6-sol

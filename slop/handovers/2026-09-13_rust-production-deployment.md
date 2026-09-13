@@ -1,6 +1,6 @@
 # Rust production deployment handover
 
-Status 2026-09-13T17:50Z: final deployable revision `1d367334fad3aec55a4a8331e926e2259d87a046` and a moderation-clean SDK snapshot passed the hardened off-host smoke. Deployment remains paused for a human-attended AWS login issuer-region test. Old production is still serving. No CloudFormation, instance, volume, Caddy-upstream or application-service change occurred.
+Status 2026-09-13T19:22Z: Rust revision `1d367334fad3aec55a4a8331e926e2259d87a046` is serving production at `https://meatybroth.com`. Public Social cold/repeat, root, status, cached-Titan Topic/Similar, moderation exclusions and positive controls passed. The old Python web and collector remain running for rollback; CloudFormation, instance and volume were not replaced.
 
 ## User-visible limitations
 
@@ -15,32 +15,25 @@ This is a cached-Titan deployment candidate, not complete embedding-search funct
 - The backup shares the root volume; do not replace the instance/volume or update/delete the stack.
 - AL2023 signed Rust/Cargo/GCC packages were installed, but no build or service change ran on the instance.
 
-## AWS authentication blocker
+## AWS authentication resolution
 
 Use official `/usr/local/bin/aws` v2.36.44. Do not use `/snap/bin/aws`, logout, delete cache or create keys.
 
 Two user logins produced valid 15-minute access credentials, but proactive refresh failed about five minutes before expiry with `CreateOAuth2Token INVALID_REQUEST`. Cache/session hash, owner/mode, DPoP key presence, refresh-token presence, profile association and UTC clock were correct. The second failure was sequential, not a concurrent refresh.
 
-AWS CLI issue #10613 confirms the observed failure mode: Sign-In refresh tokens must be redeemed in their issuer region, while the CLI refreshes through the current request region. A bounded decode of only the cached ID token's nonsecret `iss` claim proves the successful login issuer was `us-east-2`. The Titan workload refreshed in `us-west-2`; the later unpaid STS retry refreshed in `us-east-1`. Both were region mismatches. Initial access working and refresh failing at the proactive boundary matches the AWS-documented behavior. The next test must keep login and request in the same workload region.
+AWS CLI issue #10613 confirms the observed failure mode: Sign-In refresh tokens must be redeemed in their issuer region, while the CLI refreshes through the current request region. A bounded decode of only the cached ID token's nonsecret `iss` claim proves the successful login issuer was `us-east-2`. The Titan workload refreshed in `us-west-2`; the later unpaid STS retry refreshed in `us-east-1`. Both were region mismatches. Initial access working and refresh failing at the proactive boundary matches the AWS-documented behavior. An unpaid STS request through the proven `us-east-2` issuer succeeded, confirming region routing as the cause. Deployment used issuer-aware in-memory temporary credentials for `us-east-1` resource calls; no credential was printed, saved or added to the application.
 
-Next human-attended test, exactly:
-
-```bash
-/usr/local/bin/aws login --profile cds-login --region us-west-2
-/usr/local/bin/aws sts get-caller-identity --profile cds-login --region us-west-2
-```
-
-Confirm the authorization host is `us-west-2.signin.aws.amazon.com`; then make one serial unpaid STS call in `us-west-2` after the 15-minute refresh boundary. Existing east-2 credentials could be refreshed through east-2 and exported temporarily for west, but this is only a short routing workaround. Do not mix issuer and request regions, poll authentication, use `--debug`, or print cache values. Until a human attends this test, make no AWS or production mutation.
+Future Titan collection still requires a fresh `us-west-2` login because a long west workload cannot refresh an east-2 token. Do not mix issuer and request regions, use `--debug`, or print cache values.
 
 Expected identity: account `275713940406`, `arn:aws:iam::275713940406:user/wassname100`. Titan metadata in us-west-2 was ACTIVE/AUTHORIZED/AVAILABLE. Do not log tokens or cache contents.
 
 ## Final off-host artifacts
 
-Final local bundle: `/tmp/meatybroth-deploy-1d36733/`. It has not been transferred. Build and smoke evidence is in `slop/verification/2026-09-13_production-rust-deployment.log`.
+Final local bundle: `/tmp/meatybroth-deploy-1d36733/`. The image and database were transferred through two AES256-encrypted, public-blocked S3 objects with 15-minute presigned downloads; exact hashes were verified on the instance and both objects were deleted immediately. Build and smoke evidence is in `slop/verification/2026-09-13_production-rust-deployment.log`.
 
 - source: `1d367334fad3aec55a4a8331e926e2259d87a046`, built from an isolated exact worktree with the committed lockfile
 - binary SHA-256: `2cd80dbef4915f7214ef6e344b7a8607a79c7c94d351d26ffcf43086d0901a61`
-- image: `meatybroth-rust:1d36733`, ID `sha256:14f1a88b1d8e95e3c8d790b466e2c2548890477f8b7ad91e531e3a9adaa3e7e3`, 48,197,968 bytes
+- image: `meatybroth-rust:1d36733`, local content digest `sha256:14f1a88b1d8e95e3c8d790b466e2c2548890477f8b7ad91e531e3a9adaa3e7e3`, archive config ID `sha256:a348a116e77a8c24931630d27e0cf2fa883fc7ee01219890265795812ed0bfef`, 48,197,968 bytes
 - runtime base: `ubuntu:24.04@sha256:a61567bd31828687156d735ea8eb01ba4e37636e225dd6a48ba94136a70d9d61`
 - moderation-clean SDK snapshot: 387,764,224 bytes, SHA-256 `4aabaecc632017f11d5dcb20de86b7b052f3e5226349c13637e76a2b7b55ec32`, integrity OK; 16,403 canonical events, 12,510 reader posts, 289,884 social edges, 11,595 MiniLM vectors, 119 cached Titan vectors and six Titan topics assigning all 119
 - runtime env: `READ_ONLY=1`, `DEFAULT_EMBEDDING=titan`, DB and address only; no embed backend or AWS variables
@@ -56,15 +49,15 @@ Compatibility image smoke used non-root user10001, read-only rootfs/database, dr
 
 A private Caddy canary on an existing-network equivalent resolved `meatybroth-rust:8088` and returned root/status/Titan topic HTTP200 in 0.12–0.32 s. Dropping every capability initially prevented execution because the Caddy binary carries a file capability; the verified minimum is `--cap-drop ALL --cap-add NET_BIND_SERVICE`.
 
-## Intended reversible public upstream change
+## Applied reversible public upstream change
 
-1. Make a fresh consistent local SQLite backup after the stable app checkpoint and verify Titan topics/membership plus `sqlite_stat1`.
-2. Build/save the final pinned Ubuntu image off-host. Transfer the image and DB through a bounded private channel only; no transfer has occurred. An existing private same-region S3 deployment bucket may be used after auth review, with encryption, exact SHA verification and immediate object deletion.
-3. On production, preserve the old Docker web/collector/Caddy containers. Load the final image and install the SDK DB separately from the old Python volume.
-4. Start Rust container on existing `meatybroth_default` network, bind `0.0.0.0:8088` only inside the container and publish host `127.0.0.1:8088`. Use read-only rootfs/DB, writable `/data` tmpfs, user10001, dropped capabilities and no AWS environment.
-5. Test host loopback. Start a temporary Caddy container on the existing network and host `127.0.0.1:18080` to prove `meatybroth-rust:8088` DNS/upstream before public reload.
-6. Back up the current Caddyfile, change only its upstream from `web:8081` to `meatybroth-rust:8088`, validate and reload the existing Caddy container. Do not replace Caddy or its certificate/config volumes.
-7. Verify public root/status/Titan topic/Similar and uncached Titan Meaning400. If any check fails, restore the old Caddyfile/reload and remove only the new Rust container; old services and data remain.
+1. Fresh rollback backup `/opt/meatybroth-backups/pre-rust-final-20260913T182229Z`: online SQLite backup integrity `ok`, copy-back restore proof passed, counts `posts=8104`, `follows=33804`, DB SHA-256 `6d5c6e78d6e51cfcccf17cfe584f7097769cef6e7bb6d4dee666dee212d1a700`. The earlier backup remains.
+2. Exact image and SDK DB hashes were verified after private transfer. The Rust container is on `meatybroth_default`, published only at host `127.0.0.1:8088`, user10001, read-only root/DB, `/data` tmpfs, all capabilities dropped, no-new-privileges, no AWS or embedding-backend environment.
+3. The first Rust start failed explicitly because the deployment env used wrong variable names; it was replaced with the exact artifact env names before any public change. Initial bounded checks missed Social's larger SQLite sort. Public Social then returned 500 with SQLite `DiskFull` while `/tmp` was a 16 MiB tmpfs. Caddy was immediately restored to the old upstream; a complete old Social response returned HTTP 200 with 49,965 bytes.
+4. Direct monitoring proved the spill was a deleted-open `/tmp/etilqs_*` file while host disk had 27 GiB free and `/data` stayed at 32 KiB. Rust now uses dedicated disk-backed `/opt/meatybroth-rust/tmp`, owner10001 mode0700, bind-mounted writable at `/tmp`; the canonical DB remains read-only. Private Social cold/repeat both returned 200 with identical 246,053-byte bodies, prior controls passed, temp files returned to zero and restart count stayed zero.
+5. `/opt/meatybroth/Caddyfile.pre-rust-final` retains the prior upstream. Existing Caddy was validated and reloaded after changing only `web:8081` to `meatybroth-rust:8088`.
+6. Independent final public checks passed: Social cold/repeat each HTTP 200 and 246,053 bytes; root/status/Titan Topic/Titan Similar/eligible contexts HTTP 200; exact telemetry contexts 404 and Similar 400; unavailable Meaning and MiniLM direct URLs 400.
+7. Rollback: copy `Caddyfile.pre-rust-final` over `Caddyfile`, validate/reload `meatybroth-caddy-1`, then remove only `meatybroth-rust`. Old web, collector, data volume and Caddy remain running.
 
 Cached Titan119 is explicitly a partial NIP-13 PoW-biased cohort. Production status must say partial; do not call it retained-corpus parity or enable recurring Bedrock ingestion.
 
