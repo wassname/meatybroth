@@ -1,10 +1,10 @@
 # Embedding production estimates
 
-Date: 2026-09-13. This updates the original Python-era estimate for the Rust SQLite schema. Prices are USD.
+Date: 2026-09-13; updated 2026-09-14 with frozen partial-run and host observations. This updates the original Python-era estimate for the Rust SQLite schema. Prices are USD.
 
 ## Answer
 
-At the observed base rate, one retained month is **918,000 text notes**. Titan V2 API input remains provisionally **$1.49–$2.21/month** using two MiniLM token proxies. Continuous production Titan embedding is authorized with separate $5 setup/backfill and $5 monthly limits. An authorized partial run measured 7,247 Titan tokens and $0.00014494 for 119 posts, but `ORDER BY event_id` selected only NIP-13 proof-of-work notes. That cohort cannot calibrate the retained-corpus forecast.
+At the observed base rate, one retained month is **918,000 text notes**. Titan V2 API input remains provisionally **$1.49–$2.21/month** using two MiniLM token proxies. Continuous production Titan embedding is authorized with separate $5 setup/backfill and $5 monthly limits. The original 119-call run measured 7,247 Titan tokens and $0.00014494, but `ORDER BY event_id` selected proof-of-work notes. A later frozen 8,136-success-event snapshot has a larger 7,537-event matched eligible cohort: 155.11 Titan tokens/post and an *illustrative* $2.85/base-month sensitivity. It remains a low-ID/PoW-biased partial cohort, and excludes 599 successful eligible Titan events without a MiniLM match; neither measurement calibrates the retained-corpus forecast.
 
 The current schema stores each chunk vector and one aggregate vector per post. SQLite allocation is therefore materially larger than `notes × dimensions × 4`:
 
@@ -51,7 +51,7 @@ The completed set holds 4,414,464 aggregate-vector bytes and 5,268,480 chunk-vec
 
 ## Compute alternatives
 
-- **Bedrock production:** inference is remote, so the EC2 host only chunks, sends and stores results. The existing EC2 role has a narrowly scoped Titan V2 `bedrock:InvokeModel` grant in us-west-2. Credential retrieval has been verified inside the deployment container; application-level role-backed invocation is still pending. Continuous production is configured to use the default credential chain rather than profile or static credentials. The API price and storage are the relevant embedding increments; web and collection load still need a representative host measurement.
+- **Bedrock production:** inference is remote, so the EC2 host only chunks, sends and stores results. The existing EC2 role has a narrowly scoped Titan V2 `bedrock:InvokeModel` grant in us-west-2. Application-level role-backed invocation is now proven by the ledgered continuous run, not merely container credential retrieval. The production host is a t3.small with healthy CPU credits at the recorded resource sample, but low free memory/high SQLite I/O and variable public latency: Rust used 1.293 GiB of 1.865 GiB RAM, about 157 MiB was available, the canonical DB was 1.029 GB with a 401.5 MB WAL, and public reader responses ranged from sub-second topic index to multi-second 100-card pages. These are dated observations, not a capacity forecast or a reason alone to upgrade. Continuous production uses the default credential chain rather than profile or static credentials.
 - **MiniLM CPU development:** the completed Rust command resumed 1,519 posts in 402.69 s: 3.77 posts/s wall time, 0.157 s CPU/post, 0.59 average cores and 571 MiB maximum RSS on an AMD Ryzen 9 5900X host with 12 cores/24 threads and 62 GiB RAM. This whole command also includes a 14.01 s development build and 11-topic clustering; clustering time is not isolated, and the resumed remainder is a biased subset. At the same desktop whole-command rate, 918,000 posts is 67.6 hours, but that arithmetic is not a t3.small forecast. The earlier Python fastembed path measured 17.4 posts/s on a different four-core setup and is not directly comparable.
 - **GPU backfill:** no current Rust/GPU throughput is measured. The original estimate's 5,000–18,000 posts/s range came from an unspecified sentence-transformers benchmark, so it is not adequate evidence to rent hardware. Titan's projected $1.49–$2.21 backfill removes the economic reason to provision a GPU for production.
 
@@ -69,7 +69,19 @@ The partial Titan run completed 119 calls before temporary-login refresh failed.
 
 This is not a representative correction factor. All 119 Titan events have NIP-13 nonce tags and IDs beginning with four zero hex digits; only 267 and 262 respectively of 6,381 eligible non-Titan notes do. Low-ID ordering selected mined content first. [The exact matched-cohort query](../../slop/verification/2026-09-13_titan119-cost-evidence.md) is application-ledger evidence, not an AWS invoice.
 
-Initial backfill costs one ingestion-month equivalent under the matching token assumption. Queries, retries, uncertain requests and re-embedding after a model-space change are additional. The user authorized continuous production embedding with a $5 setup/backfill ceiling and a separate $5 monthly ceiling. The setup limit must not become a permanent lifetime block after backfill; recurring calls remain subject to the monthly ledger limit. Mechanically, $5 permits 3.35 ingestion-month equivalents under the 81.2-token proxy or 2.27 under the 120.14-token proxy. The ×3 high-token case would exceed the monthly limit. Full-corpus Titan usage and the AWS invoice remain unavailable.
+### Larger frozen partial cohort sensitivity
+
+A read-only query of the frozen `events-8136.sqlite` deployment handoff at 2026-09-14 found 9,018 succeeded Titan request rows for 8,136 events: 3,615,029 actual tokens and $0.07230058 actual ledger cost. For comparison with MiniLM, only 7,537 events are both currently reader-eligible and have a completed MiniLM aggregate embedding. Those exact matched IDs used 1,169,047 actual Titan tokens/$0.02338094 and 1,129,414 MiniLM tokens: 155.11 Titan tokens/post and a 1.035 Titan/MiniLM token ratio. Its simple rate sensitivity is:
+
+| volume | notes/month | illustrative Titan input cost |
+|---|---:|---:|
+| ×0.5 | 459,000 | $1.42 |
+| base | 918,000 | $2.85 |
+| ×3 | 2,754,000 | $8.54 |
+
+This is deliberately labelled illustrative rather than a replacement forecast. The matched cohort has 930 four-leading-zero IDs among 7,537 events (12.3%), versus 1,010 among 13,874 current eligible posts (7.3%); it is still low-ID/PoW-biased. More importantly, 599 currently eligible successful Titan events lack a MiniLM match and account for 2,445,982 Titan tokens/$0.04891964 (4,083 tokens/event). Excluding them makes the matched sensitivity length-selected as well as low-ID-selected. The ledger also holds three reserved requests with $0.00049152 reserved budget and one uncertain request with 3 actual tokens/$0.00000006; neither is silently treated as completed. [The bounded query and result](../../slop/verification/2026-09-14_titan8136-matched-cost-evidence.md) preserve the denominators. The frozen database is application-ledger evidence, not an AWS invoice.
+
+Initial backfill costs one ingestion-month equivalent under the matching token assumption. Queries, retries, uncertain requests and re-embedding after a model-space change are additional. The user authorized continuous production embedding with a $5 setup/backfill ceiling and a separate $5 monthly ceiling. The setup limit must not become a permanent lifetime block after backfill; recurring calls remain subject to the monthly ledger limit. Mechanically, $5 permits 3.35 ingestion-month equivalents under the 81.2-token proxy, 2.27 under the 120.14-token proxy, or 1.76 under the illustrative matched 155.11-token cohort. The ×3 high-token cases exceed the monthly limit. Full-corpus Titan usage and the AWS invoice remain unavailable.
 
 ## Model context
 
