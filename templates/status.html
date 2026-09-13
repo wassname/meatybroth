@@ -8,7 +8,7 @@
 <p>Last report {{ s.updated }}</p>
 <pre>{{ s.detail|tojson(indent=2) }}</pre>
 {% else %}<p>No collector has reported status yet.</p>{% endfor %}
-<h3>Unresolved collection gaps</h3>
+<h3>Unresolved collection gaps ({{ gap_count }} total; latest 100 shown)</h3>
 {% for g in gaps %}<p>{{ g.relay }} · {{ g.since }} to {{ g.until }} · {{ g.reason }} · checked {{ g.checked }}</p>
 {% else %}<p>No gaps recorded. This does not establish complete relay coverage.</p>{% endfor %}
 <h3>Moderation lists</h3>

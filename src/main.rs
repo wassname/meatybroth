@@ -283,7 +283,8 @@ fn status(app: &App, db: &Connection, now: i64) -> Result<String, Error> {
         let (source, updated, detail) = row?;
         rows.push(json!({"source":source,"updated":render::time(updated),"detail":serde_json::from_str::<Value>(&detail)?}));
     }
-    let mut statement=db.prepare("SELECT relay,since_at,until_at,reason,checked_at FROM collection_gaps ORDER BY relay,since_at")?;
+    let gap_count: i64 = db.query_row("SELECT count(*) FROM collection_gaps", [], |r| r.get(0))?;
+    let mut statement=db.prepare("SELECT relay,since_at,until_at,reason,checked_at FROM collection_gaps ORDER BY checked_at DESC,relay LIMIT 100")?;
     let gaps=statement.query_map([],|r|Ok(json!({"relay":r.get::<_,String>(0)?,"since":render::time(r.get(1)?),
         "until":render::time(r.get(2)?),"reason":r.get::<_,String>(3)?,"checked":render::time(r.get(4)?)})))?.collect::<Result<Vec<_>,_>>()?;
     let mut statement=db.prepare("SELECT coalesce(l.source,a.source),coalesce(l.identifier,a.identifier),l.event_id,l.event_created_at,l.checked_at,json_array_length(l.members_json),
@@ -296,7 +297,7 @@ fn status(app: &App, db: &Connection, now: i64) -> Result<String, Error> {
     page(
         app,
         "status.html",
-        json!({"now":render::time(now),"eligible_posts":counts,"status_rows":rows,"gaps":gaps,"lists":lists}),
+        json!({"now":render::time(now),"eligible_posts":counts,"status_rows":rows,"gap_count":gap_count,"gaps":gaps,"lists":lists}),
     )
 }
 
