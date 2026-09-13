@@ -31,6 +31,7 @@ for segment in $(seq 1 100); do
       MEATYBROTH_EMBED_TOTAL_BUDGET_USD=5 \
       MEATYBROTH_EMBED_MONTHLY_BUDGET_USD=5 \
       MEATYBROTH_EMBED_MAX_POSTS="$segment_posts" \
+      MEATYBROTH_EMBED_DEADLINE_EPOCH="$((expiry_epoch - 120))" \
       target/release/meatybroth 2>&1 | tee "$segment_log"; then
       succeeded=1
       break

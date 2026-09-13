@@ -1,0 +1,11 @@
+status     requests  accounted_nusd
+---------  --------  --------------
+reserved   3         491520
+succeeded  530       709560
+uncertain  1         60
+id     status     reserved_nusd  actual_tokens  actual_nusd  event_id                                                          requested_at  error
+-----  ---------  -------------  -------------  -----------  ----------------------------------------------------------------  ------------  --------------------------------
+18209  uncertain  40             3              60           000001fcad7e922be53d8f2ccbf3dd8fef8fbbd44a2de95ab61773ef6c05cba1  1789327297    actual cost exceeded reservation
+18560  reserved   163840                                     0000470e216adedd2e6cddcae9117c37f6d07b779415b21de8b0ca9d39e107d5  1789328512
+18561  reserved   163840                                     0000475b21ccf89cb1b618bd26d3bc4be8259235f145b2be2c4c6c04756d7fbc  1789328512
+18562  reserved   163840                                     000047c186b0b73e66e3eba79bb58985fb6611babb44da7f0b05073b817822c5  1789328512

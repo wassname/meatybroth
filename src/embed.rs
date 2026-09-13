@@ -820,8 +820,21 @@ pub async fn embed_pending(
     let space = transport.space();
     register_space(path, space, now)?;
     let posts = pending(path, space, now, limit)?;
+    let deadline = std::env::var("MEATYBROTH_EMBED_DEADLINE_EPOCH")
+        .ok()
+        .map(|value| value.parse::<u64>())
+        .transpose()?;
     let mut embedded = 0;
     for window in posts.chunks(transport.concurrency()) {
+        if deadline.is_some_and(|deadline| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+                >= deadline
+        }) {
+            break;
+        }
         // SQLite sections finish synchronously; only provider awaits overlap. -- Pi/gpt-5.6-sol
         let results = futures_util::future::join_all(
             window

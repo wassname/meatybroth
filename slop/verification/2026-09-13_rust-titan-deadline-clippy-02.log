@@ -1,0 +1,4 @@
+warning: unused config key `unstable.min-publish-age` in `/home/code/.cargo/config.toml`
+warning: unused config key `unstable.min-publish-age` in `/home/code/.cargo/config.toml`
+    Checking meatybroth v0.1.0 (/workspace/meatybroth-rust)
+    Finished `dev` profile [unoptimized] target(s) in 15.22s
