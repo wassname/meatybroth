@@ -53,6 +53,6 @@ GROUP BY r.status;
 | uncertain | 1 | 1 | 3 | $0.00000006 | $0.00000004 |
 | reserved/held | 3 | 3 | — | — | $0.00049152 |
 
-The exact fixed-time predicate returns 13,874 reader-eligible posts and 8,136 completed Titan aggregate vectors, all joined to an eligible `posts` row. The dated handoff log instead reports 13,852 eligible / 8,124 vectors; this discrepancy is retained, not reconciled by assertion. For the dated first 119 succeeded request rows (`requested_at <= 1789306718`), the same frozen ledger returns 119 events, 7,247 actual tokens, and $0.00014494, reproducing the preserved 119-call evidence. The snapshot is application-ledger evidence, not an AWS invoice.
+The exact fixed-time predicate returns 13,874 posts and 8,136 completed Titan aggregate vectors. The dated handoff log instead reports 13,852 eligible / 8,124 vectors; this discrepancy is retained, not reconciled by assertion. Quick negative checks on the same frozen DB found 63 valid JSON values (50 Titan), 25 JSON objects (12 Titan), and 3 trim-blank values (0 Titan); none alone explains the 22-post/12-vector discrepancy. For the dated first 119 succeeded request rows (`requested_at <= 1789306718`), the same frozen ledger returns 119 events, 7,247 actual tokens, and $0.00014494, reproducing the preserved 119-call evidence. The snapshot is application-ledger evidence, not an AWS invoice.
 
 -- Pi/gpt-5.6-terra
