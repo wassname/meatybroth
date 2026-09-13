@@ -646,6 +646,7 @@ fn handle(app: &App, path: &str, raw: &str, now: i64) -> Result<(StatusCode, Str
     db.busy_timeout(Duration::from_secs(10))?;
     db.pragma_update(None, "cache_size", -65_536)?;
     db.pragma_update(None, "mmap_size", 268_435_456)?;
+    db.pragma_update(None, "temp_store", "MEMORY")?;
     db.execute_batch("BEGIN")?;
     match path {
         "/" => feed(app, &db, raw, now),
@@ -768,7 +769,10 @@ async fn backfill_embeddings(
 async fn main() -> Result<(), Error> {
     let path = PathBuf::from(std::env::var("MEATYBROTH_DB")?);
     let read_only = std::env::var("MEATYBROTH_READ_ONLY").as_deref() == Ok("1");
-    let sdk = if read_only {
+    let embed_only = std::env::var("MEATYBROTH_EMBED_ONLY").as_deref() == Ok("1");
+    let sdk = if embed_only {
+        None
+    } else if read_only {
         Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
         None
     } else {
@@ -792,7 +796,7 @@ async fn main() -> Result<(), Error> {
         "Startup stage embedding_setup_ms={}",
         stage_started.elapsed().as_millis()
     );
-    if std::env::var("MEATYBROTH_EMBED_ONLY").as_deref() == Ok("1") {
+    if embed_only {
         if std::env::var("MEATYBROTH_EMBED_BACKEND").as_deref() == Ok("bedrock") {
             let total_nusd = usd_nusd(&std::env::var("MEATYBROTH_EMBED_TOTAL_BUDGET_USD")?)?;
             let monthly_nusd = usd_nusd(&std::env::var("MEATYBROTH_EMBED_MONTHLY_BUDGET_USD")?)?;

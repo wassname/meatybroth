@@ -1,0 +1,8 @@
+id     status     actual_tokens  actual_nusd  requested_at  event_id                                                          error
+-----  ---------  -------------  -----------  ------------  ----------------------------------------------------------------  -----
+18148  succeeded  28             560          1789327142    00000002ef29a3b28b3af3d08f20e0665e6ad9cb03f337126b20fa9528d777bb
+6433   succeeded  77             1540         1789306718    0000171d64543d6bf2bdeac9891304572a462bbe1e4805e4215ab3bb3e790c02
+6432   succeeded  3              60           1789306718    000016c8bb9b69c67bb812ab9a16e724c48645cdec089ee04202b4a19e3e609c
+vectors  tokens  cost_nusd  cost_usd
+-------  ------  ---------  ------------
+120      7275    145500     $0.000145500
