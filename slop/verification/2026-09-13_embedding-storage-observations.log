@@ -64,3 +64,21 @@ Titan: raw_vectors_GiB=3.5118 embedding_schema_GiB=7.4422 base_notes_GiB=1.3568 
 base_notes=918000 assumed_tokens=74541600 cost_at_USD_0.02_per_million=1.490832
 low_notes=459000 low_cost_USD=0.7454
 high_notes=2754000 high_cost_USD=4.4725
+active_snapshot_utc=2026-09-13T12:19:36Z
+active_db=/workspace/meatybroth-rust/.local/rust-live-8086/events.sqlite
+main_file_bytes=33968128 mtime=2026-09-13 19:43:18.635865933 +0800
+wal_file_bytes=3658592 mtime=2026-09-13 20:19:36.787156207 +0800
+shm_file_bytes=32768 mtime=2026-09-13 20:19:27.143081419 +0800
+kind=0 events=137
+kind=1 events=2874
+kind=3 events=121
+kind=10002 events=58
+kind=30000 events=2
+reader_events=3192
+fts_rows=2874
+embedding_spaces=1
+embedding_requests=77
+embedding_chunks=77
+post_embeddings=76
+chunk_vector_bytes=118272
+post_vector_bytes=116736

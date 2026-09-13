@@ -42,11 +42,12 @@ Observed 2026-09-13; [full SQLite output](../../slop/verification/2026-09-13_emb
 | database | file state | rows | interpretation |
 |---|---:|---:|---|
 | Original reader | 27.18 MiB | 7,937 posts | Selected 30-day corpus; post/FTS density was previously measured at 1.36 KiB/post. |
-| Rust current 8088 | 5.29 MiB logical; no WAL at observation | 461 events; 382 text notes | No embedding tables yet. Its 13,099 indexed tags include 12,167 from kind-3 follow events, so bytes/event is misleading. |
+| Rust active reader | 32.39 MiB main + 3.49 MiB WAL | 3,192 events; 2,874 text notes | Read-only reader DB at 12:19 UTC. A separate MiniLM backfill was in progress: 76 aggregate and 77 chunk vectors, not a completed measurement. |
+| Rust coverage fixture | 5.29 MiB logical; no WAL | 461 events; 382 text notes | The former `rust-coverage-8088` file is not active. Its 13,099 indexed tags include 12,167 from kind-3 follow events, so bytes/event is misleading. |
 | SDK parity snapshot | 233.43 MiB | 10,001 events; 7,543 projected posts | Follow tables/indexes and full event/tag indexes dominate. It is migration evidence, not a representative monthly storage rate. |
-| Rust note-only copy | 0.58 MiB above empty schema | 382 text notes | 1.55 KiB/note for full signed events, event indexes, reader rows, tags and FTS. |
+| Rust note-only fixture copy | 0.58 MiB above empty schema | 382 text notes | 1.55 KiB/note for full signed events, event indexes, reader rows, tags and FTS. |
 
-The current databases contain zero `embedding_spaces`, `embedding_chunks` or `post_embeddings` rows. Persisted vector bytes and Rust MiniLM throughput are therefore **pending**, not inferred from the earlier Python fastembed run. The app owner selected fastembed 6.0.2 with native ONNX Runtime and `AllMiniLML6V2`; their measured hardware, corpus, wall time and persisted bytes must be added after the real backfill.
+At the active snapshot, the incomplete MiniLM backfill held 116,736 aggregate-vector bytes and 118,272 chunk-vector bytes. This verifies 384-float payloads but not final SQLite allocation or throughput. The app owner selected fastembed 6.0.2 with native ONNX Runtime and `AllMiniLML6V2`; completed hardware, corpus, wall time and persisted bytes remain **pending**.
 
 ## Compute alternatives
 
@@ -64,7 +65,7 @@ The AWS us-west-2 metered-unit map reports Titan Text Embeddings V2 at $0.00002 
 | base | 918,000 | 74.54M | $1.49 |
 | ×3 | 2,754,000 | 223.62M | $4.47 |
 
-Initial backfill costs the same as one retained month. Queries, retries, uncertain requests and re-embedding after a model-space change are additional. The configured $5 setup and $5 monthly limits leave room at base volume, but ×3 leaves only $0.53 before those extras. No Bedrock call has been made, and these figures are not an AWS bill.
+Initial backfill costs the same as one retained month. Queries, retries, uncertain requests and re-embedding after a model-space change are additional. The implementation currently treats $5 as a lifetime cumulative limit as well as a $5 monthly limit. At base volume, the initial $1.49 backfill leaves about $3.51: only 2.35 further steady months, or 3.35 ingestion-month equivalents in total. At ×3, the initial $4.47 backfill leaves about $0.53. Indefinite operation at up to $5/month is therefore not configured; it requires a reviewed change to the cumulative-limit policy or an explicit later budget increase. No Bedrock call has been made, and these figures are not an AWS bill.
 
 ## Model context
 
