@@ -6,6 +6,8 @@ Status 2026-09-13T20:58Z: Rust revision `1d367334fad3aec55a4a8331e926e2259d87a04
 
 At 20:57Z, the existing role `meatybroth-exp-wassname-InstanceRole-y6KZvcRn9Q6K` received inline policy `MeatybrothTitanV2InvokeUsWest2`. It allows only `bedrock:InvokeModel` on `arn:aws:bedrock:us-west-2::foundation-model/amazon.titan-embed-text-v2:0`. No wildcard action/resource, new role, new profile or instance change was made. IAM Access Analyzer returned no findings. IAM's policy simulator did not model the Bedrock resource and returned a placeholder implicit deny; this is not invocation evidence.
 
+CloudFormation change set `meatybroth-titan-role-20260913` was generated from the live stack template. It contained one change only: `InstanceRole` Modify, property `Policies`, replacement `False`, recreation `Never`. Execution completed with stack status `UPDATE_COMPLETE` at 21:00:53Z; the exact policy read back afterward. Saved applied template: `slop/deployment/2026-09-13_live-stack-template-with-titan.yaml`.
+
 SSM command `fae82b3f-f0b1-46ea-83a1-ac22b03f18ec` unset AWS credential/profile/region variables, obtained the IMDSv2 role name and used default-chain STS. It returned account `275713940406` with the expected assumed-role class. No model invocation was made outside the application ledger.
 
 ## User-visible limitations

@@ -249,6 +249,20 @@ arn_class=expected_assumed_role
 
 This proves automatic instance-role credentials reach STS without human login or keys. Exact Titan authorization remains unproven until the application makes a ledgered call.
 
+To avoid unmanaged stack drift, change set `meatybroth-titan-role-20260913` was generated from CloudFormation's live original template. Its complete preview contained one resource change:
+
+```text
+Action=Modify
+LogicalId=InstanceRole
+Type=AWS::IAM::Role
+Replacement=False
+Scope=Properties
+Property=Policies
+RequiresRecreation=Never
+```
+
+It executed successfully. Stack `meatybroth-exp-wassname` reached `UPDATE_COMPLETE` at 21:00:53Z. The policy then read back with the exact action and model ARN above. Saved applied source: `slop/deployment/2026-09-13_live-stack-template-with-titan.yaml`. Public status remained HTTP 200/24,179 bytes and Social HTTP 200/246,053 bytes after the stack update.
+
 The current public revision remains read-only `1d36733`. Isolated collection-enabled revision `18b4f62` initialized no embedder (`embedding_setup_ms=0`) but panicked before relay connection because rustls could not select between compiled crypto providers. Audit: `slop/audits/2026-09-13_collection-enabled-no-embedding.md`. Do not enable production collection until the app owner's explicit provider fix passes the same isolated WSS/new-event test.
 
 -- Pi/gpt-5.6-sol
