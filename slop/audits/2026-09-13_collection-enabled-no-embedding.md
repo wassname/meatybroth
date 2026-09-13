@@ -31,7 +31,7 @@ Primary runtime log, complete retained stderr at `/tmp/pi-processes-raT92q/proc_
 
 This establishes that local embedding/API setup did no work before the reader listened. It does not establish absence of every possible network syscall; the stronger evidence is that no backend or credential source was provided.
 
-The first attempt stopped collection explicitly because the runtime contract requires `/data/blocklist.txt` beside the database:
+The first attempt stopped collection explicitly because the collector requires `/data/blocklist.txt` beside the database:
 
 > Collector stopped with an explicit error: No such file or directory (os error 2); HTTP reader remains available
 
