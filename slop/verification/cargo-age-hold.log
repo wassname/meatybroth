@@ -1,0 +1,5 @@
+warning: unused config key `unstable.min-publish-age` in `/home/code/.cargo/config.toml`
+    Updating crates.io index
+     Locking 0 packages to highest compatible versions as of 8 days ago
+note: pass `--verbose` to see 6 unchanged dependencies behind latest
+warning: not updating lockfile due to dry run

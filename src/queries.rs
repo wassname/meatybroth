@@ -92,21 +92,27 @@ pub fn feed(db: &Connection, search: &Search, root: &str, now: i64) -> Result<Ve
           FROM events e,json_each(e.tags) t WHERE e.kind=3 AND json_extract(t.value,'$[0]')='p'
             AND length(json_extract(t.value,'$[1]'))=64
             AND json_extract(t.value,'$[1]') NOT GLOB '*[^0-9a-f]*'
-        ), direct AS (SELECT followee FROM edges WHERE follower=:root), paths AS (
+        ), direct AS MATERIALIZED (SELECT followee FROM edges WHERE follower=:root),
+        candidates AS MATERIALIZED (SELECT DISTINCT author_id FROM eligible),
+        endpoint_edges AS MATERIALIZED (
+          SELECT * FROM edges WHERE followee IN (SELECT author_id FROM candidates)
+        ), paths AS (
           SELECT followee AS author,followee AS endorser,1 AS distance FROM direct
+            WHERE followee IN (SELECT author_id FROM candidates)
           UNION ALL
-          SELECT e.followee,d.followee,2 FROM direct d JOIN edges e ON e.follower=d.followee
+          SELECT e.followee,d.followee,2 FROM direct d JOIN endpoint_edges e ON e.follower=d.followee
             WHERE e.followee!=:root AND e.followee!=d.followee
           UNION ALL
           SELECT h.followee,d.followee,3 FROM direct d JOIN edges e ON e.follower=d.followee
-            JOIN edges h ON h.follower=e.followee
+            JOIN endpoint_edges h ON h.follower=e.followee
             WHERE e.followee!=:root AND e.followee!=d.followee
               AND e.followee NOT IN (SELECT followee FROM direct)
               AND h.followee!=:root AND h.followee!=d.followee
         ), shortest AS (
           SELECT author,endorser,MIN(distance) AS distance FROM paths GROUP BY author,endorser
         ), reach AS (
-          SELECT author,MIN(distance) AS hops,SUM(1.0/(distance*distance)) AS mass
+          SELECT author,MIN(distance) AS hops,
+            SUM(distance=1)+SUM(distance=2)*0.25+SUM(distance=3)*(1.0/9) AS mass
           FROM shortest GROUP BY author
         ) SELECT p.*,x.bm25,0 AS n_reply_authors,0 AS n_replies,0 AS latest_activity,
           0 AS root_present,r.hops,r.mass FROM eligible p JOIN matches x USING(canonical_id)

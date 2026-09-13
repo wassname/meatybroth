@@ -1,0 +1,26 @@
+warning: unused config key `resolver.incompatible-publish-age` in `/home/code/.cargo/config.toml`
+   Compiling meatybroth v0.1.0 (/workspace/meatybroth-rust)
+    Finished `test` profile [unoptimized] target(s) in 5.03s
+     Running unittests src/main.rs (target/debug/deps/meatybroth-fa5876d46c400ea0)
+
+running 1 test
+
+thread 'tokio-rt-worker' panicked at src/render.rs:21:40:
+called `Option::unwrap()` on a `None` value
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+Reader request failed: Err(JoinError::Panic(Id(1), "called `Option::unwrap()` on a `None` value", ...))
+
+thread 'tests::rendering_preserves_safe_text_profiles_warnings_and_exclusions' panicked at src/tests.rs:275:5:
+assertion `left == right` failed
+  left: []
+ right: ["nostr:0000000000000000000000000000000000000000000000000000000000000064"]
+test tests::rendering_preserves_safe_text_profiles_warnings_and_exclusions ... FAILED
+
+failures:
+
+failures:
+    tests::rendering_preserves_safe_text_profiles_warnings_and_exclusions
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.28s
+
+error: test failed, to rerun pass `--bin meatybroth`
