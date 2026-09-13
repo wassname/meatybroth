@@ -22,6 +22,21 @@ impl Default for MockEmbedder {
     }
 }
 
+impl embed::SemanticModel for MockEmbedder {
+    fn vector_space(&self) -> &embed::Space {
+        &self.space
+    }
+
+    fn embed_text(&self, _text: &str) -> Result<embed::Output, Error> {
+        let mut vector = vec![0.0; self.space.dimensions];
+        vector[0] = 1.0;
+        Ok(embed::Output {
+            vector,
+            input_tokens: 1,
+        })
+    }
+}
+
 impl embed::Transport for MockEmbedder {
     fn space(&self) -> &embed::Space {
         &self.space
@@ -108,12 +123,16 @@ async fn relay_ordered(
 async fn relay(events: Vec<Value>) -> (String, tokio::task::JoinHandle<()>) {
     relay_ordered(events, false).await
 }
-async fn html(path: &std::path::Path, uri: &str) -> (StatusCode, String) {
+async fn html_with_embedding(
+    path: &std::path::Path,
+    uri: &str,
+    embedding: Option<Arc<dyn embed::SemanticModel>>,
+) -> (StatusCode, String) {
     let app = router(App {
         path: path.to_path_buf(),
         root: ROOT.into(),
         templates: templates().unwrap(),
-        embedding: None,
+        embedding,
     });
     let response = app
         .oneshot(
@@ -134,6 +153,9 @@ async fn html(path: &std::path::Path, uri: &str) -> (StatusCode, String) {
         )
         .unwrap(),
     )
+}
+async fn html(path: &std::path::Path, uri: &str) -> (StatusCode, String) {
+    html_with_embedding(path, uri, None).await
 }
 fn count(db: &Connection, sql: &str) -> i64 {
     db.query_row(sql, [], |r| r.get(0)).unwrap()
@@ -433,13 +455,13 @@ async fn incremental_embeddings_reuse_delete_and_budget_after_sdk_drain() {
     .await
     .unwrap();
     assert_eq!(observed.accepted.len(), 2);
-    let mock = MockEmbedder::default();
+    let mock = Arc::new(MockEmbedder::default());
     let budget = embed::Budget {
         total_nusd: 5_000_000_000,
         monthly_nusd: 5_000_000_000,
     };
     assert_eq!(
-        embed::embed_pending(&path, &mock, budget, now, 10)
+        embed::embed_pending(&path, mock.as_ref(), budget, now, 10)
             .await
             .unwrap(),
         1
@@ -452,6 +474,18 @@ async fn incremental_embeddings_reuse_delete_and_budget_after_sdk_drain() {
         ),
         1
     );
+    let vector = embed::event_vector(&path, &mock.space, long.id.as_bytes())
+        .unwrap()
+        .unwrap();
+    let ranked = embed::nearest(&path, &mock.space, &vector, None, now, 10).unwrap();
+    assert_eq!(ranked[0].0, long.id.as_bytes());
+    assert!(crate::queries::get(
+        &Connection::open(&path).unwrap(),
+        &canonical_event_id(&ranked[0].0),
+        now,
+    )
+    .unwrap()
+    .is_some());
     assert_eq!(embed::cluster_topics(&path, &mock.space, now).unwrap(), 1);
     let topics = embed::topics(&path, &mock.space).unwrap();
     assert_eq!(topics.len(), 1);
@@ -461,14 +495,42 @@ async fn incremental_embeddings_reuse_delete_and_budget_after_sdk_drain() {
         vec![long.id.as_bytes().to_vec()]
     );
     assert_eq!(
-        embed::embed_pending(&path, &mock, budget, now, 10)
+        embed::embed_pending(&path, mock.as_ref(), budget, now, 10)
             .await
             .unwrap(),
         0
     );
     assert_eq!(mock.calls.load(Ordering::SeqCst), 2);
 
-    sdk.delete(Filter::new().id(long.id)).await.unwrap();
+    let second = signed(&keys, 1, "another semantic card", now as u64, vec![]);
+    sdk.save_event(&second).await.unwrap();
+    assert_eq!(
+        embed::embed_pending(&path, mock.as_ref(), budget, now, 10)
+            .await
+            .unwrap(),
+        1
+    );
+    embed::cluster_topics(&path, &mock.space, now).unwrap();
+    let semantic: Arc<dyn embed::SemanticModel> = mock.clone();
+    let (status, meaning) =
+        html_with_embedding(&path, "/?q=semantic&mode=meaning", Some(semantic.clone())).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(meaning.contains("<article"));
+    assert!(meaning.contains(&long.id.to_hex()));
+    let similar_uri = format!("/?mode=similar&similar=nostr:{}", long.id.to_hex());
+    let (status, similar) = html_with_embedding(&path, &similar_uri, Some(semantic.clone())).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(similar.contains("<article"));
+    assert!(similar.contains(&second.id.to_hex()));
+    let topic_id = embed::topics(&path, &mock.space).unwrap()[0].id;
+    let topic_uri = format!("/?mode=topics&topic={topic_id}");
+    let (status, topic) = html_with_embedding(&path, &topic_uri, Some(semantic)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(topic.contains("<article"));
+
+    sdk.delete(Filter::new().ids([long.id, second.id]))
+        .await
+        .unwrap();
     let conn = Connection::open(&path).unwrap();
     assert_eq!(count(&conn, "SELECT count(*) FROM post_embeddings"), 0);
     assert_eq!(count(&conn, "SELECT count(*) FROM embedding_chunks"), 0);
@@ -480,11 +542,13 @@ async fn incremental_embeddings_reuse_delete_and_budget_after_sdk_drain() {
     let pending = signed(&keys, 1, "budget guard", now as u64, vec![]);
     sdk.save_event(&pending).await.unwrap();
     let calls = mock.calls.load(Ordering::SeqCst);
-    assert!(embed::embed_pending(&path, &mock, too_small, now, 10)
-        .await
-        .unwrap_err()
-        .to_string()
-        .contains("budget exhausted"));
+    assert!(
+        embed::embed_pending(&path, mock.as_ref(), too_small, now, 10)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("budget exhausted")
+    );
     assert_eq!(mock.calls.load(Ordering::SeqCst), calls);
     client.shutdown().await;
     relay_task.abort();

@@ -868,6 +868,7 @@ pub async fn run(
     path: &Path,
     sdk: NostrSqlite,
     relays: Vec<String>,
+    profile_relays: Vec<String>,
     root: PublicKey,
     embedding: Option<Arc<MiniLm>>,
 ) -> Result<(), Error> {
@@ -888,14 +889,14 @@ pub async fn run(
     let policy = Arc::new(Policy::new(load_blocks()?, bootstrap(&sdk).await?));
     let mut moderation_refresh_at = Timestamp::now().as_secs() + MODERATION_REFRESH;
     let client = client(sdk.clone(), policy.clone());
-    for relay in &relays {
+    for relay in relays.iter().chain(&profile_relays) {
         client.add_relay(relay).await?;
     }
     for relay in &relays {
         cursor(path, relay, i64::try_from(Timestamp::now().as_secs())?)?;
     }
     client.connect().await;
-    for relay in &relays {
+    for relay in relays.iter().chain(&profile_relays) {
         let result = scan(
             &client,
             &policy,

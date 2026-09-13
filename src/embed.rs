@@ -95,6 +95,12 @@ pub trait Transport: Send + Sync {
     ) -> Pin<Box<dyn Future<Output = Result<Output, Error>> + Send + 'a>>;
 }
 
+/// Synchronous query interface shared by native inference and HTTP test doubles.
+pub trait SemanticModel: Send + Sync {
+    fn vector_space(&self) -> &Space;
+    fn embed_text(&self, text: &str) -> Result<Output, Error>;
+}
+
 /// Native ONNX MiniLM inference with tokenizer-bound chunking.
 pub struct MiniLm {
     model: Mutex<TextEmbedding>,
@@ -153,6 +159,16 @@ impl MiniLm {
             vector: vectors.remove(0),
             input_tokens,
         })
+    }
+}
+
+impl SemanticModel for MiniLm {
+    fn vector_space(&self) -> &Space {
+        self.vector_space()
+    }
+
+    fn embed_text(&self, text: &str) -> Result<Output, Error> {
+        self.embed_text(text)
     }
 }
 

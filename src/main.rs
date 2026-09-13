@@ -38,7 +38,7 @@ struct App {
     path: PathBuf,
     root: String,
     templates: Environment<'static>,
-    embedding: Option<Arc<embed::MiniLm>>,
+    embedding: Option<Arc<dyn embed::SemanticModel>>,
 }
 
 fn local_embedding(path: &std::path::Path) -> Result<Option<Arc<embed::MiniLm>>, Error> {
@@ -238,8 +238,14 @@ fn page(app: &App, name: &str, data: Value) -> Result<String, Error> {
     Ok(app.templates.get_template(name)?.render(shared)?)
 }
 
-fn event_hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+fn canonical_event_id(bytes: &[u8]) -> String {
+    format!(
+        "nostr:{}",
+        bytes
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+    )
 }
 
 fn semantic_feed(
@@ -262,7 +268,7 @@ fn semantic_feed(
             .similar
             .as_deref()
             .ok_or("Similar search requires an event ID")?;
-        let event_id = EventId::from_hex(id)?;
+        let event_id = EventId::from_hex(id.strip_prefix("nostr:").unwrap_or(id))?;
         let vector = embed::event_vector(&app.path, model.vector_space(), event_id.as_bytes())?
             .ok_or("This post has not been embedded yet")?;
         (vector, Some(event_id))
@@ -280,7 +286,7 @@ fn semantic_feed(
     )?;
     let mut rows = Vec::new();
     for (event_id, score) in ranked.into_iter().skip(offset) {
-        if let Some(post) = queries::get(db, &event_hex(&event_id), now)? {
+        if let Some(post) = queries::get(db, &canonical_event_id(&event_id), now)? {
             rows.push((post, score));
         }
     }
@@ -311,7 +317,7 @@ fn topic_feed(
     )?;
     let mut rows = Vec::new();
     for event_id in event_ids {
-        if let Some(post) = queries::get(db, &event_hex(&event_id), now)? {
+        if let Some(post) = queries::get(db, &canonical_event_id(&event_id), now)? {
             rows.push((post, f32::NAN));
         }
     }
@@ -583,7 +589,9 @@ async fn main() -> Result<(), Error> {
         path: path.clone(),
         root,
         templates: templates()?,
-        embedding: embedding.clone(),
+        embedding: embedding
+            .clone()
+            .map(|model| model as Arc<dyn embed::SemanticModel>),
     });
     let addr = std::env::var("MEATYBROTH_ADDR").unwrap_or_else(|_| "127.0.0.1:8083".into());
     let listener = tokio::net::TcpListener::bind(&addr).await?;
@@ -594,8 +602,15 @@ async fn main() -> Result<(), Error> {
             .split(',')
             .map(str::to_owned)
             .collect();
+        let profile_relays = std::env::var("MEATYBROTH_PROFILE_RELAYS")
+            .unwrap_or_else(|_| "wss://purplepag.es".into())
+            .split(',')
+            .map(str::to_owned)
+            .collect();
         tokio::spawn(async move {
-            if let Err(error) = collect::run(&path, sdk, relays, root_key, embedding).await {
+            if let Err(error) =
+                collect::run(&path, sdk, relays, profile_relays, root_key, embedding).await
+            {
                 eprintln!(
                     "Collector stopped with an explicit error: {error}; HTTP reader remains available"
                 );
