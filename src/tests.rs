@@ -50,6 +50,8 @@ impl Fixture {
             root: key(1),
             templates: templates().unwrap(),
             embedding: None,
+            embedding_queries: None,
+            embedding_error: Arc::new(Mutex::new(None)),
             default_embedding: "minilm".into(),
             collecting: false,
         }
@@ -455,6 +457,8 @@ fn matched_reference_reader_outputs() {
         root: expected["root"].as_str().unwrap().into(),
         templates: templates().unwrap(),
         embedding: None,
+        embedding_queries: None,
+        embedding_error: Arc::new(Mutex::new(None)),
         default_embedding: "minilm".into(),
         collecting: false,
     };

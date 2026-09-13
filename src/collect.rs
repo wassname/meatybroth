@@ -4,7 +4,7 @@
 //! -- Pi/gpt-5.6-sol
 
 use crate::{
-    embed::{self, Budget, MiniLm},
+    embed::{self, Budget, Transport},
     policy::{Observation, Policy},
     queries::WINDOW,
     Error,
@@ -20,7 +20,13 @@ use nostr_sdk::{
 };
 use nostr_sqlite::store::NostrSqlite;
 use rusqlite::{Connection, OptionalExtension};
-use std::{collections::BTreeSet, path::Path, sync::Arc, time::Duration};
+use std::{
+    collections::BTreeSet,
+    path::Path,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
+use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 pub const PRIMAL_AUTHOR: &str = "5d8282fc89410f1c57681a2c3b8be57afd1566c262fd1deb543999d39d141cb4";
@@ -37,7 +43,8 @@ DELETE FROM post_embeddings WHERE NOT EXISTS (
 const PAGE_LIMIT: usize = 500;
 const COVERAGE_STEP: i64 = 300;
 const MODERATION_REFRESH: u64 = 3600;
-const LOCAL_EMBED_BATCH: usize = 1;
+const RELAY_WORK_BUDGET: u64 = 120;
+const EMBEDDING_INTERLEAVE: u64 = 5;
 
 #[derive(Clone, Copy)]
 struct Cursor {
@@ -946,9 +953,30 @@ async fn collect_relay(
     Ok(())
 }
 
-async fn embed_until_next_scan(
+pub(crate) struct EmbeddingQuery {
+    pub query: String,
+    pub reply: oneshot::Sender<Result<(), String>>,
+}
+
+async fn cache_embedding_query(
     path: &Path,
-    model: &MiniLm,
+    transport: &dyn Transport,
+    budget: Budget,
+    request: EmbeddingQuery,
+    now: i64,
+) {
+    let result = embed::cache_query(path, transport, budget, &request.query, now)
+        .await
+        .map(|_| ())
+        .map_err(|error| error.to_string());
+    let _ = request.reply.send(result);
+}
+
+pub(crate) async fn embed_until_next_scan(
+    path: &Path,
+    transport: &dyn Transport,
+    budget: Budget,
+    queries: &mut mpsc::Receiver<EmbeddingQuery>,
     topics_dirty: &mut bool,
     next_scan_at: tokio::time::Instant,
 ) -> Result<(), Error> {
@@ -957,39 +985,85 @@ async fn embed_until_next_scan(
             return Ok(());
         }
         let now = i64::try_from(Timestamp::now().as_secs())?;
-        let count = embed::embed_pending(
-            path,
-            model,
-            Budget {
-                total_nusd: i64::MAX,
-                monthly_nusd: i64::MAX,
-            },
-            now,
-            LOCAL_EMBED_BATCH,
-        )
-        .await?;
+        if let Ok(request) = queries.try_recv() {
+            cache_embedding_query(path, transport, budget, request, now).await;
+            continue;
+        }
+        let count =
+            embed::embed_recent_pending(path, transport, budget, now, transport.concurrency())
+                .await?;
         if count == 0 {
             if *topics_dirty {
-                let count = embed::cluster_topics(path, model.vector_space(), now)?;
+                let count = embed::cluster_topics(path, transport.space(), now)?;
                 *topics_dirty = false;
-                eprintln!("Built {count} keyword-labelled MiniLM topics");
+                eprintln!(
+                    "Built {count} keyword-labelled {} topics",
+                    transport.space().backend
+                );
+            }
+            tokio::select! {
+                request = queries.recv() => {
+                    if let Some(request) = request {
+                        cache_embedding_query(path, transport, budget, request, now).await;
+                        continue;
+                    }
+                }
+                _ = tokio::time::sleep_until(next_scan_at) => {}
             }
             return Ok(());
         }
         *topics_dirty = true;
-        eprintln!("Embedded {count} local posts between SDK scans");
+        eprintln!(
+            "Embedded {count} {} posts between SDK scans",
+            transport.space().backend
+        );
         tokio::task::yield_now().await;
     }
 }
 
 /// Runs moderation refresh, bounded collection, hydration, and cleanup in one writer sequence.
+pub struct EmbeddingWorker {
+    pub transport: Arc<dyn Transport>,
+    pub budget: Budget,
+    pub queries: mpsc::Receiver<EmbeddingQuery>,
+    pub error: Arc<Mutex<Option<String>>>,
+}
+
+async fn service_embeddings(
+    path: &Path,
+    worker: &mut EmbeddingWorker,
+    topics_dirty: &mut bool,
+    duration: Duration,
+) {
+    match embed_until_next_scan(
+        path,
+        worker.transport.as_ref(),
+        worker.budget,
+        &mut worker.queries,
+        topics_dirty,
+        tokio::time::Instant::now() + duration,
+    )
+    .await
+    {
+        Ok(()) => *worker.error.lock().unwrap() = None,
+        Err(error) => {
+            let message = format!(
+                "{} embedding between completed SDK work failed: {error}",
+                worker.transport.space().backend
+            );
+            *worker.error.lock().unwrap() = Some(message.clone());
+            eprintln!("{message}; collection continues");
+        }
+    }
+}
+
 pub async fn run(
     path: &Path,
     sdk: NostrSqlite,
     relays: Vec<String>,
     profile_relays: Vec<String>,
     root: PublicKey,
-    embedding: Option<Arc<MiniLm>>,
+    mut embedding: Option<EmbeddingWorker>,
 ) -> Result<(), Error> {
     let blocks = path.with_file_name("blocklist.txt");
     let load_blocks = || -> Result<BTreeSet<String>, Error> {
@@ -1091,31 +1165,50 @@ pub async fn run(
             prune(&sdk, &policy, now_u64).await?;
         }
         for relay in &relays {
-            if let Err(error) = collect_relay(
-                path,
-                &client,
-                &policy,
-                &sdk,
-                relay,
-                now,
-                &mut unsupported_reconciliation,
+            let result = tokio::time::timeout(
+                Duration::from_secs(RELAY_WORK_BUDGET),
+                collect_relay(
+                    path,
+                    &client,
+                    &policy,
+                    &sdk,
+                    relay,
+                    now,
+                    &mut unsupported_reconciliation,
+                ),
             )
-            .await
-            {
+            .await;
+            let error = match result {
+                Ok(Ok(())) => None,
+                Ok(Err(error)) => Some(error.to_string()),
+                Err(_) => Some(format!(
+                    "bounded relay work exceeded {RELAY_WORK_BUDGET} seconds"
+                )),
+            };
+            if let Some(error) = error {
                 let reason = format!("recoverable relay cycle failure: {error}");
                 record_gap(path, relay, now - COVERAGE_STEP, now, &reason)?;
                 eprintln!("{reason}; relay={relay}; HTTP reader remains available");
             }
+            if let Some(worker) = &mut embedding {
+                service_embeddings(
+                    path,
+                    worker,
+                    &mut topics_dirty,
+                    Duration::from_secs(EMBEDDING_INTERLEAVE),
+                )
+                .await;
+            }
         }
         let next_scan_at = tokio::time::Instant::now() + Duration::from_secs(30);
-        if let Some(model) = &embedding {
-            if let Err(error) =
-                embed_until_next_scan(path, model.as_ref(), &mut topics_dirty, next_scan_at).await
-            {
-                eprintln!(
-                    "Local embedding between completed SDK scans failed explicitly: {error}; collection continues"
-                );
-            }
+        if let Some(worker) = &mut embedding {
+            service_embeddings(
+                path,
+                worker,
+                &mut topics_dirty,
+                next_scan_at.saturating_duration_since(tokio::time::Instant::now()),
+            )
+            .await;
         }
         tokio::time::sleep_until(next_scan_at).await;
     }

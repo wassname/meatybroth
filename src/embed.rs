@@ -103,7 +103,7 @@ pub trait SemanticModel: Send + Sync {
     fn embed_text(&self, text: &str) -> Result<Output, Error>;
 }
 
-/// Native AWS SDK transport for the explicitly approved one-off Titan backfill.
+/// Native AWS SDK transport for Titan backfill and authorized continuous production.
 pub struct Bedrock {
     client: aws_sdk_bedrockruntime::Client,
     space: Space,
@@ -458,6 +458,7 @@ fn pending(
     space: &Space,
     now: i64,
     limit: usize,
+    recent_first: bool,
 ) -> Result<Vec<(Vec<u8>, String)>, Error> {
     let conn = db(path)?;
     let mut statement = conn.prepare(
@@ -471,14 +472,16 @@ fn pending(
              SELECT 1 FROM embedding_requests request
              WHERE request.event_id=e.id AND request.space_id=?3
                AND request.status IN ('reserved','uncertain'))
-         ORDER BY CASE WHEN ?4='bedrock' THEN e.id END,
-                  CASE WHEN ?4!='bedrock' THEN e.created_at END DESC,e.id LIMIT ?5",
+         ORDER BY CASE WHEN ?4 THEN r.received_at END DESC,
+                  CASE WHEN NOT ?4 AND ?5='bedrock' THEN e.id END,
+                  CASE WHEN NOT ?4 AND ?5!='bedrock' THEN e.created_at END DESC,e.id LIMIT ?6",
     )?;
     let rows = statement.query_map(
         (
             now - WINDOW,
             now,
             &space.id,
+            recent_first,
             &space.backend,
             i64::try_from(limit)?,
         ),
@@ -835,7 +838,18 @@ pub async fn embed_pending(
         .ok()
         .map(|value| value.parse::<u64>())
         .transpose()?;
-    embed_pending_until(path, transport, budget, deadline, now, limit).await
+    embed_pending_until(path, transport, budget, deadline, now, limit, false).await
+}
+
+/// Embeds the newest eligible posts first so live collection does not wait behind a backfill.
+pub async fn embed_recent_pending(
+    path: &Path,
+    transport: &(impl Transport + ?Sized),
+    budget: Budget,
+    now: i64,
+    limit: usize,
+) -> Result<usize, Error> {
+    embed_pending_until(path, transport, budget, None, now, limit, true).await
 }
 
 pub(crate) async fn embed_pending_until(
@@ -845,10 +859,11 @@ pub(crate) async fn embed_pending_until(
     deadline: Option<u64>,
     now: i64,
     limit: usize,
+    recent_first: bool,
 ) -> Result<usize, Error> {
     let space = transport.space();
     register_space(path, space, now)?;
-    let posts = pending(path, space, now, limit)?;
+    let posts = pending(path, space, now, limit, recent_first)?;
     let mut embedded = 0;
     for window in posts.chunks(transport.concurrency()) {
         if deadline_reached(deadline) {
@@ -973,7 +988,11 @@ pub struct CacheStatus {
     pub requests: i64,
     pub tokens: i64,
     pub cost_nusd: i64,
+    pub monthly_cost_nusd: i64,
     pub uncertain: i64,
+    pub reserved: i64,
+    pub newest_embedded_at: Option<i64>,
+    pub oldest_pending_at: Option<i64>,
 }
 
 /// Summarizes current eligibility separately from durable all-time provider accounting.
@@ -988,7 +1007,7 @@ pub fn cache_status(db: &Connection, now: i64) -> Result<Vec<CacheStatus>, Error
     }
     let mut statement = db.prepare(
         "WITH eligible AS MATERIALIZED (
-           SELECT event.id
+           SELECT event.id,reader.received_at
            FROM events event
            JOIN reader_post_events reader ON reader.event_id=event.id
            WHERE event.kind=1 AND event.created_at BETWEEN ?1 AND ?2
@@ -1012,8 +1031,18 @@ pub fn cache_status(db: &Connection, now: i64) -> Result<Vec<CacheStatus>, Error
              WHERE request.space_id=space.id AND request.status='succeeded'),
            (SELECT coalesce(sum(request.actual_nusd),0) FROM embedding_requests request
              WHERE request.space_id=space.id AND request.status='succeeded'),
+           (SELECT coalesce(sum(request.actual_nusd),0) FROM embedding_requests request
+             WHERE request.space_id=space.id AND request.status='succeeded'
+               AND request.requested_at>=unixepoch(?2,'unixepoch','start of month')),
            (SELECT count(*) FROM embedding_requests request
-             WHERE request.space_id=space.id AND request.status='uncertain')
+             WHERE request.space_id=space.id AND request.status='uncertain'),
+           (SELECT count(*) FROM embedding_requests request
+             WHERE request.space_id=space.id AND request.status='reserved'),
+           (SELECT max(post.embedded_at) FROM post_embeddings post
+             JOIN eligible ON eligible.id=post.event_id WHERE post.space_id=space.id),
+           (SELECT min(eligible.received_at) FROM eligible
+             WHERE NOT EXISTS (SELECT 1 FROM post_embeddings post
+               WHERE post.event_id=eligible.id AND post.space_id=space.id))
          FROM embedding_spaces space
          ORDER BY space.backend,space.created_at DESC",
     )?;
@@ -1032,7 +1061,11 @@ pub fn cache_status(db: &Connection, now: i64) -> Result<Vec<CacheStatus>, Error
                 requests: row.get(9)?,
                 tokens: row.get(10)?,
                 cost_nusd: row.get(11)?,
-                uncertain: row.get(12)?,
+                monthly_cost_nusd: row.get(12)?,
+                uncertain: row.get(13)?,
+                reserved: row.get(14)?,
+                newest_embedded_at: row.get(15)?,
+                oldest_pending_at: row.get(16)?,
             })
         })?
         .collect::<Result<_, _>>()?;
@@ -1291,6 +1324,35 @@ pub fn vector_count(path: &Path, space: &Space) -> Result<i64, Error> {
 }
 
 /// Loads one event vector from the model's exact space.
+pub fn vector_event_ids(
+    path: &Path,
+    space: &Space,
+    event_ids: &[Vec<u8>],
+) -> Result<std::collections::HashSet<Vec<u8>>, Error> {
+    if event_ids.is_empty() {
+        return Ok(Default::default());
+    }
+    let placeholders = (1..=event_ids.len())
+        .map(|index| format!("?{index}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let sql = format!(
+        "SELECT event_id FROM post_embeddings WHERE space_id=?{} AND event_id IN ({placeholders})",
+        event_ids.len() + 1
+    );
+    let mut values: Vec<&dyn rusqlite::ToSql> = event_ids
+        .iter()
+        .map(|event_id| event_id as &dyn rusqlite::ToSql)
+        .collect();
+    values.push(&space.id);
+    let conn = db(path)?;
+    let mut statement = conn.prepare(&sql)?;
+    let found = statement
+        .query_map(values.as_slice(), |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+    Ok(found)
+}
+
 pub fn event_vector(
     path: &Path,
     space: &Space,

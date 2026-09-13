@@ -18,9 +18,11 @@
 {% if l.event_id %}<p>Event <code>{{ l.event_id }}</code></p>{% endif %}
 {% else %}<p>No signed moderation lists stored.</p>{% endfor %}
 <h3>Embedding caches</h3>
+{% if embedding_error %}<p>Latest embedding error: {{ embedding_error }}</p>{% endif %}
 {% for e in embedding_spaces %}
 <p><strong>{{ e.backend }}</strong> · {{ e.model }} · {{ e.dimensions }} dimensions · {{ e.eligible_vectors }} eligible posts embedded · {{ e.pending }} eligible posts pending · {{ e.vectors }} total stored vectors, including posts no longer eligible</p>
-<p>{{ e.requests }} completed requests · {{ e.tokens }} input tokens · US${{ e.cost_usd }} recorded cost · {{ e.uncertain }} uncertain requests</p>
+<p>{{ e.requests }} completed requests · {{ e.tokens }} input tokens · US${{ e.cost_usd }} recorded cost · US${{ e.monthly_cost_usd }} this month · {{ e.uncertain }} uncertain and {{ e.reserved }} reserved requests</p>
+<p>Newest eligible vector {% if e.newest_embedded %}{{ e.newest_embedded }}{% else %}none{% endif %} · oldest eligible pending post {% if e.oldest_pending %}{{ e.oldest_pending }}{% else %}none{% endif %}</p>
 <p>Revision <code>{{ e.revision }}</code><br>Model SHA-256 <code>{{ e.model_sha256 }}</code><br>Tokenizer SHA-256 <code>{{ e.tokenizer_sha256 }}</code></p>
 {% else %}<p>No embedding cache stored.</p>{% endfor %}
 <!-- Pi/gpt-5.6-sol -->

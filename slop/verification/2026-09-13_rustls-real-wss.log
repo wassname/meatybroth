@@ -1,0 +1,16 @@
+Startup stage sdk_open_ms=48
+Startup stage posts_schema_ms=9
+Startup stage coverage_schema_ms=9
+Startup stage embedding_schema_ms=9
+Startup stage social_schema_ms=9
+Startup stage derived_cleanup_ms=0
+Startup stage analyze_events_ms=8
+Startup stage embedding_setup_ms=0
+Rust reader listening on http://127.0.0.1:8091
+Verified Primal nsfw_list snapshot id=c4bb56ddd3b476d6b0ff6266eb13ef20b34cc096b6a225feefd0679df1823843 signed_at=1693603030 members=143
+Verified Primal spam_list snapshot id=c788b323272348258dd49df80d229f1b7e773e7de662a68bc72a2d58e941d88e signed_at=1726079985 members=13
+Hydrated root profile and follow list; events=0; relay=wss://relay.damus.io
+Hydrated root profile and follow list; events=3; relay=wss://purplepag.es
+Hydrated direct-follow contact lists; requested=108 missing=97; relay=wss://relay.damus.io
+Hydrated direct-follow contact lists; requested=97 missing=79; relay=wss://purplepag.es
+SDK notes=68 rejected=0; metadata=32 metadata_eose=true; missing_profiles=1 missing_profiles_eose=true; parents=3 parents_eose=true; reconciliation_supported=false; relay=wss://relay.damus.io; completed reconciliation windows are durable, full retention coverage not established

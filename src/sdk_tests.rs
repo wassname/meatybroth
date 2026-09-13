@@ -156,11 +156,46 @@ async fn html_with_embedding(
     uri: &str,
     embedding: Option<Arc<dyn embed::SemanticModel>>,
 ) -> (StatusCode, String) {
+    html_with_models(path, uri, embedding, None, None).await
+}
+
+async fn html_with_models(
+    path: &std::path::Path,
+    uri: &str,
+    embedding: Option<Arc<dyn embed::SemanticModel>>,
+    embedding_transport: Option<Arc<dyn embed::Transport>>,
+    embedding_budget: Option<embed::Budget>,
+) -> (StatusCode, String) {
+    let embedding_queries = if let Some(transport) = embedding_transport {
+        let budget = embedding_budget.unwrap();
+        let path = path.to_path_buf();
+        let (sender, mut receiver) = tokio::sync::mpsc::channel::<collect::EmbeddingQuery>(1);
+        tokio::spawn(async move {
+            while let Some(request) = receiver.recv().await {
+                let result = embed::cache_query(
+                    &path,
+                    transport.as_ref(),
+                    budget,
+                    &request.query,
+                    Utc::now().timestamp(),
+                )
+                .await
+                .map(|_| ())
+                .map_err(|error| error.to_string());
+                let _ = request.reply.send(result);
+            }
+        });
+        Some(sender)
+    } else {
+        None
+    };
     let app = router(App {
         path: path.to_path_buf(),
         root: ROOT.into(),
         templates: templates().unwrap(),
         embedding,
+        embedding_queries,
+        embedding_error: Arc::new(Mutex::new(None)),
         default_embedding: "minilm".into(),
         collecting: false,
     });
@@ -478,7 +513,7 @@ async fn provider_deadline_stops_before_a_second_chunk_and_resumes_it() {
         monthly_nusd: i64::MAX,
     };
     assert_eq!(
-        embed::embed_pending_until(&path, &model, budget, Some(deadline), now, 1)
+        embed::embed_pending_until(&path, &model, budget, Some(deadline), now, 1, false)
             .await
             .unwrap(),
         0
@@ -488,7 +523,7 @@ async fn provider_deadline_stops_before_a_second_chunk_and_resumes_it() {
     assert_eq!(count(&conn, "SELECT count(*) FROM post_embeddings"), 0);
     drop(conn);
     assert_eq!(
-        embed::embed_pending_until(&path, &model, budget, None, now, 1)
+        embed::embed_pending_until(&path, &model, budget, None, now, 1, false)
             .await
             .unwrap(),
         1
@@ -605,6 +640,57 @@ async fn machine_presence_envelopes_stay_auditable_but_not_reader_or_embedding_e
 }
 
 #[tokio::test]
+async fn continuous_embedding_prioritizes_admission_time_not_event_time() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("events.sqlite");
+    let now = Utc::now().timestamp();
+    let sdk = collect::open(&path, collect::PRIMAL_AUTHOR).await.unwrap();
+    let keys = Keys::generate();
+    let newer_event = signed(&keys, 1, "newer signed event", now as u64, vec![]);
+    let newly_admitted_old_event = signed(
+        &keys,
+        1,
+        "old event admitted after backlog",
+        (now - 10_000) as u64,
+        vec![],
+    );
+    sdk.save_event(&newer_event).await.unwrap();
+    sdk.save_event(&newly_admitted_old_event).await.unwrap();
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    conn.execute(
+        "UPDATE reader_events SET received_at=?1 WHERE event_id=?2",
+        rusqlite::params![now - 100, newer_event.id.as_bytes()],
+    )
+    .unwrap();
+    conn.execute(
+        "UPDATE reader_events SET received_at=?1 WHERE event_id=?2",
+        rusqlite::params![now, newly_admitted_old_event.id.as_bytes()],
+    )
+    .unwrap();
+    let mock = MockEmbedder::default();
+    let budget = embed::Budget {
+        total_nusd: 1_000_000,
+        monthly_nusd: 1_000_000,
+    };
+    assert_eq!(
+        embed::embed_recent_pending(&path, &mock, budget, now, 1)
+            .await
+            .unwrap(),
+        1
+    );
+    assert!(
+        embed::event_vector(&path, &mock.space, newly_admitted_old_event.id.as_bytes())
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        embed::event_vector(&path, &mock.space, newer_event.id.as_bytes())
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[tokio::test]
 async fn incremental_embeddings_reuse_delete_and_budget_after_sdk_drain() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("events.sqlite");
@@ -681,13 +767,46 @@ async fn incremental_embeddings_reuse_delete_and_budget_after_sdk_drain() {
 
     let second = signed(&keys, 1, "another semantic card", now as u64, vec![]);
     sdk.save_event(&second).await.unwrap();
-    assert_eq!(
-        embed::embed_pending(&path, mock.as_ref(), budget, now, 10)
-            .await
-            .unwrap(),
-        1
+    let mut topics_dirty = false;
+    let (_query_sender, mut queries) = tokio::sync::mpsc::channel(1);
+    collect::embed_until_next_scan(
+        &path,
+        mock.as_ref(),
+        budget,
+        &mut queries,
+        &mut topics_dirty,
+        tokio::time::Instant::now() + Duration::from_secs(1),
+    )
+    .await
+    .unwrap();
+    assert!(
+        embed::event_vector(&path, &mock.space, second.id.as_bytes())
+            .unwrap()
+            .is_some()
     );
-    embed::cluster_topics(&path, &mock.space, now).unwrap();
+    let provider: Arc<dyn embed::Transport> = mock.clone();
+    let (status, titan_meaning) = html_with_models(
+        &path,
+        "/?q=related+concept&mode=meaning&embedding=titan",
+        None,
+        Some(provider.clone()),
+        Some(budget),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(titan_meaning.contains("<article"));
+    let calls_after_query = mock.calls.load(Ordering::SeqCst);
+    let (status, _) = html_with_models(
+        &path,
+        "/?q=related+concept&mode=meaning&embedding=titan",
+        None,
+        Some(provider),
+        Some(budget),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(mock.calls.load(Ordering::SeqCst), calls_after_query);
+
     let semantic: Arc<dyn embed::SemanticModel> = mock.clone();
     let (status, meaning) =
         html_with_embedding(&path, "/?q=semantic&mode=meaning", Some(semantic.clone())).await;
@@ -716,7 +835,7 @@ async fn incremental_embeddings_reuse_delete_and_budget_after_sdk_drain() {
     assert!(titan_topic.contains("Titan has 2 cached posts"));
     assert!(titan_topic.contains("partial cohort is proof-of-work-biased"));
     assert!(titan_topic.contains("embedding=titan"));
-    assert!(titan_topic.contains("Meaning unavailable"));
+    assert!(titan_topic.contains("Semantic search unavailable"));
     assert!(!titan_topic.contains(">MiniLM local</option>"));
     let (status, cache_status) = html_with_embedding(&path, "/status", None).await;
     assert_eq!(status, StatusCode::OK);
@@ -724,7 +843,8 @@ async fn incremental_embeddings_reuse_delete_and_budget_after_sdk_drain() {
     assert!(cache_status.contains(embed::TITAN_MODEL));
     assert!(cache_status.contains("2 eligible posts embedded"));
     assert!(cache_status.contains("2 total stored vectors"));
-    assert!(cache_status.contains("US$0.000180420 recorded cost"));
+    assert!(cache_status.contains("US$0.000180720 recorded cost"));
+    assert!(cache_status.contains("US$0.000180720 this month"));
 
     sdk.delete(Filter::new().ids([long.id, second.id]))
         .await
@@ -880,6 +1000,8 @@ async fn sdk_storage_failure_does_not_stop_http_reader() {
         root: ROOT.into(),
         templates: templates().unwrap(),
         embedding: None,
+        embedding_queries: None,
+        embedding_error: Arc::new(Mutex::new(None)),
         default_embedding: "minilm".into(),
         collecting: false,
     });

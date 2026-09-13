@@ -27,7 +27,7 @@
       {% if p.conversation %}<a class="score textlabel" href="/context/nostr/{{ p.source_id|urlencode }}" aria-label="reply context" title="reply context">{{ p.score }}</a>
       {% elif p.score %}<span class="score" {% if p.score_title %}title="{{ p.score_title }}"{% endif %}>{{ p.score }}</span>{% endif %}
       {% if not p.conversation %}<a class="textlabel" href="/context/nostr/{{ p.source_id|urlencode }}" aria-label="replies and thread context" title="available stored replies">{% if p.reply_count %}{{ p.reply_count }} {% if p.reply_count == 1 %}reply{% else %}replies{% endif %}{% else %}replies{% endif %}</a>{% endif %}
-      <a class="textlabel" href="/?mode=similar&amp;similar={{ p.canonical_id }}&amp;embedding={{ p.embedding }}" aria-label="similar posts">similar</a>
+      {% if p.similar_available is undefined or p.similar_available %}<a class="textlabel" href="/?mode=similar&amp;similar={{ p.canonical_id }}&amp;embedding={{ p.embedding }}" aria-label="similar posts">similar</a>{% else %}<span class="textlabel" title="This post is waiting for its {{ p.embedding }} vector">similar pending</span>{% endif %}
       {% if p.original_url %}<a class="textlabel" href="{{ p.original_url }}" rel="noopener noreferrer" aria-label="original event" title="original event">event</a>{% endif %}
       <details class="more"><summary aria-label="more details">⋯</summary>
         <dl>

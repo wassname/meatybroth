@@ -6,8 +6,8 @@
 
 - Permanent local URL: `http://localhost:8088/`
 - Owned SQLite: `/workspace/meatybroth-rust/.local/rust-live-8086/events.sqlite`
-- The current local reader is intentionally read-only on a consistent frozen database copy while the bounded Titan writer runs against `.local/rust-live-8086/events.sqlite`. Collection is paused. This is not a complete migration of the older production corpus.
-- Keep port 8088 fixed. Do not configure automatic Bedrock calls in the long-running service.
+- The current local reader is intentionally read-only on a consistent frozen database copy only while the bounded Titan writer runs against `.local/rust-live-8086/events.sqlite`. This is temporary and is not the approved production state.
+- Production is explicitly authorized to run continuous SDK collection, Titan embedding, and semantic search through the EC2 instance role. Keep port 8088 fixed.
 
 ## MiniLM cache
 
@@ -17,9 +17,9 @@ The resumed segment embedded 1,519 posts in 6:42.69 on a Ryzen 9 5900X (max RSS 
 
 Meaning, Similar, and keyword-labelled Topics use the selected, provenance-separated vector space. MiniLM query inference is local. Titan and MiniLM vectors are never mixed.
 
-## Titan one-off cache
+## Titan backfill and continuous production
 
-The approved one-off Titan V2 settings are `amazon.titan-embed-text-v2:0`, 512 dimensions, normalized, `us-west-2`, with a US$5 total authorization. The implementation also has a US$5 monthly safety guard; that guard is not a separate monthly spending authorization. Native `aws-sdk-bedrockruntime` replaced the per-note CLI. It overlaps at most four provider awaits while all reservation/completion SQLite sections remain synchronous in one task. SDK retries are one and operation timeout is 30 seconds. Each call reserves the documented 8,192-token maximum; actual tokens settle afterward.
+Titan V2 uses `amazon.titan-embed-text-v2:0`, 512 dimensions, normalized, in `us-west-2`. The bounded initial backfill has a US$5 total authorization. The continuous production service is separately authorized with a US$5/month safety guard; the initial US$5 total limit is not a lifetime production limit. Native `aws-sdk-bedrockruntime` replaced the per-note CLI. It overlaps at most four provider awaits while all reservation/completion SQLite sections remain synchronous in one task. SDK retries are one and operation timeout is 30 seconds. Each call reserves the documented 8,192-token maximum; actual tokens settle afterward.
 
 Authentication refreshes `cds-login` through its issuer region `us-east-2`, evaluates temporary credentials only in process memory, unsets `AWS_PROFILE`, and calls Bedrock in `us-west-2`. The bounded script is `slop/scripts/2026-09-13_resume_titan_native.sh`. It refreshes before each segment and passes an absolute expiry-minus-120-second deadline. The embedder checks that deadline before each concurrency window and every chunk; partial chunks resume in the next segment. Tests, Clippy, release build, and the two-chunk resume regression passed at immutable commit `18b4f62`.
 
@@ -35,19 +35,24 @@ Per-card warning and reply queries were batched, semantic card lookups were bulk
 
 Social initially took 15 seconds because SQLite lacked event cardinality statistics after bulk SDK ingestion. On the live DB, `ANALYZE events` took 1.79 seconds and reduced the next Social request to 3.11 seconds for 12 cards (`rank_ms=2019`, `replies_ms=193`, `cards_ms=867`). Evidence: `slop/verification/2026-09-13_social-analyze-live-probe.log`. Writable startup now runs `ANALYZE events`; the more complex proposed reach cache was discarded. Concurrent HTTP latency still needs a final measured check.
 
-## Safe deployment contract
+## Production deployment contract
 
-Cached-only production must set:
+The final service is writable and continuous:
 
 ```sh
 MEATYBROTH_DB=/path/to/events.sqlite \
-MEATYBROTH_ADDR=127.0.0.1:PORT \
-MEATYBROTH_READ_ONLY=1 \
+MEATYBROTH_ADDR=0.0.0.0:8088 \
 MEATYBROTH_DEFAULT_EMBEDDING=titan \
+MEATYBROTH_EMBED_BACKEND=bedrock \
+MEATYBROTH_EMBED_MODEL=amazon.titan-embed-text-v2:0 \
+MEATYBROTH_EMBED_DIMENSIONS=512 \
+MEATYBROTH_EMBED_NORMALIZE=true \
+MEATYBROTH_EMBED_MONTHLY_BUDGET_USD=5 \
+AWS_REGION=us-west-2 \
 /path/to/meatybroth
 ```
 
-Do not set `MEATYBROTH_EMBED_BACKEND` in the long-running cached deployment. Therefore it loads neither MiniLM nor Bedrock and needs no AWS CLI or credentials. Deploy from an immutable tested commit and copy the same SQLite file after a consistent snapshot/backup. The deployment worker owns backup, private verification, and reversible cutover.
+Do not set `AWS_PROFILE` or static AWS credentials on EC2. `aws-config` uses the instance role through the default credential chain and refreshes temporary role credentials. The collector and embedding ledger remain one serialized SQLite writer sequence. The deployment worker owns backup, private verification, and reversible cutover.
 
 ## Remaining checks
 
@@ -55,8 +60,8 @@ Do not set `MEATYBROTH_EMBED_BACKEND` in the long-running cached deployment. The
 2. After ordinary pending work reaches zero, recover only the four explicitly audited incomplete event IDs once, preserving prior rows and costs.
 3. Audit all intended eligible IDs: vector present or explicitly historical-incomplete; report tokens, succeeded cost, held uncertain/reserved cost, and the US$5 cap.
 4. Rebuild final Titan topics only after vector completion, then verify root, Social, Similar, Topics and status on the exact snapshot sequentially and concurrently.
-5. Make a consistent final database snapshot for deployment. The long-running deployment remains read-only with no AWS credentials or automatic Bedrock calls.
-6. TODO for a future live collector: batch-mark or hide Similar links whose selected-space vector is still pending; do not add one metadata query per card.
+5. Make a consistent database snapshot for deployment, then enable the authorized continuous collector and Titan embedding with the EC2 instance role.
+6. Batch-mark or hide Similar links whose selected-space vector is still pending; do not add one metadata query per card.
 
 ## Follow-up after live review
 

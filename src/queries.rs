@@ -218,7 +218,7 @@ pub fn feed(db: &Connection, search: &Search, root: &str, now: i64) -> Result<Ve
           FROM eligible p
           JOIN matches x USING(canonical_id)
           ORDER BY {}p.created_at DESC, p.canonical_id ASC",
-            if search.mode == "relevance" {
+            if search.mode == "relevance" && search.order != "newest" {
                 "x.bm25 ASC, "
             } else {
                 ""

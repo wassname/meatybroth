@@ -19,7 +19,7 @@ use serde_json::{json, Value};
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
@@ -33,12 +33,15 @@ const MODES: [&str; 6] = [
     "conversations",
     "discovery",
 ];
+const FEED_MODES: [&str; 4] = ["new", "conversations", "discovery", "topics"];
 
 struct App {
     path: PathBuf,
     root: String,
     templates: Environment<'static>,
     embedding: Option<Arc<dyn embed::SemanticModel>>,
+    embedding_queries: Option<tokio::sync::mpsc::Sender<collect::EmbeddingQuery>>,
+    embedding_error: Arc<Mutex<Option<String>>>,
     default_embedding: String,
     collecting: bool,
 }
@@ -112,7 +115,7 @@ impl Search {
         if !q.is_empty() && args.contains_key("go") {
             mode = "relevance";
         } else if !MODES.contains(&mode) && mode != "similar" {
-            mode = if q.is_empty() { "new" } else { "relevance" };
+            mode = if q.is_empty() { "topics" } else { "relevance" };
         }
         if q.is_empty() && mode == "relevance" {
             mode = "conversations";
@@ -152,10 +155,12 @@ impl Search {
                 n @ 1..=3 => n,
                 _ => 2,
             },
-            order: if arg("order") == "connections" {
-                "connections"
-            } else {
-                "recent"
+            order: match (mode, arg("order")) {
+                ("discovery", "connections") => "connections",
+                ("discovery", _) => "recent",
+                ("relevance", "newest") => "newest",
+                ("relevance", _) => "relevance",
+                _ => "recent",
             }
             .into(),
             expression,
@@ -177,6 +182,8 @@ impl Search {
         if self.mode == "discovery" {
             qs.append_pair("reach", &self.reach.to_string())
                 .append_pair("order", &self.order);
+        } else if self.mode == "relevance" {
+            qs.append_pair("order", &self.order);
         }
         if let Some(similar) = &self.similar {
             qs.append_pair("similar", similar);
@@ -235,14 +242,14 @@ fn templates() -> Result<Environment<'static>, Error> {
     Ok(env)
 }
 fn page(app: &App, name: &str, data: Value) -> Result<String, Error> {
-    let mut shared = json!({"modes":MODES,"window_days":30,"mode":"new","collecting":app.collecting,
-    "mode_labels":{"new":"New","relevance":"Relevance","meaning":"Meaning","topics":"Topics","conversations":"Conversations","discovery":"Social","similar":"Similar"},
+    let mut shared = json!({"modes":MODES,"feed_modes":FEED_MODES,"window_days":30,"mode":"topics","collecting":app.collecting,
+    "mode_labels":{"new":"Latest","relevance":"Keyword search","meaning":"Semantic search","topics":"Topics","conversations":"With replies","discovery":"Network","similar":"Similar posts"},
     "mode_explanations":{
         "new":"Every post from the last 30 days, newest first.",
-        "relevance":"Posts matching your terms, best match first (BM25: lower = closer); newer breaks ties.",
-        "meaning":"Posts nearest to your text in the selected vector cache; Titan only serves queries cached during the approved one-off run.",
-        "similar":"Posts nearest to the selected post in the selected vector cache; no provider call.",
-        "topics":"Keyword-labelled clusters from the selected vector cache; no provider call.",
+        "relevance":"Posts matching your words; sort by relevance or newest.",
+        "meaning":"Posts about related concepts in the selected vector space, not only exact-word matches.",
+        "similar":"Posts nearest to the selected post in the selected vector space.",
+        "topics":"Clusters from the selected vector space.",
         "conversations":"Threads with the most distinct recent repliers first; with a query, only matching threads.",
         "discovery":"Recent posts within the selected 1–3 hop reach. Connections favours authors supported by more independent accounts you follow; lower distance score ranks first. Based on the collected, incomplete follow graph."
     }});
@@ -288,9 +295,8 @@ fn semantic_feed(
             return Err("Meaning search requires text".into());
         }
         let query = if search.embedding == "titan" {
-            embed::cached_query(&app.path, space, &search.q)?.ok_or(
-                "This Titan query was not cached during the approved one-off run; choose MiniLM",
-            )?
+            embed::cached_query(&app.path, space, &search.q)?
+                .ok_or("This Titan query is not cached and no provider is available")?
         } else {
             app.embedding
                 .as_ref()
@@ -383,16 +389,13 @@ fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, 
     });
     let semantic = ["meaning", "similar"].contains(&search.mode.as_str());
     let topic_mode = search.mode == "topics";
-    let selected_space = if semantic || topic_mode || search.embedding == "titan" {
-        match selected_space(app, &search) {
-            Ok(space) => Some(space),
-            Err(error) => {
-                search.error = Some(error.to_string());
-                None
-            }
+    let selected_space = match selected_space(app, &search) {
+        Ok(space) => Some(space),
+        Err(error) if semantic || topic_mode => {
+            search.error = Some(error.to_string());
+            None
         }
-    } else {
-        None
+        Err(_) => None,
     };
     let titan_vectors = if search.embedding == "titan" {
         selected_space
@@ -444,6 +447,15 @@ fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, 
     let ranked_at = started.elapsed();
     let has_next = scored.len() > queries::PAGE_SIZE;
     scored.truncate(queries::PAGE_SIZE);
+    let scored_event_ids = scored
+        .iter()
+        .map(|(post, _)| EventId::from_hex(&post.source_id).map(|id| id.as_bytes().to_vec()))
+        .collect::<Result<Vec<_>, _>>()?;
+    let similar_available = selected_space
+        .as_ref()
+        .map(|space| embed::vector_event_ids(&app.path, space, &scored_event_ids))
+        .transpose()?
+        .unwrap_or_default();
     let reply_counts = queries::reply_counts(db, now)?;
     let warning_map = render::warning_map(db, scored.iter().map(|(post, _)| post))?;
     let identity_map = render::identity_map(db, scored.iter().map(|(post, _)| post))?;
@@ -474,6 +486,8 @@ fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, 
                 },
             )?;
             card["embedding"] = json!(&search.embedding);
+            card["similar_available"] = json!(EventId::from_hex(&post.source_id)
+                .map(|id| similar_available.contains(id.as_bytes().as_slice()))?);
             if semantic {
                 card["score"] = json!(format!(
                     "{} cosine similarity {similarity:.3}",
@@ -505,9 +519,9 @@ fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, 
         "embedding":search.embedding,"titan_vectors":titan_vectors,"results":results,"has_next":has_next,
         "qs_base":search.query_string(),"now":now,"before":search.before,"similar":search.similar,
         "similar_context":similar_context,"topics":topics,"selected_topic":search.topic,
-        "meaning_available":app.embedding.is_some(),"minilm_available":app.embedding.is_some(),
+        "meaning_available":app.embedding.is_some() || app.embedding_queries.is_some(),"minilm_available":app.embedding.is_some(),
         "reach":if search.mode=="discovery"{Some(search.reach)}else{None},
-        "order":if search.mode=="discovery"{Some(&search.order)}else{None},
+        "order":&search.order,
         "state_fields":[["embedding",search.embedding.as_str()]]}),
     )?;
     Ok((
@@ -624,12 +638,17 @@ fn status(app: &App, db: &Connection, now: i64) -> Result<String, Error> {
         .into_iter()
         .map(|status| {
             let cost_usd = format!("{:.9}", status.cost_nusd as f64 / 1_000_000_000.0);
+            let monthly_cost_usd =
+                format!("{:.9}", status.monthly_cost_nusd as f64 / 1_000_000_000.0);
             json!({"backend":status.backend,"model":status.model,"dimensions":status.dimensions,
                 "revision":status.revision,"model_sha256":status.model_sha256,
                 "tokenizer_sha256":status.tokenizer_sha256,"vectors":status.vectors,
                 "eligible_vectors":status.eligible_vectors,"pending":status.pending,
                 "requests":status.requests,"tokens":status.tokens,"cost_usd":cost_usd,
-                "uncertain":status.uncertain})
+                "monthly_cost_usd":monthly_cost_usd,"uncertain":status.uncertain,
+                "reserved":status.reserved,
+                "newest_embedded":status.newest_embedded_at.map(render::time),
+                "oldest_pending":status.oldest_pending_at.map(render::time)})
         })
         .collect();
     page(
@@ -637,6 +656,7 @@ fn status(app: &App, db: &Connection, now: i64) -> Result<String, Error> {
         "status.html",
         json!({"now":render::time(now),"eligible_posts":counts,"status_rows":rows,"gap_count":gap_count,
             "gaps":gaps,"lists":lists,"embedding_spaces":embedding_spaces,
+            "embedding_error":app.embedding_error.lock().unwrap().clone(),
             "direct_follows":direct_follows,"missing_contact_lists":missing_contact_lists}),
     )
 }
@@ -676,15 +696,62 @@ async fn request(State(app): State<Arc<App>>, OriginalUri(uri): OriginalUri) -> 
         )
             .into_response();
     }
-    let result = tokio::task::spawn_blocking(move || {
-        handle(
-            &app,
-            uri.path(),
-            uri.query().unwrap_or(""),
-            Utc::now().timestamp(),
-        )
-    })
-    .await;
+    let now = Utc::now().timestamp();
+    let path = uri.path().to_owned();
+    let raw = uri.query().unwrap_or("").to_owned();
+    let search = Search::parse(&raw, now, &app.default_embedding);
+    if path == "/"
+        && search.mode == "meaning"
+        && search.embedding == "titan"
+        && !search.q.is_empty()
+    {
+        let Some(sender) = &app.embedding_queries else {
+            return (
+                StatusCode::BAD_REQUEST,
+                "Titan semantic search is not configured.",
+            )
+                .into_response();
+        };
+        let (reply, result) = tokio::sync::oneshot::channel();
+        if sender
+            .send(collect::EmbeddingQuery {
+                query: search.q.clone(),
+                reply,
+            })
+            .await
+            .is_err()
+        {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Titan embedding worker stopped.",
+            )
+                .into_response();
+        }
+        let result = tokio::time::timeout(Duration::from_secs(300), result).await;
+        match result {
+            Ok(Ok(Ok(()))) => *app.embedding_error.lock().unwrap() = None,
+            Ok(Ok(Err(error))) => {
+                let message = format!("Titan semantic search failed: {error}");
+                *app.embedding_error.lock().unwrap() = Some(message.clone());
+                return (StatusCode::SERVICE_UNAVAILABLE, message).into_response();
+            }
+            Ok(Err(_)) => {
+                return (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Titan embedding worker stopped.",
+                )
+                    .into_response();
+            }
+            Err(_) => {
+                return (
+                    StatusCode::GATEWAY_TIMEOUT,
+                    "Titan semantic search timed out.",
+                )
+                    .into_response();
+            }
+        }
+    }
+    let result = tokio::task::spawn_blocking(move || handle(&app, &path, &raw, now)).await;
     match result {
         Ok(Ok((status, html))) => (status, Html(html)).into_response(),
         error => {
@@ -721,6 +788,27 @@ fn usd_nusd(value: &str) -> Result<i64, Error> {
     }
     let padded = format!("{fraction:0<9}");
     Ok(whole.parse::<i64>()? * 1_000_000_000 + padded.parse::<i64>()?)
+}
+
+fn continuous_budget(backend: Option<&str>) -> Result<Option<embed::Budget>, Error> {
+    match backend {
+        Some("bedrock") => {
+            let monthly_nusd = usd_nusd(&std::env::var("MEATYBROTH_EMBED_MONTHLY_BUDGET_USD")?)?;
+            if monthly_nusd > 5_000_000_000 {
+                return Err("Titan monthly safety ceiling exceeds US$5".into());
+            }
+            Ok(Some(embed::Budget {
+                total_nusd: i64::MAX,
+                monthly_nusd,
+            }))
+        }
+        Some("minilm") => Ok(Some(embed::Budget {
+            total_nusd: i64::MAX,
+            monthly_nusd: i64::MAX,
+        })),
+        None => Ok(None),
+        Some(other) => Err(format!("Unknown embedding backend: {other}").into()),
+    }
 }
 
 async fn backfill_embeddings(
@@ -767,6 +855,9 @@ async fn backfill_embeddings(
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .map_err(|_| "A process-level rustls CryptoProvider was already installed")?;
     let path = PathBuf::from(std::env::var("MEATYBROTH_DB")?);
     let read_only = std::env::var("MEATYBROTH_READ_ONLY").as_deref() == Ok("1");
     let embed_only = std::env::var("MEATYBROTH_EMBED_ONLY").as_deref() == Ok("1");
@@ -791,50 +882,67 @@ async fn main() -> Result<(), Error> {
         return Ok(());
     }
     let stage_started = std::time::Instant::now();
+    let backend = std::env::var("MEATYBROTH_EMBED_BACKEND").ok();
     let embedding = local_embedding(&path, 8)?;
+    let bedrock = if backend.as_deref() == Some("bedrock") {
+        Some(Arc::new(
+            embed::Bedrock::new(&std::env::var("AWS_REGION")?).await,
+        ))
+    } else {
+        None
+    };
+    let embedding_transport: Option<Arc<dyn embed::Transport>> = match (&embedding, &bedrock) {
+        (Some(model), None) => Some(model.clone()),
+        (None, Some(model)) => Some(model.clone()),
+        (None, None) => None,
+        (Some(_), Some(_)) => unreachable!(),
+    };
+    let embedding_budget = continuous_budget(backend.as_deref())?;
     eprintln!(
         "Startup stage embedding_setup_ms={}",
         stage_started.elapsed().as_millis()
     );
     if embed_only {
-        if std::env::var("MEATYBROTH_EMBED_BACKEND").as_deref() == Ok("bedrock") {
+        let transport = embedding_transport
+            .as_ref()
+            .ok_or("MEATYBROTH_EMBED_ONLY requires an explicit embedding backend")?;
+        let budget = if backend.as_deref() == Some("bedrock") {
             let total_nusd = usd_nusd(&std::env::var("MEATYBROTH_EMBED_TOTAL_BUDGET_USD")?)?;
             let monthly_nusd = usd_nusd(&std::env::var("MEATYBROTH_EMBED_MONTHLY_BUDGET_USD")?)?;
             if total_nusd > 5_000_000_000 || monthly_nusd > 5_000_000_000 {
                 return Err("Approved Titan ceiling is US$5 total and US$5/month".into());
             }
-            let region = std::env::var("AWS_REGION")?;
-            backfill_embeddings(
-                &path,
-                &embed::Bedrock::new(&region).await,
-                embed::Budget {
-                    total_nusd,
-                    monthly_nusd,
-                },
-            )
-            .await?;
+            embed::Budget {
+                total_nusd,
+                monthly_nusd,
+            }
         } else {
-            let model = embedding
-                .as_ref()
-                .ok_or("MEATYBROTH_EMBED_ONLY requires an explicit embedding backend")?;
-            backfill_embeddings(
-                &path,
-                model.as_ref(),
-                embed::Budget {
-                    total_nusd: i64::MAX,
-                    monthly_nusd: i64::MAX,
-                },
-            )
-            .await?;
-        }
+            embedding_budget.expect("an embedding transport requires a budget")
+        };
+        backfill_embeddings(&path, transport.as_ref(), budget).await?;
         return Ok(());
     }
-    let collector_embedding = embedding.clone();
     let default_embedding =
         std::env::var("MEATYBROTH_DEFAULT_EMBEDDING").unwrap_or_else(|_| "minilm".into());
     if !["minilm", "titan"].contains(&default_embedding.as_str()) {
         return Err("MEATYBROTH_DEFAULT_EMBEDDING must be minilm or titan".into());
     }
+    let embedding_error = Arc::new(Mutex::new(None));
+    let (collector_embedding, embedding_queries) = if let Some(transport) = embedding_transport {
+        let (sender, queries) = tokio::sync::mpsc::channel(32);
+        let query_sender = (transport.space().backend == "bedrock").then_some(sender);
+        (
+            Some(collect::EmbeddingWorker {
+                transport,
+                budget: embedding_budget.expect("an embedding transport requires a budget"),
+                queries,
+                error: embedding_error.clone(),
+            }),
+            query_sender,
+        )
+    } else {
+        (None, None)
+    };
     let app = router(App {
         path: path.clone(),
         root,
@@ -842,6 +950,8 @@ async fn main() -> Result<(), Error> {
         embedding: embedding
             .clone()
             .map(|model| model as Arc<dyn embed::SemanticModel>),
+        embedding_queries,
+        embedding_error: embedding_error.clone(),
         default_embedding,
         collecting: !read_only,
     });
