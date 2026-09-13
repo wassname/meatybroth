@@ -981,12 +981,17 @@ async fn cache_embedding_query(
     budget: Budget,
     request: EmbeddingQuery,
     now: i64,
-) {
+) -> Result<(), Error> {
     let result = embed::cache_query(path, transport, budget, &request.query, now)
         .await
         .map(|_| ())
         .map_err(|error| error.to_string());
+    let failure = result.as_ref().err().cloned();
     let _ = request.reply.send(result);
+    match failure {
+        Some(error) => Err(error.into()),
+        None => Ok(()),
+    }
 }
 
 pub(crate) async fn embed_until_next_scan(
@@ -1003,7 +1008,7 @@ pub(crate) async fn embed_until_next_scan(
         }
         let now = i64::try_from(Timestamp::now().as_secs())?;
         if let Ok(request) = queries.try_recv() {
-            cache_embedding_query(path, transport, budget, request, now).await;
+            cache_embedding_query(path, transport, budget, request, now).await?;
             continue;
         }
         let count =
@@ -1021,7 +1026,7 @@ pub(crate) async fn embed_until_next_scan(
             tokio::select! {
                 request = queries.recv() => {
                     if let Some(request) = request {
-                        cache_embedding_query(path, transport, budget, request, now).await;
+                        cache_embedding_query(path, transport, budget, request, now).await?;
                         continue;
                     }
                 }
@@ -1044,14 +1049,47 @@ pub struct EmbeddingWorker {
     pub budget: Budget,
     pub queries: mpsc::Receiver<EmbeddingQuery>,
     pub error: Arc<Mutex<Option<String>>>,
+    pub disabled: bool,
+    pub validated: bool,
 }
 
-async fn service_embeddings(
+pub(crate) async fn service_embeddings(
     path: &Path,
     worker: &mut EmbeddingWorker,
     topics_dirty: &mut bool,
     duration: Duration,
 ) {
+    if worker.disabled {
+        return;
+    }
+    if !worker.validated {
+        let now = i64::try_from(Timestamp::now().as_secs()).unwrap();
+        let preflight = if let Ok(request) = worker.queries.try_recv() {
+            cache_embedding_query(path, worker.transport.as_ref(), worker.budget, request, now)
+                .await
+                .map(|()| 1)
+        } else {
+            embed::embed_recent_pending(path, worker.transport.as_ref(), worker.budget, now, 1)
+                .await
+        };
+        match preflight {
+            Ok(0) => return,
+            Ok(_) => {
+                worker.validated = true;
+                *topics_dirty = true;
+            }
+            Err(error) => {
+                let message = format!(
+                    "{} embedding preflight failed: {error}",
+                    worker.transport.space().backend
+                );
+                *worker.error.lock().unwrap() = Some(message.clone());
+                worker.disabled = true;
+                eprintln!("{message}; paid embedding is disabled until process restart");
+                return;
+            }
+        }
+    }
     match embed_until_next_scan(
         path,
         worker.transport.as_ref(),
@@ -1069,7 +1107,8 @@ async fn service_embeddings(
                 worker.transport.space().backend
             );
             *worker.error.lock().unwrap() = Some(message.clone());
-            eprintln!("{message}; collection continues");
+            worker.disabled = true;
+            eprintln!("{message}; paid embedding is disabled until process restart");
         }
     }
 }

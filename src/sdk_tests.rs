@@ -22,6 +22,38 @@ impl Default for MockEmbedder {
     }
 }
 
+#[derive(Clone)]
+struct FailingEmbedder {
+    space: embed::Space,
+    calls: Arc<AtomicUsize>,
+}
+
+impl embed::Transport for FailingEmbedder {
+    fn space(&self) -> &embed::Space {
+        &self.space
+    }
+
+    fn split(&self, text: &str) -> Result<Vec<String>, Error> {
+        Ok(embed::titan_chunks(text))
+    }
+
+    fn embed<'a>(
+        &'a self,
+        _text: &'a str,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<embed::Output, Error>> + Send + 'a>,
+    > {
+        Box::pin(async move {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Err("synthetic dispatch failure".into())
+        })
+    }
+
+    fn concurrency(&self) -> usize {
+        4
+    }
+}
+
 impl embed::SemanticModel for MockEmbedder {
     fn vector_space(&self) -> &embed::Space {
         &self.space
@@ -662,6 +694,65 @@ async fn machine_presence_envelopes_stay_auditable_but_not_reader_or_embedding_e
     crate::collect::cleanup_ineligible_derived(&conn).unwrap();
     assert_eq!(count(&conn, "SELECT count(*) FROM post_embeddings"), 2);
     assert_eq!(count(&conn, "SELECT count(*) FROM events WHERE kind=1"), 4);
+}
+
+#[tokio::test]
+async fn transport_failure_disables_further_paid_calls_until_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("events.sqlite");
+    let sdk = collect::open(&path, collect::PRIMAL_AUTHOR).await.unwrap();
+    let keys = Keys::generate();
+    sdk.save_event(&signed(
+        &keys,
+        1,
+        "provider failure fixture",
+        Utc::now().timestamp() as u64,
+        vec![],
+    ))
+    .await
+    .unwrap();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let transport: Arc<dyn embed::Transport> = Arc::new(FailingEmbedder {
+        space: embed::Space::titan_v2(),
+        calls: calls.clone(),
+    });
+    let (_sender, queries) = tokio::sync::mpsc::channel(1);
+    let error = Arc::new(Mutex::new(None));
+    let mut worker = collect::EmbeddingWorker {
+        transport,
+        budget: embed::Budget {
+            total_nusd: 1_000_000,
+            monthly_nusd: 1_000_000,
+        },
+        queries,
+        error: error.clone(),
+        disabled: false,
+        validated: false,
+    };
+    let mut topics_dirty = false;
+    collect::service_embeddings(
+        &path,
+        &mut worker,
+        &mut topics_dirty,
+        Duration::from_secs(1),
+    )
+    .await;
+    assert!(worker.disabled);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert!(error
+        .lock()
+        .unwrap()
+        .as_deref()
+        .unwrap()
+        .contains("synthetic dispatch failure"));
+    collect::service_embeddings(
+        &path,
+        &mut worker,
+        &mut topics_dirty,
+        Duration::from_secs(1),
+    )
+    .await;
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]
