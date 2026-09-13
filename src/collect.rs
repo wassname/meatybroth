@@ -255,6 +255,53 @@ async fn fetch_list(identifier: &str) -> Result<Event, Error> {
     };
     tokio::time::timeout(Duration::from_secs(20), fetch).await?
 }
+pub async fn install_primal_snapshots(
+    sdk: &NostrSqlite,
+    author: PublicKey,
+    snapshots: Vec<(&str, Event)>,
+    now: u64,
+) -> Result<BTreeSet<PublicKey>, Error> {
+    for (identifier, event) in &snapshots {
+        list_members(event, author, identifier)?;
+        let current = sdk
+            .query(
+                Filter::new()
+                    .author(author)
+                    .kind(Kind::from(30000))
+                    .identifier(*identifier)
+                    .limit(1),
+            )
+            .await?
+            .into_iter()
+            .next();
+        if event.created_at.as_secs() > now
+            || current
+                .as_ref()
+                .is_some_and(|stored| event.created_at < stored.created_at)
+        {
+            return Err(
+                format!("Primal {identifier} snapshot is future-dated or rolled back").into(),
+            );
+        }
+    }
+    for (_, event) in snapshots {
+        sdk.save_event(&event).await?;
+    }
+    let current = sdk
+        .query(
+            Filter::new()
+                .author(author)
+                .kind(Kind::from(30000))
+                .identifier("nsfw_list")
+                .limit(1),
+        )
+        .await?
+        .into_iter()
+        .next()
+        .ok_or("No canonical NSFW snapshot stored")?;
+    list_members(&current, author, "nsfw_list")
+}
+
 pub async fn bootstrap(sdk: &NostrSqlite) -> Result<BTreeSet<PublicKey>, Error> {
     let author = PublicKey::from_hex(PRIMAL_AUTHOR)?;
     let mut snapshots = Vec::new();
@@ -267,16 +314,9 @@ pub async fn bootstrap(sdk: &NostrSqlite) -> Result<BTreeSet<PublicKey>, Error> 
             event.created_at,
             members.len()
         );
-        snapshots.push((identifier, event, members));
+        snapshots.push((identifier, event));
     }
-    for (_, event, _) in &snapshots {
-        sdk.save_event(event).await?;
-    }
-    snapshots
-        .into_iter()
-        .find(|(identifier, _, _)| *identifier == "nsfw_list")
-        .map(|(_, _, members)| members)
-        .ok_or_else(|| "No verified NSFW list fetched".into())
+    install_primal_snapshots(sdk, author, snapshots, Timestamp::now().as_secs()).await
 }
 
 pub fn client(sdk: NostrSqlite, policy: Arc<Policy>) -> Client {

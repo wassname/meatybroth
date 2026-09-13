@@ -2,7 +2,7 @@ use super::*;
 use axum::extract::ws::{Message, WebSocketUpgrade};
 use nostr_sdk::prelude::{
     DatabaseEventStatus, Event, EventBuilder, Filter, FinalizeEvent, Keys, Kind, NostrDatabase,
-    Tag, Timestamp,
+    PublicKey, Tag, Timestamp,
 };
 use serde_json::{json, Value};
 use tower::ServiceExt;
@@ -360,6 +360,64 @@ async fn sdk_relay_to_atomic_fts_http_policy_and_expiry() {
     );
     assert_eq!(html(&path, "/?q=bridgeword").await.0, StatusCode::OK);
     eprintln!("SDK→events→view/FTS→HTTP verified; forbidden=0, duplicate/replacement stable, policy/expiry delete indexes, restart retained");
+}
+
+#[tokio::test]
+async fn moderation_refresh_rejects_future_and_rollback_snapshots() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("events.sqlite");
+    let primal = Keys::generate();
+    let first_member = Keys::generate().public_key();
+    let other_member = Keys::generate().public_key();
+    let now = Timestamp::now().as_secs();
+    let sdk = collect::open(&path, &primal.public_key().to_hex())
+        .await
+        .unwrap();
+    let snapshot = |identifier: &str, at: u64, member: PublicKey| {
+        signed(
+            &primal,
+            30000,
+            "",
+            at,
+            vec![vec!["d", identifier], vec!["p", &member.to_hex()]],
+        )
+    };
+    let current_nsfw = snapshot("nsfw_list", now - 10, first_member);
+    let current_spam = snapshot("spam_list", now - 10, first_member);
+    let members = collect::install_primal_snapshots(
+        &sdk,
+        primal.public_key(),
+        vec![
+            ("nsfw_list", current_nsfw.clone()),
+            ("spam_list", current_spam),
+        ],
+        now,
+    )
+    .await
+    .unwrap();
+    assert_eq!(members, [first_member].into());
+    let rollback = snapshot("nsfw_list", now - 20, other_member);
+    let error = collect::install_primal_snapshots(
+        &sdk,
+        primal.public_key(),
+        vec![("nsfw_list", rollback)],
+        now,
+    )
+    .await
+    .unwrap_err();
+    assert!(error.to_string().contains("rolled back"));
+    let future = snapshot("nsfw_list", now + 1, other_member);
+    let error = collect::install_primal_snapshots(
+        &sdk,
+        primal.public_key(),
+        vec![("nsfw_list", future)],
+        now,
+    )
+    .await
+    .unwrap_err();
+    assert!(error.to_string().contains("future-dated"));
+    let canonical = sdk.query(Filter::new().id(current_nsfw.id)).await.unwrap();
+    assert_eq!(canonical.len(), 1);
 }
 
 #[tokio::test]
