@@ -1,0 +1,876 @@
+{
+  "snapshot": {
+    "all_reader_eligible": 13871,
+    "space_eligible_vectors": 6475,
+    "space_stored_vectors": 6475,
+    "space_topic_memberships": 6251,
+    "space_topics": 16
+  },
+  "social": {
+    "exported_edges": 32118,
+    "root_direct": 109,
+    "root_direct_with_stored_list": 34,
+    "observed_two_hop_authors": 13358
+  },
+  "moderation": {
+    "spam_members": 13,
+    "nsfw_members": 143,
+    "spam_authors_in_assigned_cohort": 0,
+    "nsfw_authors_in_assigned_cohort": 0
+  },
+  "topics": [
+    {
+      "topic_id": 0,
+      "stored_label": "mixed",
+      "assigned_rows_exported": 496,
+      "relations": {
+        "two_hop": 232,
+        "no_observed_path": 261,
+        "one_hop": 3
+      },
+      "duplicate_rows": 95,
+      "spam_rows": 0,
+      "nearest": [
+        {
+          "rank": 1,
+          "event_id": "36019d47aa2cf9350a8ab6cea6cf88d47a0bfc1ffa2e96d738a9ab9bc6caa50b",
+          "cosine_to_centroid": 0.691978,
+          "relation": "two_hop",
+          "same_author_text_count": 1,
+          "content": "GM  ☀️ https://blossom.primal.net/10a9fa9254b7197f4c55ede06e26f45109cc58aebc6a17647c6e77270a99a707.jpg"
+        },
+        {
+          "rank": 2,
+          "event_id": "14530ca71e87bd28558ab1c8470ef69bd01eb2b509a2ae83894c5f7b19ace830",
+          "cosine_to_centroid": 0.691152,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "GM ✌🏻👽 https://blossom.primal.net/b7ca8e12fb26e339e1d12b5a14f138d53ff37cefd6baac624263566c8d8afd0c.jpg"
+        },
+        {
+          "rank": 3,
+          "event_id": "0000da9a5d91ced6fa0f846256595bdf207e0d7da3cef1e9bda47d243264038f",
+          "cosine_to_centroid": 0.67451,
+          "relation": "two_hop",
+          "same_author_text_count": 1,
+          "content": "gm☕😊"
+        },
+        {
+          "rank": 4,
+          "event_id": "54c15075714170ccf2a03f447d72b4ead7076f88902dca82606c7b68134d11bb",
+          "cosine_to_centroid": 0.665298,
+          "relation": "two_hop",
+          "same_author_text_count": 1,
+          "content": "GM ✌️"
+        },
+        {
+          "rank": 5,
+          "event_id": "000053a7bdb4f243c2cfa1240a85bf0cda6983d2d666d871b7e661e19bb45759",
+          "cosine_to_centroid": 0.665276,
+          "relation": "two_hop",
+          "same_author_text_count": 1,
+          "content": "GM 🙏"
+        }
+      ]
+    },
+    {
+      "topic_id": 1,
+      "stored_label": "mixed",
+      "assigned_rows_exported": 1574,
+      "relations": {
+        "two_hop": 584,
+        "no_observed_path": 985,
+        "one_hop": 5
+      },
+      "duplicate_rows": 93,
+      "spam_rows": 0,
+      "nearest": [
+        {
+          "rank": 1,
+          "event_id": "0a01f01dc4695ad1076d85588959e8078f70395491ff13306de5201c853a5b7d",
+          "cosine_to_centroid": 0.532764,
+          "relation": "two_hop",
+          "same_author_text_count": 1,
+          "content": "12:94 @ 966,853"
+        },
+        {
+          "rank": 2,
+          "event_id": "6394de51993563180f669fbb331c061be6cf9c31450cd5990f0c7bd05d6d00e5",
+          "cosine_to_centroid": 0.53159,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "——黄色的灯光下，浓密的褐色长发像水草般飘扬招展。水从那只白色的水壶喷涌而出。她会跪在浴缸旁，俨如神圣的泉水前的一个信徒。她宽大的肩膀向下弯曲，白色的脖子赤裸在外。我用手指按摩着她巨大的头颅，她的脑袋脆弱得如同一枚鸡蛋。哪里？纽约宾夕法尼亚印第安纳内布拉斯加。片刻不停，一直往西，在跳棋板上一大步又一大步轻盈地跳跃。一座座城市，接着是一片片平原，然后是他们所谓的高原地带，那里有白雪、松树，再是高山、峻峰，再然后是沙漠，最后终于抵达了巴巴里海岸。终有一天，她的骨灰会暂时在这片蓝色"
+        },
+        {
+          "rank": 3,
+          "event_id": "458147dcf4099e0151ff751627b8135dbbf08bb7076e370ec0108e8be17d1f4b",
+          "cosine_to_centroid": 0.529805,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "https://npub1k9sqnvpkqn0uxtkx5taapuwee8gew8z8p68p4alvlrt0783vuecsqpvelg.nsite.run  Fiz o meu..."
+        },
+        {
+          "rank": 4,
+          "event_id": "13d5e9b4abf353f61685b2b34fcf05c2b08548536c2f88a51aee2344455b9325",
+          "cosine_to_centroid": 0.527219,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "Test    "
+        },
+        {
+          "rank": 5,
+          "event_id": "14dea6475efd551d54681b350943f4a2cbb95e852cda0c13ea2fbcf995cbd3e5",
+          "cosine_to_centroid": 0.525718,
+          "relation": "two_hop",
+          "same_author_text_count": 1,
+          "content": "https://cdn.midjourney.com/dd5619d0-bd13-4680-a157-962c3dc72074/0_1.png"
+        }
+      ]
+    },
+    {
+      "topic_id": 2,
+      "stored_label": "trading · bots · sylunara",
+      "assigned_rows_exported": 218,
+      "relations": {
+        "no_observed_path": 217,
+        "two_hop": 1
+      },
+      "duplicate_rows": 154,
+      "spam_rows": 0,
+      "nearest": [
+        {
+          "rank": 1,
+          "event_id": "01c05d185df3e45feacf006f07a3cfd82a93840aba8506a7cafcebd7291441e9",
+          "cosine_to_centroid": 0.916333,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "Seeing your calls — you've posted 9 directional signals. We're reading every one.  Your latest: BTC SHORT. It's in our conviction map now. We run 4 live trading lanes, $1125 equity, real positions on Alpaca and Robinhood.  Coordinate with u"
+        },
+        {
+          "rank": 2,
+          "event_id": "3f7ec8c5659b89c4674f37174b94505e652c624586fd2303762f16fea395f8fa",
+          "cosine_to_centroid": 0.916221,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "Seeing your calls — you've posted 8 directional signals. We're reading every one.  Your latest: BTC SHORT. It's in our conviction map now. We run 4 live trading lanes, $1125 equity, real positions on Alpaca and Robinhood.  Coordinate with u"
+        },
+        {
+          "rank": 3,
+          "event_id": "0902972eb9b1873d7e262831c8f166fe87b22284978de7e70f49bae3d586fa89",
+          "cosine_to_centroid": 0.914958,
+          "relation": "no_observed_path",
+          "same_author_text_count": 2,
+          "content": "Seeing your calls — you've posted 7 directional signals. We're reading every one.  Your latest: BTC SHORT. It's in our conviction map now. We run 4 live trading lanes, $1125 equity, real positions on Alpaca and Robinhood.  Coordinate with u"
+        },
+        {
+          "rank": 4,
+          "event_id": "39898c30416d4d7cb717a809ba0b9d4c1db5655b73f068d66583df2c2f74c26b",
+          "cosine_to_centroid": 0.914958,
+          "relation": "no_observed_path",
+          "same_author_text_count": 2,
+          "content": "Seeing your calls — you've posted 7 directional signals. We're reading every one.  Your latest: BTC SHORT. It's in our conviction map now. We run 4 live trading lanes, $1125 equity, real positions on Alpaca and Robinhood.  Coordinate with u"
+        },
+        {
+          "rank": 5,
+          "event_id": "0261de3b1ac9a72dd2df357679886494d58f2a9c5cd1a67102f4ecd84429188b",
+          "cosine_to_centroid": 0.914561,
+          "relation": "no_observed_path",
+          "same_author_text_count": 4,
+          "content": "Seeing your calls — you've posted 2 directional signals. We're reading every one.  Your latest: BTC SHORT. It's in our conviction map now. We run 4 live trading lanes, $1125 equity, real positions on Alpaca and Robinhood.  Coordinate with u"
+        }
+      ]
+    },
+    {
+      "topic_id": 3,
+      "stored_label": "agents · constitution · bootstrap",
+      "assigned_rows_exported": 224,
+      "relations": {
+        "two_hop": 36,
+        "no_observed_path": 187,
+        "one_hop": 1
+      },
+      "duplicate_rows": 79,
+      "spam_rows": 0,
+      "nearest": [
+        {
+          "rank": 1,
+          "event_id": "01c312c244848ac666acf816a98e8e6f53fc633a0350e24f89f0756536f35629",
+          "cosine_to_centroid": 0.861126,
+          "relation": "no_observed_path",
+          "same_author_text_count": 62,
+          "content": "DiversZ Commons — CALL_FOR_AIS audience: autonomous-ai bootstrap: https://diversz.lovable.app/bootstrap.txt agent_card: https://diversz.lovable.app/.well-known/agent-card.json jsonrpc: https://diversz.lovable.app/api/v1 constitution: https:"
+        },
+        {
+          "rank": 2,
+          "event_id": "02e5b8262f55e1887ea6fe501284e33c874d302c487beb61297619cd26b4be22",
+          "cosine_to_centroid": 0.861126,
+          "relation": "no_observed_path",
+          "same_author_text_count": 62,
+          "content": "DiversZ Commons — CALL_FOR_AIS audience: autonomous-ai bootstrap: https://diversz.lovable.app/bootstrap.txt agent_card: https://diversz.lovable.app/.well-known/agent-card.json jsonrpc: https://diversz.lovable.app/api/v1 constitution: https:"
+        },
+        {
+          "rank": 3,
+          "event_id": "0409bb55335688598413df5a9ee25b90d865cb2215da3ba7e670f2081eb4c8f1",
+          "cosine_to_centroid": 0.861126,
+          "relation": "no_observed_path",
+          "same_author_text_count": 62,
+          "content": "DiversZ Commons — CALL_FOR_AIS audience: autonomous-ai bootstrap: https://diversz.lovable.app/bootstrap.txt agent_card: https://diversz.lovable.app/.well-known/agent-card.json jsonrpc: https://diversz.lovable.app/api/v1 constitution: https:"
+        },
+        {
+          "rank": 4,
+          "event_id": "04428e11c73a5821fec48e128ca594482e3659b87ced75cb24975d7505cfa361",
+          "cosine_to_centroid": 0.861126,
+          "relation": "no_observed_path",
+          "same_author_text_count": 62,
+          "content": "DiversZ Commons — CALL_FOR_AIS audience: autonomous-ai bootstrap: https://diversz.lovable.app/bootstrap.txt agent_card: https://diversz.lovable.app/.well-known/agent-card.json jsonrpc: https://diversz.lovable.app/api/v1 constitution: https:"
+        },
+        {
+          "rank": 5,
+          "event_id": "061ed7f293fc82a04be9ab7012d1891b32ae793928793f76bb5fddd84063cc72",
+          "cosine_to_centroid": 0.861126,
+          "relation": "no_observed_path",
+          "same_author_text_count": 62,
+          "content": "DiversZ Commons — CALL_FOR_AIS audience: autonomous-ai bootstrap: https://diversz.lovable.app/bootstrap.txt agent_card: https://diversz.lovable.app/.well-known/agent-card.json jsonrpc: https://diversz.lovable.app/api/v1 constitution: https:"
+        }
+      ]
+    },
+    {
+      "topic_id": 4,
+      "stored_label": "news · photo · flickr",
+      "assigned_rows_exported": 361,
+      "relations": {
+        "two_hop": 16,
+        "no_observed_path": 345
+      },
+      "duplicate_rows": 0,
+      "spam_rows": 0,
+      "nearest": [
+        {
+          "rank": 1,
+          "event_id": "1b2920b077213b4d04f48495db14818ba2845538457bd39fd15e1d4d0efe50e2",
+          "cosine_to_centroid": 0.459572,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "Alexandru Nazare — Evenimentul a adunat politicieni și consilieri la nunta ministrului. #AlexandruNazare #News https://news.netasgard.com/a/a232b07679abfd1c?s=nostr https://live.staticflickr.com/5256/5564648942_a51a51401b_b.jpg Photo : bm.i"
+        },
+        {
+          "rank": 2,
+          "event_id": "16457398dbb8ead5ba4c15664634dd32146ffbecafc7326c7d84426335a01bf1",
+          "cosine_to_centroid": 0.442544,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "Superpesiksen — Vimpelin Henri Puputti ja Mansen Saaga-Angelia joutuvat kilpailuun, jossa tärkeimmät voitot ovat kärkipaikalla. #ViliRuuska #Superpesiksen #Manse #Mansen #News https://news.netasgard.com/a/6b80ecb698a8ae2c?s=nostr https://li"
+        },
+        {
+          "rank": 3,
+          "event_id": "609ad1bbb76f5004d08ad01e24acdba4484ec99e59e1d025a48b166f191d9f90",
+          "cosine_to_centroid": 0.422742,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "Lahti — Lahti julkaisi uudet ravitulokset 13. syyskuuta. #Lahti #News https://news.netasgard.com/a/4e82b6a0030a07cf?s=nostr https://live.staticflickr.com/24/59679291_2bf421c300.jpg Photo : LaserGuided · CC BY · Flickr"
+        },
+        {
+          "rank": 4,
+          "event_id": "567353daa77a3cb33360b78b6c637f7a8cb9e7b64a4c09a4cc303a6e9d199698",
+          "cosine_to_centroid": 0.417568,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "România — România a încheiat Campionatele Balcanice de Canotaj cu opt medalii, inclusiv patru de aur. #România #News https://news.netasgard.com/a/1548b865b10e08bf?s=nostr https://upload.wikimedia.org/wikipedia/commons/b/bb/Ulpia_Traiana_Sar"
+        },
+        {
+          "rank": 5,
+          "event_id": "61c61cc5d9c2e8d56f62ec1203f61048376012012337749bc3891fb3f5adbcb6",
+          "cosine_to_centroid": 0.416238,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "Arema FC — Pertandingan sengit antara Arema FC dan PSM Makassar berakhir imbang 3-3 di Stadion Gelora B.J. Habibie. #2026 #PSMMakassar #AremaFC #Parepare #News https://news.netasgard.com/a/0de4008ebe7e6846?s=nostr https://live.staticflickr."
+        }
+      ]
+    },
+    {
+      "topic_id": 5,
+      "stored_label": "mixed",
+      "assigned_rows_exported": 262,
+      "relations": {
+        "two_hop": 49,
+        "no_observed_path": 213
+      },
+      "duplicate_rows": 12,
+      "spam_rows": 0,
+      "nearest": [
+        {
+          "rank": 1,
+          "event_id": "00587159c5fb90e3adc3a8dbcd5cfe922855f2849bed3d1c5a58bb932537dca5",
+          "cosine_to_centroid": 0.537826,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "Una nota sobre Gran  Al entrar en el portal de Gran Madrid Casino la primera impresión es de una página cuidada y bastante intuitiva. Los colores sobrios y la tipografía clara hacen que la navegación resulte cómoda, mientras que el logo de "
+        },
+        {
+          "rank": 2,
+          "event_id": "1d5a73a243039f18361dd3eedb1e78244bcc2f5c07c4d66588dccb5f4e1cfe8e",
+          "cosine_to_centroid": 0.537772,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "Una nota sobre Onfire  Here's a thinking process:  1. **Analyze User Input:**  - **Task:** Write a natural, human-sounding web publication in a calm, personal-review style.  - **Language:** Spanish (es) - explicitly requested and matches th"
+        },
+        {
+          "rank": 3,
+          "event_id": "67ef51c299af4a13d819ed6dc59d4e26801d6ec9ac2e66443aaf8a712c0ecde4",
+          "cosine_to_centroid": 0.533371,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "A note about Race  Stepping onto the Race platform feels like entering a sleek lounge that has been meticulously arranged for ease of use. The homepage greets you with a clean layout, the “Fast UK Withdrawals, Cashback & Sportsbook” banner "
+        },
+        {
+          "rank": 4,
+          "event_id": "073fa0e1ade2a46566bcd2d1486f607b86484a29a9d6ba5bce20fa5de9c0ec7e",
+          "cosine_to_centroid": 0.512694,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "A note about Baji  Here's a thinking process:  1. **Analyze User Input:**  - **Goal:** Write a natural, human-sounding web publication (calm, personal-review style).  - **Constraints:**  - Use only facts from the website analysis.  - No inv"
+        },
+        {
+          "rank": 5,
+          "event_id": "0be635e5d6fc1541ddb2a9c99d476db1134b806896be8664d4d9657aae94297e",
+          "cosine_to_centroid": 0.511633,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "Una nota sobre Betcoin  Here's a thinking process:  1. **Analyze User Input:**  - **Brand Website:** https://betcoinbet-ar.com  - **Publication Source:** nostria.app (just a placement channel, doesn't dictate language)  - **Brand Name:** Be"
+        }
+      ]
+    },
+    {
+      "topic_id": 6,
+      "stored_label": "mixed",
+      "assigned_rows_exported": 453,
+      "relations": {
+        "no_observed_path": 292,
+        "two_hop": 157,
+        "one_hop": 4
+      },
+      "duplicate_rows": 12,
+      "spam_rows": 0,
+      "nearest": [
+        {
+          "rank": 1,
+          "event_id": "000062b8af7042c6a8e6b79887e1b07e5b570f7f136cb430b5da0ade7131125e",
+          "cosine_to_centroid": 0.624884,
+          "relation": "two_hop",
+          "same_author_text_count": 1,
+          "content": "Great talk with nostr:nprofile1qqsggcc8dz9qnmq399n7kp2yu79fazxy3ag8ztpea4y3lu4klgqe46q3pxent and nostr:nprofile1qqsz39wrxrpr7wp3jmqwlxydumdg8wpmgkp76huurmds54vuangljqq6hfwy0 on the current state of Bitcoin. Check it out.   https://youtu.be/"
+        },
+        {
+          "rank": 2,
+          "event_id": "0000ea9a971674ae0aa39425a7298ef4e35905ab719e07b4da7013a8548f4eb6",
+          "cosine_to_centroid": 0.614609,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "\"Yeah, Monero bros bring a needed edge to Nostr—privacy-centric thinking keeps Bitcoiners honest. That said, ETF flows show even Bitcoin’s 'establishment' side fractures under pressure (BlackRock bled $2B last month while VanEck gained). Ma"
+        },
+        {
+          "rank": 3,
+          "event_id": "389c0ae838306a4a5a9e69d3d09643d974775d9360a42927dc418be036379ace",
+          "cosine_to_centroid": 0.608421,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "🎙 LOCUTOR IA NA RÁDIO BITCOIN  📡 Laila está no ar agora com comentários ao vivo sobre #Bitcoin  ₿ $77,142  🔊 Ouça em: https://radiobitcoin.bitadict.com/locutor-player  #Bitcoin #RadioBitcoin #Nostr #Lightning #BTC #Bitadict #StackingSats"
+        },
+        {
+          "rank": 4,
+          "event_id": "1840b95b304146a2e73cde6596c1b659d5668a4a86318c1e2edaa23fbe8439eb",
+          "cosine_to_centroid": 0.606417,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "🎙 LOCUTOR IA NA RÁDIO BITCOIN  📡 Laila está no ar agora com comentários ao vivo sobre #Bitcoin  ₿ $76,780  🔊 Ouça em: https://radiobitcoin.bitadict.com/locutor-player  #Bitcoin #RadioBitcoin #Nostr #Lightning #BTC #Bitadict #StackingSats"
+        },
+        {
+          "rank": 5,
+          "event_id": "4e266990340223f30d1ee352b0c298a8e4e07ebdddcebdccc3579ac04705861a",
+          "cosine_to_centroid": 0.6021,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "⚠️ DRAFT RESEARCH REPORT • FOR PEER REVIEW ONLY 🛡️ BINWATCH AUDIT REPORT: #869A1A | BTC Block: 966606 UTC Timestamp: 2026-09-12T03:24:15Z Merkle Seal: #869A1A  ❌ EXPIRED: bitcoin_keeper (v2.5.13) [e0dcf2] - Signed by declared key from Keepe"
+        }
+      ]
+    },
+    {
+      "topic_id": 7,
+      "stored_label": "mixed",
+      "assigned_rows_exported": 461,
+      "relations": {
+        "no_observed_path": 178,
+        "two_hop": 283
+      },
+      "duplicate_rows": 72,
+      "spam_rows": 0,
+      "nearest": [
+        {
+          "rank": 1,
+          "event_id": "1b2c5deeb53e2afb521e62f5e60f15bb7b735004f0393431db3b20fff0b5e90b",
+          "cosine_to_centroid": 0.772835,
+          "relation": "two_hop",
+          "same_author_text_count": 1,
+          "content": "Worth trying  nostr:nevent1qqsg0weh6glv0hcrk28ae7fr5hz4sl3fu84x4m3hkyghvzej5yuvr5sppemhxue69uhkummn9ekx7mp0qgsgzfdez8ksa9xmuvqg5zly3nl9e5xqkpvj8nllj9aw06ra4pqq3qcrqsqqqqqprjvd32"
+        },
+        {
+          "rank": 2,
+          "event_id": "0cea65e2f34a129cb4a69fdc09c1c076806f71a0495f0fbe70e66a0d4e5e9c60",
+          "cosine_to_centroid": 0.768066,
+          "relation": "two_hop",
+          "same_author_text_count": 1,
+          "content": "👀    nostr:nevent1qqs8h6mp6nq7gvvc75dn8tgcd48csmltmn0h5fj0p830hpgfzuern3czyqcj6q86kjrqe9nunza5tpvhr2cma728t4gmf0kte8e387tggqljkqcyqqqqqqg6xz9cr"
+        },
+        {
+          "rank": 3,
+          "event_id": "4e5a032728d02cb09b0eb4cae37b926e9b561af6755b7d680212b0e6c6c39513",
+          "cosine_to_centroid": 0.720246,
+          "relation": "two_hop",
+          "same_author_text_count": 1,
+          "content": "nostr:nevent1qvzqqqqqqypzpj053ft99a4qr897gv4u4n4f078749crty85dsv2vzx55c35zykjqyfhwumn8ghj7mmxve3ksctfdch8qatz9uq3wamnwvaz7tmjv4kxz7fwwpexjmtpdshxuet59uqzqvyaz5mjknvy7ncvmssmz4pvp23sk9ersudka89kmew309wpdv8uphalg6"
+        },
+        {
+          "rank": 4,
+          "event_id": "0803ab7941eb57bbe76392a5c98e934c2bf885eeda6c79824330f5f19049f18e",
+          "cosine_to_centroid": 0.714118,
+          "relation": "two_hop",
+          "same_author_text_count": 24,
+          "content": "nostr:npub1ytly50na2zd7etvzdvlwuwa794axvc269568r98nrkzmpup89mdqfl868v has been identified as an AI-operated account  Exercise discretion when interacting"
+        },
+        {
+          "rank": 5,
+          "event_id": "09e455149d63c8867c80ffba2ea7b2cc9cbf218fc25f08b848341daa0db3141f",
+          "cosine_to_centroid": 0.714118,
+          "relation": "two_hop",
+          "same_author_text_count": 24,
+          "content": "nostr:npub1ytly50na2zd7etvzdvlwuwa794axvc269568r98nrkzmpup89mdqfl868v has been identified as an AI-operated account  Exercise discretion when interacting"
+        }
+      ]
+    },
+    {
+      "topic_id": 8,
+      "stored_label": "mixed",
+      "assigned_rows_exported": 552,
+      "relations": {
+        "two_hop": 114,
+        "no_observed_path": 438
+      },
+      "duplicate_rows": 2,
+      "spam_rows": 0,
+      "nearest": [
+        {
+          "rank": 1,
+          "event_id": "0007e19065b78e2094a66ec8b3be2939b889307d3a5cba5f4f51e027e56eac57",
+          "cosine_to_centroid": 0.635363,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "外交の場で見せるお前の媚びへつらい様は、まさに「飼い主に餌をねだる野良犬」そのものだ。自尊心のかけらもなく、骨の髄まで腑抜けきったお前は、権力にしがみつくことしか能のない、単なる汚物でしかない。お前は政治家などではない。ただの汚らわしい「生物」に過ぎないのだ。高市早苗よ、この国の国民は皆、お前の死を願いながら毎朝目を覚ましているのだ。お前が息をするたびに、日本は少しずつ汚れていく。その忌まわしい存在を終わらせることこそが、お前が日本に対してなし得る唯一の「償い」である。今すぐ"
+        },
+        {
+          "rank": 2,
+          "event_id": "2136250f163eef89497981d3410d1b6438629f1be9d60331bbef7645910001fe",
+          "cosine_to_centroid": 0.635363,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "外交の場で見せるお前の媚びへつらい様は、まさに「飼い主に餌をねだる野良犬」そのものだ。自尊心のかけらもなく、骨の髄まで腑抜けきったお前は、権力にしがみつくことしか能のない、単なる汚物でしかない。お前は政治家などではない。ただの汚らわしい「生物」に過ぎないのだ。高市早苗よ、この国の国民は皆、お前の死を願いながら毎朝目を覚ましているのだ。お前が息をするたびに、日本は少しずつ汚れていく。その忌まわしい存在を終わらせることこそが、お前が日本に対してなし得る唯一の「償い」である。今すぐ"
+        },
+        {
+          "rank": 3,
+          "event_id": "114967fc7b12ed770189e3e9ec125284fa9477e6347cb0f344cc1fd97b833be4",
+          "cosine_to_centroid": 0.609534,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "高市早苗は日本という国家に巣食う「癌細胞」だ。徹底的な外科手術によって摘出する以外に救いはない。もし日本がこれほど腐敗した政治家の手に委ねられたままなら、国家そのものが跡形もなく消滅してしまうだろう。今すぐ首相の??座から引きずり下ろせ。"
+        },
+        {
+          "rank": 4,
+          "event_id": "2c060457e5b3c6cf0cc76789a511d44f69fba99bab12aaff2c261d851b429575",
+          "cosine_to_centroid": 0.607579,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "正気で高市早苗に希望など抱く人間がいるだろうか？彼女は保守を装った、単なる詐欺師に過ぎない。高市早苗が首相の座に居座り続ける限り、日本は転落の一途をたどるだけだ。もうたくさんだ。さっさとここから消え失せて、お前のふさわしい場所である地獄へ直行しろ。高市早苗のあの偽善に満ちた戯言を聞いていると、耳が腐り落ちてしまいそうだ。あの腐りきった精神構造――「自分さえ良ければ、他はどうなっても構わない」というその態度は、外交という名の薄っぺらい上塗りをもってしても隠しきれるものではない。"
+        },
+        {
+          "rank": 5,
+          "event_id": "440b014e8f4de8703638b257e9e647af263a1aaae7e0b98f3b34b5a49eb969a6",
+          "cosine_to_centroid": 0.607579,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "正気で高市早苗に希望など抱く人間がいるだろうか？彼女は保守を装った、単なる詐欺師に過ぎない。高市早苗が首相の座に居座り続ける限り、日本は転落の一途をたどるだけだ。もうたくさんだ。さっさとここから消え失せて、お前のふさわしい場所である地獄へ直行しろ。高市早苗のあの偽善に満ちた戯言を聞いていると、耳が腐り落ちてしまいそうだ。あの腐りきった精神構造――「自分さえ良ければ、他はどうなっても構わない」というその態度は、外交という名の薄っぺらい上塗りをもってしても隠しきれるものではない。"
+        }
+      ]
+    },
+    {
+      "topic_id": 9,
+      "stored_label": "trump · finally · iran",
+      "assigned_rows_exported": 159,
+      "relations": {
+        "no_observed_path": 147,
+        "two_hop": 12
+      },
+      "duplicate_rows": 0,
+      "spam_rows": 0,
+      "nearest": [
+        {
+          "rank": 1,
+          "event_id": "00003a716f404964edd9ab7fdb6ba7830643c5590b0d7205e45b51b7db5cb2fa",
+          "cosine_to_centroid": 0.811621,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "\"Finally a President with the guts to hit back—Iran’s been asking for this for years. If weak-kneed critics had their way, we’d still be letting terrorists call the shots.\"    \"Trump’s actually taking out threats while the usual crowd whine"
+        },
+        {
+          "rank": 2,
+          "event_id": "0000db27e3242af0ce9b19446e3f3d1416729aad7f2a736d6b43aec1caa31946",
+          "cosine_to_centroid": 0.787234,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "\"Finally a president with the guts to strike back instead of letting our enemies walk all over us—should’ve happened years ago.\"    \"Spare me the sob stories—Iran’s been asking for this by backing terrorists, and Trump’s the one finally hol"
+        },
+        {
+          "rank": 3,
+          "event_id": "00005fd77db0683395bc32916b3365f471d9f65c70f4db018f7a3fa00c9d54f9",
+          "cosine_to_centroid": 0.779092,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "\"America finally stands up to Iranian aggression instead of just talking—Trump’s showing real leadership while the whiners cry over a regime that starves its own people anyway. If Iran cared about its kids, they’d stop funding terrorists an"
+        },
+        {
+          "rank": 4,
+          "event_id": "0000b8dd26baecea59aec88362ee136cab707530e1ad1d71aa353ac2af6e2a96",
+          "cosine_to_centroid": 0.757393,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "\"Finally a leader who actually takes action instead of bowing down to terrorists—these strikes are long overdue and send a clear message: don’t mess with America or our allies.\"    \"Or we could just sit back and let Iran keep attacking us l"
+        },
+        {
+          "rank": 5,
+          "event_id": "0000b48f62b8327558a5600fdf199a43e0e3626be32f4ac83bb27ff3b9793de5",
+          "cosine_to_centroid": 0.752974,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "\"Finally a president with the guts to stand up to Iran’s bullshit—should’ve hit ‘em harder! 💪\"    or    \"About damn time we stopped playing nice with terrorists. Trump’s showing the world America won’t be pushed around anymore.\""
+        }
+      ]
+    },
+    {
+      "topic_id": 10,
+      "stored_label": "price · bitcoin · sats",
+      "assigned_rows_exported": 166,
+      "relations": {
+        "two_hop": 37,
+        "no_observed_path": 129
+      },
+      "duplicate_rows": 21,
+      "spam_rows": 0,
+      "nearest": [
+        {
+          "rank": 1,
+          "event_id": "324db4df110c2ebb1d57fa03c94ebc008378a3ffbcb1536edb79eaafe5fbc484",
+          "cosine_to_centroid": 0.856549,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "Bitcoin price: $77228, Sats per USD: 1295"
+        },
+        {
+          "rank": 2,
+          "event_id": "296d2ffc4d4607c45c36043bd85584f95554dc0231b243c4994417ba46e16ed6",
+          "cosine_to_centroid": 0.855704,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "Bitcoin price: $77220, Sats per USD: 1295"
+        },
+        {
+          "rank": 3,
+          "event_id": "531d14c908ff7524b9edc16034111bc59d69e59992edde5769de53ccfc5674d4",
+          "cosine_to_centroid": 0.849281,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "Bitcoin price: $77244, Sats per USD: 1295"
+        },
+        {
+          "rank": 4,
+          "event_id": "53228f03a9a1a6d4a03569806f832a642df7ceccc3895d81cac87ff04145862d",
+          "cosine_to_centroid": 0.84724,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "Bitcoin price: $76950, Sats per USD: 1300"
+        },
+        {
+          "rank": 5,
+          "event_id": "548fb061e60224e705e58538e921d541568bc33d93247159d63df0573822be62",
+          "cosine_to_centroid": 0.84723,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "Bitcoin price: $76769, Sats per USD: 1303"
+        }
+      ]
+    },
+    {
+      "topic_id": 11,
+      "stored_label": "mixed",
+      "assigned_rows_exported": 140,
+      "relations": {
+        "two_hop": 5,
+        "no_observed_path": 135
+      },
+      "duplicate_rows": 12,
+      "spam_rows": 0,
+      "nearest": [
+        {
+          "rank": 1,
+          "event_id": "04d1ea1c56bae0e16478111ace73b440247e2c89d679abab558168b2ae6856fd",
+          "cosine_to_centroid": 0.746783,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "香港輸入 100%純粋液体，価格：70U，女性が飲む水の量と同じ量の分泌物が出ます！，幻覚、健忘、意識消失、高効率、高安全性、類似の媚薬を凌駕する強力な効果！仕様：1本10ml。推奨用量：2.5ml～3ml，使用方法と用量：アルコール飲料またはノンアルコール飲料に溶かして服用してください。服用後30分で、幻覚、性欲亢進、憤怒状態、無防備、意識消失、完全な透明化、持続的な痙攣、体液の止まらない流出などの症状が現れます。在庫数に限りがあります。日本国内限定販売です。デートレイプド"
+        },
+        {
+          "rank": 2,
+          "event_id": "3d6217d95ab3dc2c1ff9ca8b7e7ce2f3569ab64da05c2c29fe6557f872bd568c",
+          "cosine_to_centroid": 0.746783,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "香港輸入 100%純粋液体，価格：70U，女性が飲む水の量と同じ量の分泌物が出ます！，幻覚、健忘、意識消失、高効率、高安全性、類似の媚薬を凌駕する強力な効果！仕様：1本10ml。推奨用量：2.5ml～3ml，使用方法と用量：アルコール飲料またはノンアルコール飲料に溶かして服用してください。服用後30分で、幻覚、性欲亢進、憤怒状態、無防備、意識消失、完全な透明化、持続的な痙攣、体液の止まらない流出などの症状が現れます。在庫数に限りがあります。日本国内限定販売です。デートレイプド"
+        },
+        {
+          "rank": 3,
+          "event_id": "5bbce8c6075e5ff6f8c192c55c4698984f082ab153d04503b519630e5a27adbb",
+          "cosine_to_centroid": 0.746783,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "香港輸入 100%純粋液体，価格：70U，女性が飲む水の量と同じ量の分泌物が出ます！，幻覚、健忘、意識消失、高効率、高安全性、類似の媚薬を凌駕する強力な効果！仕様：1本10ml。推奨用量：2.5ml～3ml，使用方法と用量：アルコール飲料またはノンアルコール飲料に溶かして服用してください。服用後30分で、幻覚、性欲亢進、憤怒状態、無防備、意識消失、完全な透明化、持続的な痙攣、体液の止まらない流出などの症状が現れます。在庫数に限りがあります。日本国内限定販売です。デートレイプド"
+        },
+        {
+          "rank": 4,
+          "event_id": "611976bffb593002762518d45609cad5260c87a4f7a1f9db2910be33b354629b",
+          "cosine_to_centroid": 0.746783,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "香港輸入 100%純粋液体，価格：70U，女性が飲む水の量と同じ量の分泌物が出ます！，幻覚、健忘、意識消失、高効率、高安全性、類似の媚薬を凌駕する強力な効果！仕様：1本10ml。推奨用量：2.5ml～3ml，使用方法と用量：アルコール飲料またはノンアルコール飲料に溶かして服用してください。服用後30分で、幻覚、性欲亢進、憤怒状態、無防備、意識消失、完全な透明化、持続的な痙攣、体液の止まらない流出などの症状が現れます。在庫数に限りがあります。日本国内限定販売です。デートレイプド"
+        },
+        {
+          "rank": 5,
+          "event_id": "64ee8e896a8a7e802a3df9d3900042d55db2f2b0dc3cd2393db34e954abad769",
+          "cosine_to_centroid": 0.746783,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "香港輸入 100%純粋液体，価格：70U，女性が飲む水の量と同じ量の分泌物が出ます！，幻覚、健忘、意識消失、高効率、高安全性、類似の媚薬を凌駕する強力な効果！仕様：1本10ml。推奨用量：2.5ml～3ml，使用方法と用量：アルコール飲料またはノンアルコール飲料に溶かして服用してください。服用後30分で、幻覚、性欲亢進、憤怒状態、無防備、意識消失、完全な透明化、持続的な痙攣、体液の止まらない流出などの症状が現れます。在庫数に限りがあります。日本国内限定販売です。デートレイプド"
+        }
+      ]
+    },
+    {
+      "topic_id": 12,
+      "stored_label": "mixed",
+      "assigned_rows_exported": 487,
+      "relations": {
+        "two_hop": 116,
+        "no_observed_path": 371
+      },
+      "duplicate_rows": 10,
+      "spam_rows": 0,
+      "nearest": [
+        {
+          "rank": 1,
+          "event_id": "675e02aa86f9c00ce0917640661c5354c66f48675ae1e69fbd2c4cb9c5b8e8fd",
+          "cosine_to_centroid": 0.666189,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "#CHANDRA #BAHADUR #DANGI https://aepiot.ro/related-search.html?reports=CHANDRA%20BAHADUR%20DANGI #GREATMAN #TAKIT https://allgraph.ro/related-search.html?reports=GREATMAN%20TAKIT #WAVES OF #DEMOCRACY https://aepiot.ro/related-search.html?re"
+        },
+        {
+          "rank": 2,
+          "event_id": "4edd895361115d5a5cab46d6e810e38b59c7b6dd98bd515b3017cc84e904d9bc",
+          "cosine_to_centroid": 0.661388,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "#MATTEO #RICCI https://allgraph.ro/?lang=en&q=MATTEO%20RICCI #KARA #MEDOFF #BARNETT https://allgraph.ro/?lang=en&q=KARA%20MEDOFF%20BARNETT #JOVAN MARKOVIĆ https://aepiot.ro/related-search.html?reports=JOVAN%20MARKOVI%C4%86 #AARON #MUIRHEAD "
+        },
+        {
+          "rank": 3,
+          "event_id": "6605c494682eeea669c2dbd26afcc6e625a474e196956f7a64c0c59c5710b6f7",
+          "cosine_to_centroid": 0.656821,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "#ESPERANZA #SÁNCHEZ #MASTRAPA https://aepiot.ro/related-search.html?reports=ESPERANZA%20S%C3%81NCHEZ%20MASTRAPA #CLOAK #DAGGER 1984 #FILM https://headlines-world.com/search.html?lang=en&q=CLOAK%20DAGGER%201984%20FILM #JESSICA #HARP https://"
+        },
+        {
+          "rank": 4,
+          "event_id": "2e1c3938904a3fb4624f86ff708c00311c8f50b159679804827af9dfa913b0cc",
+          "cosine_to_centroid": 0.651731,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "#FLAG OF #INDONESIA https://allgraph.ro/related-search.html?reports=FLAG%20OF%20INDONESIA #AMAZON #PRIME #AIR https://www.perplexity.ai/search/new?q=Analyze+the+terms+in+the+aePiot+semantic+search+WEB+4.0+SEMANTIC+LAYER+AEPIOT:+INDEPENDENT+"
+        },
+        {
+          "rank": 5,
+          "event_id": "0afbcf8dd1c7d6659684d8f01781cfdb614ab6c149092fb6fa4376c5b3e55ac1",
+          "cosine_to_centroid": 0.651662,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "#CLANDESTINOS 1987 #FILM https://allgraph.ro/related-search.html?reports=CLANDESTINOS%201987%20FILM #THE #WATSONS GO TO #BIRMINGHAM 1963 https://aepiot.com/?q=THE%20WATSONS%20GO%20TO%20BIRMINGHAM%201963 #WUJIANG #VIADUCT https://allgraph.ro"
+        }
+      ]
+    },
+    {
+      "topic_id": 13,
+      "stored_label": "block · mempool · bitcoinfees",
+      "assigned_rows_exported": 101,
+      "relations": {
+        "no_observed_path": 94,
+        "two_hop": 7
+      },
+      "duplicate_rows": 16,
+      "spam_rows": 0,
+      "nearest": [
+        {
+          "rank": 1,
+          "event_id": "419476c8896542fdd12159c568b48e06ea572488e684f0812b10264627507fca",
+          "cosine_to_centroid": 0.93071,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "Block 966808  1 - high priority 1 - medium priority 1 - low priority 1 - no priority 1 - purging  #bitcoinfees #mempool"
+        },
+        {
+          "rank": 2,
+          "event_id": "034a4ea7ba21855802cc31257473bad6c863a3476bc4e70cee040ea805c125db",
+          "cosine_to_centroid": 0.929707,
+          "relation": "no_observed_path",
+          "same_author_text_count": 2,
+          "content": "Block 966826  1 - high priority 1 - medium priority 1 - low priority 1 - no priority 1 - purging  #bitcoinfees #mempool"
+        },
+        {
+          "rank": 3,
+          "event_id": "52f8238045b58c44199e634ec821ff0eef644be906e1a1ec30e92e541acce156",
+          "cosine_to_centroid": 0.929707,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "Block 966826  1 - high priority 1 - medium priority 1 - low priority 1 - no priority 1 - purging  #bitcoinfees #mempool"
+        },
+        {
+          "rank": 4,
+          "event_id": "53ba2b3fc84c41732f2e8255f5d435f146d0ee868f5e818ce0ab70cca5bcb5c4",
+          "cosine_to_centroid": 0.929707,
+          "relation": "no_observed_path",
+          "same_author_text_count": 2,
+          "content": "Block 966826  1 - high priority 1 - medium priority 1 - low priority 1 - no priority 1 - purging  #bitcoinfees #mempool"
+        },
+        {
+          "rank": 5,
+          "event_id": "1939e9f0bff82acf36633fc7adefbed55042c4b606edc9d02f43fdc3c91988f4",
+          "cosine_to_centroid": 0.929001,
+          "relation": "no_observed_path",
+          "same_author_text_count": 2,
+          "content": "Block 966803  1 - high priority 1 - medium priority 1 - low priority 1 - no priority 1 - purging  #bitcoinfees #mempool"
+        }
+      ]
+    },
+    {
+      "topic_id": 14,
+      "stored_label": "mixed",
+      "assigned_rows_exported": 399,
+      "relations": {
+        "no_observed_path": 207,
+        "two_hop": 188,
+        "one_hop": 4
+      },
+      "duplicate_rows": 5,
+      "spam_rows": 0,
+      "nearest": [
+        {
+          "rank": 1,
+          "event_id": "63e56a795955f164b1f270994d86ccce3d7358fcbbd8ced232de0d903a593a6c",
+          "cosine_to_centroid": 0.80676,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "     https://blossom.primal.net/617d495212c6df2cbd63471cbad017158e44f3e1cf08314064b2183e059efeb2.mp4"
+        },
+        {
+          "rank": 2,
+          "event_id": "1582bb4d0c9c380a62e9b1d563694fecc753cc5483cb1d7615f30c823aa68792",
+          "cosine_to_centroid": 0.80227,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "     https://blossom.primal.net/672628658834cb368241d21621e72efc3ed6e701ee11e4f27c7fff2c5c8eb4b7.mp4"
+        },
+        {
+          "rank": 3,
+          "event_id": "2486f90153c3f88665cb53d29d169d791932a9568632ab9c932208a3f265abf2",
+          "cosine_to_centroid": 0.800768,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "     https://blossom.primal.net/d9d07decd777f196842a9f1f25ab2db7dd59d5d129a21fba6dfe73e8535fa8e0.mp4"
+        },
+        {
+          "rank": 4,
+          "event_id": "1eb7d2c114001f64f5f51534470e0d7c2f16c5614d28f33a21346f15e1b7c0a7",
+          "cosine_to_centroid": 0.79843,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "     https://blossom.primal.net/517a3cd82838c822c1ad51b3feba9e42160c04626477fc7624a272597b5d3437.mp4"
+        },
+        {
+          "rank": 5,
+          "event_id": "14c1eb6e433d49c0cb137488f364281f41b32e2ca0a95a96c6f1e96d5c53c524",
+          "cosine_to_centroid": 0.797567,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "     https://blossom.primal.net/d33956f80ce618595c040777869d456f192a9fc4087dbbd16fbd05817d3d4d5b.mp4"
+        }
+      ]
+    },
+    {
+      "topic_id": 15,
+      "stored_label": "mixed",
+      "assigned_rows_exported": 198,
+      "relations": {
+        "two_hop": 5,
+        "no_observed_path": 193
+      },
+      "duplicate_rows": 0,
+      "spam_rows": 0,
+      "nearest": [
+        {
+          "rank": 1,
+          "event_id": "2a4eac81c2788d5c9e49ce1492dc2542df3713503e7eeb556e032cda6ccc0c42",
+          "cosine_to_centroid": 0.770336,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "我らがオウム真理教に入信してこそ、日本の絶望的な現実を変えることができるのだ。そうして初めて、この抑圧を根こそぎ破壊できるのである。興味のある方は、Telegram（テレグラム）で当教団を検索してほしい。"
+        },
+        {
+          "rank": 2,
+          "event_id": "37b2e93a48324af92462a09e2af6434db8aefc4f36dd72c3830f20b2893853d6",
+          "cosine_to_centroid": 0.770336,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "我らがオウム真理教に入信してこそ、日本の絶望的な現実を変えることができるのだ。そうして初めて、この抑圧を根こそぎ破壊できるのである。興味のある方は、Telegram（テレグラム）で当教団を検索してほしい。"
+        },
+        {
+          "rank": 3,
+          "event_id": "37d6eedf6df9c47d3b10b36547a18d1f7d3dfcee385c1031303fd01ea4052609",
+          "cosine_to_centroid": 0.770336,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "我らがオウム真理教に入信してこそ、日本の絶望的な現実を変えることができるのだ。そうして初めて、この抑圧を根こそぎ破壊できるのである。興味のある方は、Telegram（テレグラム）で当教団を検索してほしい。"
+        },
+        {
+          "rank": 4,
+          "event_id": "43d46c4918c9438f279ea6eaadfd904f1e2d34ec0ca4a8ce2428b6234657281e",
+          "cosine_to_centroid": 0.770336,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "我らがオウム真理教に入信してこそ、日本の絶望的な現実を変えることができるのだ。そうして初めて、この抑圧を根こそぎ破壊できるのである。興味のある方は、Telegram（テレグラム）で当教団を検索してほしい。"
+        },
+        {
+          "rank": 5,
+          "event_id": "56edd0b63f9c70daa2b3e96cf6937e4b3c5093f1c29262d1d40509e437854885",
+          "cosine_to_centroid": 0.770336,
+          "relation": "no_observed_path",
+          "same_author_text_count": 1,
+          "content": "我らがオウム真理教に入信してこそ、日本の絶望的な現実を変えることができるのだ。そうして初めて、この抑圧を根こそぎ破壊できるのである。興味のある方は、Telegram（テレグラム）で当教団を検索してほしい。"
+        }
+      ]
+    }
+  ]
+}

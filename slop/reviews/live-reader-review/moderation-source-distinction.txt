@@ -1,0 +1,16 @@
+[current exact events and member cardinality]
+source  identifier  event_id                                                          event_created_at  checked_at  entries  unique_members
+------  ----------  ----------------------------------------------------------------  ----------------  ----------  -------  --------------
+primal  spam        c788b323272348258dd49df80d229f1b7e773e7de662a68bc72a2d58e941d88e  1726079985        1789294400  13       13            
+primal  nsfw        c4bb56ddd3b476d6b0ff6266eb13ef20b34cc096b6a225feefd0679df1823843  1693603030        1789294398  157      143           
+
+[NSFW raw p-tag validity and duplication]
+raw_p_tags  unique_p_tags  invalid
+----------  -------------  -------
+157         143            0      
+
+[original Python live DB exact events]
+source  identifier  event_id                                                          event_created_at  checked_at  unique_members
+------  ----------  ----------------------------------------------------------------  ----------------  ----------  --------------
+primal  spam_list   c788b323272348258dd49df80d229f1b7e773e7de662a68bc72a2d58e941d88e  1726079985        1789261148  13            
+primal  nsfw_list   c4bb56ddd3b476d6b0ff6266eb13ef20b34cc096b6a225feefd0679df1823843  1693603030        1789261148  143           

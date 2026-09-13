@@ -1,0 +1,413 @@
+{
+  "snapshots": {
+    "before": {
+      "repo": "/workspace/meatybroth",
+      "sha": "342085089a8ee770109e0ea9feb49a38968a759e",
+      "maintained_production_lines": 4712,
+      "totals": {
+        "deployment": 555,
+        "maintained-scripts": 592,
+        "runtime-python": 2108,
+        "runtime-rust": 1106,
+        "runtime-sql": 0,
+        "templates-static": 351,
+        "tests": 3382
+      },
+      "files": {
+        "Caddyfile": {
+          "category": "deployment",
+          "production_lines": 3,
+          "test_lines": 0,
+          "raw_lines": 3
+        },
+        "Dockerfile": {
+          "category": "deployment",
+          "production_lines": 22,
+          "test_lines": 0,
+          "raw_lines": 22
+        },
+        "collectors/sdk-collector/src/collection.rs": {
+          "category": "runtime-rust",
+          "production_lines": 241,
+          "test_lines": 313,
+          "raw_lines": 554
+        },
+        "collectors/sdk-collector/src/identity.rs": {
+          "category": "runtime-rust",
+          "production_lines": 52,
+          "test_lines": 0,
+          "raw_lines": 52
+        },
+        "collectors/sdk-collector/src/main.rs": {
+          "category": "runtime-rust",
+          "production_lines": 747,
+          "test_lines": 295,
+          "raw_lines": 1042
+        },
+        "collectors/sdk-collector/src/serialized.rs": {
+          "category": "runtime-rust",
+          "production_lines": 66,
+          "test_lines": 0,
+          "raw_lines": 66
+        },
+        "docker-compose.yml": {
+          "category": "deployment",
+          "production_lines": 55,
+          "test_lines": 0,
+          "raw_lines": 55
+        },
+        "infrastructure/cloudformation/meatybroth.yaml": {
+          "category": "deployment",
+          "production_lines": 227,
+          "test_lines": 0,
+          "raw_lines": 227
+        },
+        "meatybroth/__init__.py": {
+          "category": "runtime-python",
+          "production_lines": 1,
+          "test_lines": 0,
+          "raw_lines": 1
+        },
+        "meatybroth/__main__.py": {
+          "category": "runtime-python",
+          "production_lines": 73,
+          "test_lines": 0,
+          "raw_lines": 73
+        },
+        "meatybroth/ingest.py": {
+          "category": "runtime-python",
+          "production_lines": 819,
+          "test_lines": 0,
+          "raw_lines": 819
+        },
+        "meatybroth/ranking.py": {
+          "category": "runtime-python",
+          "production_lines": 295,
+          "test_lines": 0,
+          "raw_lines": 295
+        },
+        "meatybroth/static/style.css": {
+          "category": "templates-static",
+          "production_lines": 88,
+          "test_lines": 0,
+          "raw_lines": 88
+        },
+        "meatybroth/store.py": {
+          "category": "runtime-python",
+          "production_lines": 382,
+          "test_lines": 0,
+          "raw_lines": 382
+        },
+        "meatybroth/templates/_post.html": {
+          "category": "templates-static",
+          "production_lines": 60,
+          "test_lines": 0,
+          "raw_lines": 60
+        },
+        "meatybroth/templates/about.html": {
+          "category": "templates-static",
+          "production_lines": 10,
+          "test_lines": 0,
+          "raw_lines": 10
+        },
+        "meatybroth/templates/base.html": {
+          "category": "templates-static",
+          "production_lines": 49,
+          "test_lines": 0,
+          "raw_lines": 49
+        },
+        "meatybroth/templates/context.html": {
+          "category": "templates-static",
+          "production_lines": 26,
+          "test_lines": 0,
+          "raw_lines": 26
+        },
+        "meatybroth/templates/feed.html": {
+          "category": "templates-static",
+          "production_lines": 44,
+          "test_lines": 0,
+          "raw_lines": 44
+        },
+        "meatybroth/templates/status.html": {
+          "category": "templates-static",
+          "production_lines": 27,
+          "test_lines": 0,
+          "raw_lines": 27
+        },
+        "meatybroth/templates/tos.html": {
+          "category": "templates-static",
+          "production_lines": 47,
+          "test_lines": 0,
+          "raw_lines": 47
+        },
+        "meatybroth/web.py": {
+          "category": "runtime-python",
+          "production_lines": 538,
+          "test_lines": 0,
+          "raw_lines": 538
+        },
+        "scripts/bench_ingest_e2e.py": {
+          "category": "maintained-scripts",
+          "production_lines": 176,
+          "test_lines": 0,
+          "raw_lines": 176
+        },
+        "scripts/deploy_cloudformation.sh": {
+          "category": "deployment",
+          "production_lines": 125,
+          "test_lines": 0,
+          "raw_lines": 125
+        },
+        "scripts/deploy_health.sh": {
+          "category": "deployment",
+          "production_lines": 123,
+          "test_lines": 0,
+          "raw_lines": 123
+        },
+        "scripts/dev_server.py": {
+          "category": "maintained-scripts",
+          "production_lines": 33,
+          "test_lines": 0,
+          "raw_lines": 33
+        },
+        "scripts/embed_corpus.py": {
+          "category": "maintained-scripts",
+          "production_lines": 383,
+          "test_lines": 0,
+          "raw_lines": 383
+        },
+        "scripts/test_embed_corpus.py": {
+          "category": "tests",
+          "production_lines": 205,
+          "test_lines": 205,
+          "raw_lines": 205
+        },
+        "tests/test_deploy_health.py": {
+          "category": "tests",
+          "production_lines": 65,
+          "test_lines": 65,
+          "raw_lines": 65
+        },
+        "tests/test_infrastructure.py": {
+          "category": "tests",
+          "production_lines": 388,
+          "test_lines": 388,
+          "raw_lines": 388
+        },
+        "tests/test_ingest.py": {
+          "category": "tests",
+          "production_lines": 606,
+          "test_lines": 606,
+          "raw_lines": 606
+        },
+        "tests/test_primal_moderation.py": {
+          "category": "tests",
+          "production_lines": 86,
+          "test_lines": 86,
+          "raw_lines": 86
+        },
+        "tests/test_ranking.py": {
+          "category": "tests",
+          "production_lines": 304,
+          "test_lines": 304,
+          "raw_lines": 304
+        },
+        "tests/test_reader_interactions.py": {
+          "category": "tests",
+          "production_lines": 496,
+          "test_lines": 496,
+          "raw_lines": 496
+        },
+        "tests/test_reply_context.py": {
+          "category": "tests",
+          "production_lines": 125,
+          "test_lines": 125,
+          "raw_lines": 125
+        },
+        "tests/test_store.py": {
+          "category": "tests",
+          "production_lines": 147,
+          "test_lines": 147,
+          "raw_lines": 147
+        },
+        "tests/test_web.py": {
+          "category": "tests",
+          "production_lines": 352,
+          "test_lines": 352,
+          "raw_lines": 352
+        }
+      }
+    },
+    "after": {
+      "repo": "/workspace/meatybroth-rust",
+      "sha": "e1c8fbe89dcd62eb67792d1460fcbc5eff72ac0b",
+      "maintained_production_lines": 5617,
+      "totals": {
+        "deployment": 308,
+        "maintained-scripts": 0,
+        "runtime-python": 0,
+        "runtime-rust": 4568,
+        "runtime-sql": 351,
+        "templates-static": 390,
+        "tests": 1680,
+        "vendored-data": 1321
+      },
+      "files": {
+        "infrastructure/deployment/meatybroth.yaml": {
+          "category": "deployment",
+          "production_lines": 308,
+          "test_lines": 0,
+          "raw_lines": 308
+        },
+        "src/collect.rs": {
+          "category": "runtime-rust",
+          "production_lines": 1226,
+          "test_lines": 65,
+          "raw_lines": 1291
+        },
+        "src/coverage.sql": {
+          "category": "runtime-sql",
+          "production_lines": 43,
+          "test_lines": 0,
+          "raw_lines": 43
+        },
+        "src/data/english-stopwords.LICENSE": {
+          "category": "vendored-data",
+          "production_lines": 21,
+          "test_lines": 0,
+          "raw_lines": 21
+        },
+        "src/data/english-stopwords.SOURCE": {
+          "category": "vendored-data",
+          "production_lines": 2,
+          "test_lines": 0,
+          "raw_lines": 2
+        },
+        "src/data/english-stopwords.txt": {
+          "category": "vendored-data",
+          "production_lines": 1298,
+          "test_lines": 0,
+          "raw_lines": 1298
+        },
+        "src/embed.rs": {
+          "category": "runtime-rust",
+          "production_lines": 1423,
+          "test_lines": 16,
+          "raw_lines": 1439
+        },
+        "src/embed.sql": {
+          "category": "runtime-sql",
+          "production_lines": 90,
+          "test_lines": 0,
+          "raw_lines": 90
+        },
+        "src/main.rs": {
+          "category": "runtime-rust",
+          "production_lines": 992,
+          "test_lines": 4,
+          "raw_lines": 996
+        },
+        "src/policy.rs": {
+          "category": "runtime-rust",
+          "production_lines": 88,
+          "test_lines": 60,
+          "raw_lines": 148
+        },
+        "src/posts.sql": {
+          "category": "runtime-sql",
+          "production_lines": 57,
+          "test_lines": 0,
+          "raw_lines": 57
+        },
+        "src/queries.rs": {
+          "category": "runtime-rust",
+          "production_lines": 335,
+          "test_lines": 0,
+          "raw_lines": 335
+        },
+        "src/render.rs": {
+          "category": "runtime-rust",
+          "production_lines": 504,
+          "test_lines": 0,
+          "raw_lines": 504
+        },
+        "src/schema.sql": {
+          "category": "runtime-sql",
+          "production_lines": 128,
+          "test_lines": 0,
+          "raw_lines": 128
+        },
+        "src/sdk_tests.rs": {
+          "category": "tests",
+          "production_lines": 1048,
+          "test_lines": 1048,
+          "raw_lines": 1048
+        },
+        "src/social.sql": {
+          "category": "runtime-sql",
+          "production_lines": 33,
+          "test_lines": 0,
+          "raw_lines": 33
+        },
+        "src/tests.rs": {
+          "category": "tests",
+          "production_lines": 487,
+          "test_lines": 487,
+          "raw_lines": 487
+        },
+        "static/style.css": {
+          "category": "templates-static",
+          "production_lines": 91,
+          "test_lines": 0,
+          "raw_lines": 91
+        },
+        "templates/_post.html": {
+          "category": "templates-static",
+          "production_lines": 61,
+          "test_lines": 0,
+          "raw_lines": 61
+        },
+        "templates/about.html": {
+          "category": "templates-static",
+          "production_lines": 9,
+          "test_lines": 0,
+          "raw_lines": 9
+        },
+        "templates/base.html": {
+          "category": "templates-static",
+          "production_lines": 59,
+          "test_lines": 0,
+          "raw_lines": 59
+        },
+        "templates/context.html": {
+          "category": "templates-static",
+          "production_lines": 26,
+          "test_lines": 0,
+          "raw_lines": 26
+        },
+        "templates/feed.html": {
+          "category": "templates-static",
+          "production_lines": 56,
+          "test_lines": 0,
+          "raw_lines": 56
+        },
+        "templates/status.html": {
+          "category": "templates-static",
+          "production_lines": 29,
+          "test_lines": 0,
+          "raw_lines": 29
+        },
+        "templates/tos.html": {
+          "category": "templates-static",
+          "production_lines": 59,
+          "test_lines": 0,
+          "raw_lines": 59
+        }
+      }
+    }
+  },
+  "change": {
+    "lines": 905,
+    "percent": 19.2
+  }
+}

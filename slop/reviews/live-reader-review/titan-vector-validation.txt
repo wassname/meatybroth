@@ -1,0 +1,4 @@
+posts: n=6475 dims=[(512, 512)] nonfinite_values=0 norm_min=0.999999281 norm_max=1.000000625 norm_mean=1.000000026
+topics: n=16 dims=[(512, 512)] nonfinite_values=0 norm_min=0.999999613 norm_max=1.000000442 norm_mean=0.999999947
+topic_metadata_sum 6251
+assigned_rows 6251

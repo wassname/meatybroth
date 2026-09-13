@@ -1,0 +1,41 @@
+{
+  "checks": {
+    "integrity_check": "ok",
+    "moderation_lists": 2,
+    "posts": 6475,
+    "sha256": "2da2730a3a312aef98c319be1687b53702d1b24d4a3364d0fc044b30910ccf65",
+    "social_edges": 32118,
+    "topic_memberships": 6251,
+    "topics": 16
+  },
+  "metadata": {
+    "counts": {
+      "all_reader_eligible": 13871,
+      "space_eligible_vectors": 6475,
+      "space_stored_vectors": 6475,
+      "space_topic_memberships": 6251,
+      "space_topics": 16
+    },
+    "ledger": {
+      "actual_nusd": 55482900,
+      "actual_tokens": 2774145,
+      "requests": 7151,
+      "uncertain_requests": 1
+    },
+    "root_pubkey": "60c052cf19fbfb973c1779585df423e3982a3a251fc826d4c76f8063621c5bb6",
+    "snapshot_finished_unix": 1789334336,
+    "snapshot_started_unix": 1789334324,
+    "source_path": "/workspace/meatybroth-rust/.local/rust-live-8086/events.sqlite",
+    "space": {
+      "backend": "bedrock",
+      "created_at": 1789306042,
+      "dimensions": 512,
+      "id": "64c3c581f1da5a1973fb22e9bae7d91988c2298f14b92cbc3f89f1019703bbf5",
+      "model": "amazon.titan-embed-text-v2:0",
+      "model_sha256": "provider-managed",
+      "normalize": 1,
+      "revision": "provider-managed",
+      "tokenizer_sha256": "provider-managed"
+    }
+  }
+}

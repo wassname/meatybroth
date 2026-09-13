@@ -1,0 +1,36 @@
+{
+  "rust_runtime": {
+    "src/main.rs": 386,
+    "src/queries.rs": 180,
+    "src/render.rs": 302
+  },
+  "maintained_tests": {
+    "src/tests.rs": 446
+  },
+  "templates_css": {
+    "static/style.css": 88,
+    "templates/_post.html": 60,
+    "templates/about.html": 10,
+    "templates/base.html": 50,
+    "templates/context.html": 26,
+    "templates/feed.html": 44,
+    "templates/status.html": 19,
+    "templates/tos.html": 59
+  },
+  "verification_tools": {
+    "slop/verification/browser_reader.py": 106,
+    "slop/verification/prepare_reader_parity.py": 104
+  },
+  "config_docs": {
+    "Cargo.toml": 27,
+    "README.md": 21
+  },
+  "totals": {
+    "rust_runtime": 868,
+    "maintained_tests": 446,
+    "templates_css": 356,
+    "verification_tools": 210,
+    "config_docs": 48,
+    "production_including_templates_css": 1224
+  }
+}
