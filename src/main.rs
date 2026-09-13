@@ -123,7 +123,7 @@ impl Search {
     }
 }
 fn parse_fts(q: &str) -> Result<String, String> {
-    if q.matches('"').count() % 2 != 0 {
+    if !q.matches('"').count().is_multiple_of(2) {
         return Err("Unmatched quotation mark in search query.".into());
     }
     let words = regex::Regex::new(r"[\p{L}\p{N}_]+").unwrap();

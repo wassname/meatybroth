@@ -176,6 +176,61 @@ pub async fn scan(
     }
     Ok(observed)
 }
+async fn hydrate_notes(
+    client: &Client,
+    policy: &Policy,
+    sdk: &NostrSqlite,
+    relay_url: &str,
+    note_ids: &BTreeSet<EventId>,
+) -> Result<(Observation, Observation), Error> {
+    let notes = sdk
+        .query(Filter::new().ids(note_ids.iter().copied()))
+        .await?;
+    let authors: BTreeSet<_> = notes.iter().map(|event| event.pubkey).collect();
+    let parent_ids: BTreeSet<_> = notes
+        .iter()
+        .flat_map(|event| event.tags.iter())
+        .filter_map(|tag| {
+            let values = tag.as_slice();
+            (values.first().is_some_and(|value| value == "e"))
+                .then(|| values.get(1))
+                .flatten()
+                .and_then(|value| EventId::from_hex(value).ok())
+        })
+        .collect();
+    let metadata = if authors.is_empty() {
+        Observation::default()
+    } else {
+        scan(
+            client,
+            policy,
+            relay_url,
+            Filter::new()
+                .authors(authors)
+                .kinds([Kind::Metadata, Kind::ContactList, Kind::RelayList])
+                .limit(500),
+            Duration::from_secs(15),
+        )
+        .await?
+    };
+    let parents = if parent_ids.is_empty() {
+        Observation::default()
+    } else {
+        scan(
+            client,
+            policy,
+            relay_url,
+            Filter::new()
+                .ids(parent_ids)
+                .kind(Kind::TextNote)
+                .limit(500),
+            Duration::from_secs(15),
+        )
+        .await?
+    };
+    Ok((metadata, parents))
+}
+
 pub async fn prune(sdk: &NostrSqlite, policy: &Policy, now: u64) -> Result<(), Error> {
     sdk.delete(
         Filter::new()
@@ -239,11 +294,17 @@ pub async fn run(path: &Path, sdk: NostrSqlite, relays: Vec<String>) -> Result<(
                 .until(now)
                 .limit(500);
             let observed = scan(&client, &policy, relay, filter, Duration::from_secs(15)).await?;
+            let (metadata, parents) =
+                hydrate_notes(&client, &policy, &sdk, relay, &observed.accepted_notes).await?;
             eprintln!(
-                "SDK received={} rejected={} eose={} relay={relay}; coverage not established",
-                observed.ids.len(),
+                "SDK notes={} rejected={} eose={}; metadata={} metadata_eose={}; parents={} parents_eose={}; relay={relay}; coverage not established",
+                observed.accepted_notes.len(),
                 observed.rejected,
-                observed.eose
+                observed.eose,
+                metadata.ids.len(),
+                metadata.eose,
+                parents.accepted_notes.len(),
+                parents.eose,
             );
         }
         tokio::time::sleep(Duration::from_secs(30)).await;

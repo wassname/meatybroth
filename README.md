@@ -3,16 +3,18 @@
 One Cargo executable serves the existing reader templates and CSS. It reads SQLite in-process; no Python runtime or SQL subprocess.
 
 ```sh
-MEATYBROTH_DB=/workspace/meatybroth/.local/sdk-parity/events.sqlite cargo run --locked
+mkdir -p .local/live
+: > .local/live/blocklist.txt
+MEATYBROTH_DB="$PWD/.local/live/events.sqlite" cargo run --locked
 ```
 
-Open http://localhost:8083. `MEATYBROTH_ADDR` overrides the bind address; `MEATYBROTH_ROOT` sets the Social root public key.
+Open http://localhost:8083. The default command creates a new SDK database, bootstraps signed Primal moderation lists, collects selected-relay text notes plus their profiles and referenced parents, and serves the same file. `MEATYBROTH_ADDR` overrides the bind address; `MEATYBROTH_RELAYS` is a comma-separated relay list; `MEATYBROTH_ROOT` sets the Social root public key. Collection failure stops the server rather than silently serving stale data.
 
 The repository selects nightly Cargo and enforces an eight-day minimum dependency publication age in `.cargo/config.toml`. `cargo update --dry-run` must report `as of 8 days ago`; build/test with `--locked`.
 
 New, Relevance, Conversations and Social preserve the original ranking rules. Search URLs, 50-post pages, dates, expansion, thread context, profiles/NIP-05 and status are implemented. Markdown uses pulldown-cmark and ammonia; post bodies cannot load images/scripts. The reader hides stored policy exclusions and Primal NSFW members, and preserves other warning labels.
 
-This slice opens an existing SDK database read-only, including its current `posts`/FTS projection. Collection, schema ownership, cleanup, embeddings and topics are not integrated. Original runtime code has not been removed. This is not the completed application replacement.
+Set `MEATYBROTH_READ_ONLY=1` only to inspect an existing projection without collection. Public collection is currently a capped recent-page slice: status and logs do not claim complete relay coverage. Durable cursors, exhaustive backfill, moderation refresh and same-second gap recovery remain incomplete. Embeddings and topics are not integrated, and the original runtime has not been removed pending replacement verification.
 
 ```sh
 cargo test --locked

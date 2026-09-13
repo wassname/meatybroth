@@ -395,7 +395,7 @@ async fn status_exposes_gaps_signed_list_age_and_reader_scope() {
         "same-second cap",
         "signed-id",
         "timeout",
-        "read-only",
+        "share this SQLite file",
         &render::time(f.now - 86400),
     ] {
         assert!(html.contains(text), "{text}");

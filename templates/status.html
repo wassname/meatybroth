@@ -2,7 +2,7 @@
 {% block body %}
 <h2>Collector status</h2>
 <p>As of {{ now }}. {{ eligible_posts }} eligible Nostr posts in the last {{ window_days }} days.</p>
-<p>This Rust reader opens the reference database read-only. It does not run collection or cleanup yet. Counts describe the stored corpus, not per-relay coverage.</p>
+<p>The Rust SDK collector and reader share this SQLite file. Collection currently covers capped recent pages plus fetched profiles and referenced parents; counts do not establish complete relay coverage.</p>
 {% for s in status_rows %}
 <h3>{{ s.source }}</h3>
 <p>Last report {{ s.updated }}</p>
