@@ -362,7 +362,7 @@ fn parent_excerpt(parent: &Post, author: &str, reasons: &[String]) -> Value {
     } else {
         text
     };
-    json!({"source":parent.source,"source_id":parent.source_id,"author":author,"text":excerpt})
+    json!({"source_id":parent.source_id,"author":author,"text":excerpt})
 }
 
 /// Resolves feed parent excerpts with bounded batch scans instead of per-card queries.
@@ -490,7 +490,7 @@ pub fn card(
         );
     }
     Ok(
-        json!({"canonical_id":p.canonical_id,"source":p.source,"source_id":p.source_id,
+        json!({"canonical_id":p.canonical_id,"source_id":p.source_id,
             "author_id":p.author_id,"author":author,"address":address,"named":named,"profile_url":profile_url,
             "original_url":original_url,"when":time(p.created_at),"age":age(p.created_at,now),
             "full_html":full_html,"preview_html":preview_html,

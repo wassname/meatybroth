@@ -18,7 +18,7 @@
     {# The Go/Enter submitter adds go=1 -> server selects Relevance; the select's
        onchange submits via form.submit() with no submitter -> feed change only. #}
     <button type="submit" name="go" value="1">Words</button>
-    <button type="submit" name="mode" value="meaning">Meaning</button>
+    <button type="submit" name="mode" value="meaning" {% if not meaning_available %}disabled title="Meaning requires the local MiniLM model; this reader serves cached vectors only"{% endif %}>Meaning{% if not meaning_available %} unavailable{% endif %}</button>
     <label for="feed-select">Feed:</label>
     <select id="feed-select" name="mode" aria-label="Feed algorithm"
             onchange="document.getElementById('feed-tip').textContent=this.options[this.selectedIndex].dataset.tip; this.form.submit()">
@@ -34,8 +34,8 @@
     </span>
     <label for="embedding-select">Vectors:</label>
     <select id="embedding-select" name="embedding" onchange="this.form.submit()">
-      <option value="minilm" {% if embedding != 'titan' %}selected{% endif %}>MiniLM local</option>
-      <option value="titan" {% if embedding == 'titan' %}selected{% endif %}>Titan cached</option>
+      {% if minilm_available %}<option value="minilm" {% if embedding != 'titan' %}selected{% endif %}>MiniLM local</option>{% endif %}
+      <option value="titan" {% if embedding == 'titan' or not minilm_available %}selected{% endif %}>Titan cached</option>
     </select>
     {% if mode == 'discovery' %}
     <label for="reach-select">Reach:</label>

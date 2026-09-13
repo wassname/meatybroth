@@ -29,13 +29,21 @@ WHERE event.kind=1
         AND json_type(event.content,'$.ttl')='integer'
       )
     )
-  ELSE 0 END;
+  ELSE 0 END
+  AND NOT EXISTS (
+    SELECT 1 FROM policy_exclusions exclusion
+    WHERE exclusion.event_id=lower(hex(event.id))
+  )
+  AND lower(hex(event.pubkey)) NOT IN (
+    SELECT member.value
+    FROM moderation_lists list,json_each(list.members_json) member
+    WHERE list.identifier='nsfw' AND member.type='text'
+  );
 
 CREATE VIEW posts AS
 SELECT
     reader.id AS rowid,
     'nostr:' || lower(hex(event.id)) AS canonical_id,
-    'nostr' AS source,
     lower(hex(event.id)) AS source_id,
     lower(hex(event.pubkey)) AS author_id,
     substr(lower(hex(event.pubkey)), 1, 16) AS author_name,

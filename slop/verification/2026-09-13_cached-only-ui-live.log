@@ -1,0 +1,8 @@
+root status=200 seconds=7.350466
+Meaning unavailable
+minilm_option=absent
+<option value="titan" selected>Titan cached</option>
+meaning status=400 seconds=0.661686
+minilm status=400 seconds=0.648896
+MiniLM cache is not configured
+titan status=200 seconds=0.937599

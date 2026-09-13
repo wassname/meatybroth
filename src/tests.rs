@@ -14,14 +14,17 @@ CREATE INDEX social_edges_followee ON social_edges(followee,follower);
 CREATE TRIGGER social_edge_insert AFTER INSERT ON event_tags WHEN new.tag_name='p' BEGIN
  INSERT OR IGNORE INTO social_edges SELECT e.id,lower(hex(e.pubkey)),new.tag_value FROM events e WHERE e.id=new.event_id AND e.kind=3;
 END;
-CREATE TABLE posts(canonical_id TEXT PRIMARY KEY,source TEXT,source_id TEXT,author_id TEXT,author_name TEXT,text TEXT,created_at INTEGER,url TEXT,parent_id TEXT,root_id TEXT);
-CREATE INDEX posts_parent ON posts(parent_id);
-CREATE VIRTUAL TABLE posts_fts USING fts5(text,content='posts',content_rowid='rowid',tokenize='porter unicode61');
-CREATE TRIGGER posts_insert AFTER INSERT ON posts BEGIN INSERT INTO posts_fts(rowid,text) VALUES(new.rowid,new.text); END;
 CREATE TABLE content_warnings(event_id TEXT,category TEXT,reason TEXT);
 CREATE TABLE policy_exclusions(event_id TEXT,reason TEXT);
 CREATE TABLE moderation_lists(source TEXT,identifier TEXT,event_id TEXT,event_created_at INTEGER,checked_at INTEGER,members_json TEXT);
 CREATE TABLE moderation_refresh_attempts(source TEXT,identifier TEXT,attempted_at INTEGER,error TEXT);
+CREATE TABLE post_store(canonical_id TEXT PRIMARY KEY,source_id TEXT,author_id TEXT,author_name TEXT,text TEXT,created_at INTEGER,url TEXT,parent_id TEXT,root_id TEXT);
+CREATE INDEX posts_parent ON post_store(parent_id);
+CREATE VIEW posts AS SELECT rowid,post.* FROM post_store post
+WHERE NOT EXISTS(SELECT 1 FROM policy_exclusions exclusion WHERE exclusion.event_id=post.source_id)
+AND post.author_id NOT IN(SELECT member.value FROM moderation_lists list,json_each(list.members_json) member WHERE list.identifier='nsfw' AND member.type='text');
+CREATE VIRTUAL TABLE posts_fts USING fts5(text,content='post_store',content_rowid='rowid',tokenize='porter unicode61');
+CREATE TRIGGER posts_insert AFTER INSERT ON post_store BEGIN INSERT INTO posts_fts(rowid,text) VALUES(new.rowid,new.text); END;
 CREATE TABLE source_status(source TEXT,updated_at INTEGER,detail TEXT);
 CREATE TABLE collection_gaps(relay TEXT,since_at INTEGER,until_at INTEGER,reason TEXT,checked_at INTEGER);
 ";
@@ -62,7 +65,7 @@ impl Fixture {
     ) {
         self.db
             .execute(
-                "INSERT INTO posts VALUES(?1,'nostr',?2,?3,?4,?5,?6,?7,?8,?9)",
+                "INSERT INTO post_store VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
                 rusqlite::params![
                     cid(id),
                     key(id),

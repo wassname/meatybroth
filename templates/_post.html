@@ -24,9 +24,9 @@
     </span>
     <span class="meta-right">
       <time title="{{ p.when }}">{{ p.age }}</time>
-      {% if p.conversation %}<a class="score textlabel" href="/context/{{ p.source }}/{{ p.source_id|urlencode }}" aria-label="reply context" title="reply context">{{ p.score }}</a>
+      {% if p.conversation %}<a class="score textlabel" href="/context/nostr/{{ p.source_id|urlencode }}" aria-label="reply context" title="reply context">{{ p.score }}</a>
       {% elif p.score %}<span class="score" {% if p.score_title %}title="{{ p.score_title }}"{% endif %}>{{ p.score }}</span>{% endif %}
-      {% if not p.conversation %}<a class="textlabel" href="/context/{{ p.source }}/{{ p.source_id|urlencode }}" aria-label="replies and thread context" title="available stored replies">{% if p.reply_count %}{{ p.reply_count }} {% if p.reply_count == 1 %}reply{% else %}replies{% endif %}{% else %}replies{% endif %}</a>{% endif %}
+      {% if not p.conversation %}<a class="textlabel" href="/context/nostr/{{ p.source_id|urlencode }}" aria-label="replies and thread context" title="available stored replies">{% if p.reply_count %}{{ p.reply_count }} {% if p.reply_count == 1 %}reply{% else %}replies{% endif %}{% else %}replies{% endif %}</a>{% endif %}
       <a class="textlabel" href="/?mode=similar&amp;similar={{ p.canonical_id }}&amp;embedding={{ p.embedding }}" aria-label="similar posts">similar</a>
       {% if p.original_url %}<a class="textlabel" href="{{ p.original_url }}" rel="noopener noreferrer" aria-label="original event" title="original event">event</a>{% endif %}
       <details class="more"><summary aria-label="more details">⋯</summary>
@@ -45,7 +45,7 @@
     </span>
   </div>
   {% if p.parent_excerpt %}
-  <a class="parent-excerpt" href="/context/{{ p.parent_excerpt.source }}/{{ p.parent_excerpt.source_id|urlencode }}" aria-label="stored parent context">↳ {{ p.parent_excerpt.author }}: {{ p.parent_excerpt.text }}</a>
+  <a class="parent-excerpt" href="/context/nostr/{{ p.parent_excerpt.source_id|urlencode }}" aria-label="stored parent context">↳ {{ p.parent_excerpt.author }}: {{ p.parent_excerpt.text }}</a>
   {% endif %}
   {% if p.warning and p.warning_hides %}
   {# author CW / auto-flagged explicit: content hidden until the reader expands #}

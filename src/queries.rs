@@ -17,7 +17,6 @@ pub const PAGE_SIZE: usize = 100;
 #[derive(Clone, Debug, Serialize)]
 pub struct Post {
     pub canonical_id: String,
-    pub source: String,
     pub source_id: String,
     pub author_id: String,
     pub author_name: String,
@@ -38,7 +37,6 @@ pub struct Post {
 fn post(row: &Row<'_>) -> rusqlite::Result<Post> {
     Ok(Post {
         canonical_id: row.get("canonical_id")?,
-        source: row.get("source")?,
         source_id: row.get("source_id")?,
         author_id: row.get("author_id")?,
         author_name: row.get("author_name")?,
@@ -62,16 +60,6 @@ const ELIGIBLE: &str = "WITH eligible AS (
   SELECT p.*
   FROM posts p
   WHERE p.created_at BETWEEN :since AND :until
-    AND NOT EXISTS (
-      SELECT 1
-      FROM policy_exclusions x
-      WHERE x.event_id = p.source_id
-    )
-    AND p.author_id NOT IN (
-      SELECT m.value
-      FROM moderation_lists l, json_each(l.members_json) m
-      WHERE l.identifier = 'nsfw' AND m.type = 'text'
-    )
 )";
 const CARD_DEFAULTS: &str = "0 AS n_reply_authors,
   0 AS n_replies,
@@ -108,7 +96,7 @@ pub fn feed(db: &Connection, search: &Search, root: &str, now: i64) -> Result<Ve
               WHEN m.created_at >= :until - 86400
                 AND m.canonical_id != m.thread
                 AND (r.author_id IS NULL OR m.author_id != r.author_id)
-              THEN m.source || ':' || m.author_id
+              THEN 'nostr:' || m.author_id
             END) AS n_reply_authors,
             COUNT(*) - MAX(m.canonical_id = m.thread) AS n_replies,
             MAX(m.created_at) AS latest_activity,

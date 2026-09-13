@@ -646,6 +646,8 @@ async fn incremental_embeddings_reuse_delete_and_budget_after_sdk_drain() {
     assert!(titan_topic.contains("Titan has 2 cached posts"));
     assert!(titan_topic.contains("partial cohort is proof-of-work-biased"));
     assert!(titan_topic.contains("embedding=titan"));
+    assert!(titan_topic.contains("Meaning unavailable"));
+    assert!(!titan_topic.contains(">MiniLM local</option>"));
     let (status, cache_status) = html_with_embedding(&path, "/status", None).await;
     assert_eq!(status, StatusCode::OK);
     assert!(cache_status.contains("Embedding caches"));

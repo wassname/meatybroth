@@ -474,10 +474,6 @@ fn pending(
          FROM events e
          JOIN reader_post_events r ON r.event_id=e.id
          WHERE e.kind=1 AND e.created_at BETWEEN ?1 AND ?2 AND trim(e.content)!=''
-           AND NOT EXISTS (SELECT 1 FROM policy_exclusions x WHERE x.event_id=lower(hex(e.id)))
-           AND lower(hex(e.pubkey)) NOT IN (
-             SELECT m.value FROM moderation_lists l,json_each(l.members_json) m
-             WHERE l.identifier='nsfw' AND m.type='text')
            AND NOT EXISTS (
              SELECT 1 FROM post_embeddings v WHERE v.event_id=e.id AND v.space_id=?3)
          ORDER BY e.created_at DESC,e.id LIMIT ?4",
@@ -928,13 +924,6 @@ pub fn cache_status(db: &Connection, now: i64) -> Result<Vec<CacheStatus>, Error
            FROM events event
            JOIN reader_post_events reader ON reader.event_id=event.id
            WHERE event.kind=1 AND event.created_at BETWEEN ?1 AND ?2
-             AND NOT EXISTS (
-               SELECT 1 FROM policy_exclusions exclusion
-               WHERE exclusion.event_id=lower(hex(event.id)))
-             AND lower(hex(event.pubkey)) NOT IN (
-               SELECT member.value
-               FROM moderation_lists list,json_each(list.members_json) member
-               WHERE list.identifier='nsfw' AND member.type='text')
          )
          SELECT
            space.backend,
@@ -1053,12 +1042,6 @@ pub fn cluster_topics(path: &Path, space: &Space, now: i64) -> Result<usize, Err
          JOIN events event ON event.id=embedding.event_id
          JOIN reader_post_events reader ON reader.event_id=event.id
          WHERE embedding.space_id=?1 AND event.created_at BETWEEN ?2 AND ?3
-           AND NOT EXISTS (
-             SELECT 1 FROM policy_exclusions exclusion
-             WHERE exclusion.event_id=lower(hex(event.id)))
-           AND lower(hex(event.pubkey)) NOT IN (
-             SELECT member.value FROM moderation_lists list,json_each(list.members_json) member
-             WHERE list.identifier='nsfw' AND member.type='text')
          ORDER BY embedding.event_id",
     )?;
     let rows: Vec<(Vec<u8>, Vec<f32>, String)> = statement
@@ -1211,12 +1194,6 @@ pub fn topic_events(
          JOIN events event ON event.id=topic.event_id
          JOIN reader_post_events reader ON reader.event_id=event.id
          WHERE topic.space_id=?1 AND topic.topic_id=?2 AND event.created_at BETWEEN ?3 AND ?4
-           AND NOT EXISTS (
-             SELECT 1 FROM policy_exclusions exclusion
-             WHERE exclusion.event_id=lower(hex(event.id)))
-           AND lower(hex(event.pubkey)) NOT IN (
-             SELECT member.value FROM moderation_lists list,json_each(list.members_json) member
-             WHERE list.identifier='nsfw' AND member.type='text')
          ORDER BY event.created_at DESC,event.id LIMIT ?5 OFFSET ?6",
     )?;
     let events = statement
@@ -1282,13 +1259,7 @@ pub fn nearest(
          FROM post_embeddings embedding
          JOIN events event ON event.id=embedding.event_id
          JOIN reader_post_events reader ON reader.event_id=event.id
-         WHERE embedding.space_id=?1 AND event.created_at BETWEEN ?2 AND ?3
-           AND NOT EXISTS (
-             SELECT 1 FROM policy_exclusions exclusion
-             WHERE exclusion.event_id=lower(hex(event.id)))
-           AND lower(hex(event.pubkey)) NOT IN (
-             SELECT member.value FROM moderation_lists list,json_each(list.members_json) member
-             WHERE list.identifier='nsfw' AND member.type='text')",
+         WHERE embedding.space_id=?1 AND event.created_at BETWEEN ?2 AND ?3",
     )?;
     let mut scored = statement
         .query_map((&space.id, now - WINDOW, now), |row| {
