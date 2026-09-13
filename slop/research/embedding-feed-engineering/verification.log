@@ -1,0 +1,54 @@
+Scope: artifact completeness and representative link availability only; this is not independent scientific validation.
+verification_time=2026-09-13T21:38:11Z
+report_lines=300 report_words=3607
+evidence_lines=145 evidence_words=1328
+--- required-topic phrases in report
+one-word                     2
+emoji-only                   1
+URL-only                     3
+parent context               2
+exact normalized-content     2
+near-duplicate               1
+author diversity             5
+Candidate generation         1
+freshness                    5
+exploration                  2
+DBSCAN                       7
+k-means                      3
+Phoenix                      8
+Nalgorithm                   8
+AlgoRelay                    3
+Bluesky                      7
+Mastodon                     7
+API spend                    4
+Could break                  6
+Discriminator                6
+--- citation counts
+report_https=26
+evidence_https=36
+pinned_x_links=16
+pinned_old_twitter_links=9
+--- representative remote link HTTP checks
+200 https://github.com/xai-org/x-algorithm/blob/6bb4594253cdfa9ea19983a54a401d5ce8f8275d/home-mixer/candidate_pipeline/phoenix_candidate_pipeline.rs#L354-L381
+200 https://github.com/twitter/the-algorithm/blob/c54bec0d4e029fe34926ef3258a86ccacc0d0182/pushservice/src/main/scala/com/twitter/frigate/pushservice/predicate/OutOfNetworkCandidatesQualityPredicates.scala#L51-L77
+200 https://github.com/mastodon/mastodon/blob/a7cc70db674d79616597fcc1e67aafee6fcb2f11/app/models/trends/statuses.rb#L91-L98
+200 https://github.com/jooray/nalgorithm/blob/bbacb1e0161e8bd690c38c65a31df90cd5e15d5b/lib/src/fetcher.ts#L248-L251
+200 https://github.com/barrydeen/algo-relay/blob/0c49f8597dc78534bfab8c17ac68b87306ccccc9/algorithm.go#L177-L197
+200 https://github.com/Princeton-HCI/cos-atproto-pds/blob/9aad1247e52349f27f3b36468d07d411fccad16a/bluesky-feed-manager/server/algos/feed.py#L381-L451
+200 https://cypherpunk.today/nalgorithm/
+--- scope diff
+ARTIFACT_CHECK=PASS: report contains every requested topic, representative source links are pinned/reachable, and only assigned research artifacts plus plan log were created by this worker.
+final_pass_time=2026-09-13T21:39:31Z
+PASS: no feature-gate metaphor remains
+/workspace/meatybroth-rust/slop/research/embedding-feed-engineering/source-inspection.md:43:The older Twitter source has a real length predicate, but it is for eligible out-of-network push candidates, not the Home feed. It chooses different thresholds by language and presence of media/quote, has a hard-coded five-word case, strips URLs before word counting, and runs only when `enableFilter` is true:
+/workspace/meatybroth-rust/slop/research/embedding-feed-engineering/report.md:82:That predicate removes URLs before counting words, varies the threshold based on media/quote and redacted language groups, checks a health/quality eligibility function, and runs only when `enableFilter` is true ([full decision path](https://github.com/twitter/the-algorithm/blob/c54bec0d4e029fe34926ef3258a86ccacc0d0182/pushservice/src/main/scala/com/twitter/frigate/pushservice/predicate/OutOfNetworkCandidatesQualityPredicates.scala#L78-L128)). It is unsuitable as evidence for a global five-word rule. It is evidence for conditional thresholds at candidate retrieval time.
+f652c4228fd6aa7a71a957e3b2c73c442701af53aff2a230ecb8c2175059ce34  /workspace/meatybroth-rust/slop/research/embedding-feed-engineering/report.md
+297d00d36b1c96ced1f981c2e4465547ce8ffbc828883687d0ffd818ab6b02cc  /workspace/meatybroth-rust/slop/research/embedding-feed-engineering/source-inspection.md
+FINAL_ARTIFACT_CHECK=PASS
+sanity_caveat_check_time=2026-09-13T21:46:23Z
+101:For the observed Titan corpus, first hash the exact versioned text sent to Titan. This gives an auditable identity rule: posts with the same hash had the same embedding input. Only test broader normalization as a separate, versioned near-duplicate rule after inspecting collisions. Lowercasing can merge meaningful `US`/`us` text, and URL/query changes can identify different resources or measurements. Replacing numbers or removing URLs can also merge price, fee, release and incident bots. Preserve numbers, domains, hashtags, case and emoji in the first exact rule.
+112:Report raw-post and prototype populations beside `eps` and `min_samples`. Keep benign identical GM posts visible even if the prototype becomes noise after deduplication. This still uses DBSCAN as requested and avoids silently declaring “spam” from density. If sample weights or raw multiplicity are later used, report that choice because it materially changes core points.
+72:This is more useful here than copying Phoenix's model. Meatybroth can retrieve by cluster or cosine similarity, rank by recency/similarity, then apply an author decay or hard cap. Do not copy X's multiplicative formula onto raw cosine scores: multiplying a negative cosine by a factor below one makes it less negative and therefore ranks it higher. Use a nonnegative calibrated base score, or use author interleaving/hard caps that do not assume a score scale.
+PASS: primary dedup recommendation no longer says exact normalized-content
+fd22274081596d0f5249d32668dea66bc51942d144e9e9e12ecf14aaccbd5bc8  /workspace/meatybroth-rust/slop/research/embedding-feed-engineering/report.md
+SANITY_CAVEAT_ARTIFACT_CHECK=PASS (presence check, not scientific validation)
