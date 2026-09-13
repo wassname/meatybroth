@@ -893,6 +893,16 @@ pub(crate) async fn collect_relay(
     if !recent.eose {
         return Err("Recent scan timed out; partial arrivals retained".into());
     }
+    embed::mark_admissions(
+        path,
+        &recent
+            .accepted_notes
+            .iter()
+            .map(|event_id| event_id.as_bytes().to_vec())
+            .collect::<Vec<_>>(),
+        now,
+        true,
+    )?;
     merge(&mut admitted, recent);
 
     let state = cursor(path, relay, now)?;
@@ -920,6 +930,17 @@ pub(crate) async fn collect_relay(
         if !result.reconciled {
             unsupported_reconciliation.insert(relay.to_owned());
         }
+        embed::mark_admissions(
+            path,
+            &result
+                .observed
+                .accepted_notes
+                .iter()
+                .map(|event_id| event_id.as_bytes().to_vec())
+                .collect::<Vec<_>>(),
+            now,
+            false,
+        )?;
         merge(&mut admitted, result.observed);
     }
     let cutoff = now - WINDOW;
@@ -950,6 +971,17 @@ pub(crate) async fn collect_relay(
         if !result.reconciled {
             unsupported_reconciliation.insert(relay.to_owned());
         }
+        embed::mark_admissions(
+            path,
+            &result
+                .observed
+                .accepted_notes
+                .iter()
+                .map(|event_id| event_id.as_bytes().to_vec())
+                .collect::<Vec<_>>(),
+            now,
+            false,
+        )?;
         merge(&mut admitted, result.observed);
     }
     if tokio::time::Instant::now() >= deadline {

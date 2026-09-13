@@ -36,6 +36,13 @@ CREATE TABLE IF NOT EXISTS embedding_preflight_failures (
     error TEXT NOT NULL,
     archived_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS embedding_admissions (
+    event_id BLOB PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
+    admitted_at INTEGER NOT NULL,
+    live INTEGER NOT NULL CHECK(live IN (0,1))
+);
+CREATE INDEX IF NOT EXISTS embedding_admissions_queue
+ON embedding_admissions(live, admitted_at, event_id);
 -- Chunk and aggregate vectors follow SDK event deletion through foreign keys. -- Pi/gpt-5.6-sol
 CREATE TABLE IF NOT EXISTS embedding_chunks (
     event_id BLOB NOT NULL REFERENCES events(id) ON DELETE CASCADE,

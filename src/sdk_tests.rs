@@ -941,17 +941,30 @@ async fn continuous_embedding_prioritizes_admission_time_not_event_time() {
     );
     sdk.save_event(&newer_event).await.unwrap();
     sdk.save_event(&newly_admitted_old_event).await.unwrap();
+    embed::mark_admissions(
+        &path,
+        &[newer_event.id.as_bytes().to_vec()],
+        now - 100,
+        false,
+    )
+    .unwrap();
+    embed::mark_admissions(
+        &path,
+        &[newly_admitted_old_event.id.as_bytes().to_vec()],
+        now,
+        true,
+    )
+    .unwrap();
     let conn = rusqlite::Connection::open(&path).unwrap();
-    conn.execute(
-        "UPDATE reader_events SET received_at=?1 WHERE event_id=?2",
-        rusqlite::params![now - 100, newer_event.id.as_bytes()],
-    )
-    .unwrap();
-    conn.execute(
-        "UPDATE reader_events SET received_at=?1 WHERE event_id=?2",
-        rusqlite::params![now, newly_admitted_old_event.id.as_bytes()],
-    )
-    .unwrap();
+    assert_eq!(
+        conn.query_row(
+            "SELECT live FROM embedding_admissions WHERE event_id=?1",
+            [newly_admitted_old_event.id.as_bytes()],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap(),
+        1
+    );
     let mock = MockEmbedder::default();
     let budget = embed::Budget {
         total_nusd: 1_000_000,
@@ -970,6 +983,25 @@ async fn continuous_embedding_prioritizes_admission_time_not_event_time() {
     );
     assert!(
         embed::event_vector(&path, &mock.space, newer_event.id.as_bytes())
+            .unwrap()
+            .is_none()
+    );
+    let first_live = signed(&keys, 1, "first live admission", now as u64, vec![]);
+    let second_live = signed(&keys, 1, "second live admission", now as u64, vec![]);
+    sdk.save_event(&first_live).await.unwrap();
+    sdk.save_event(&second_live).await.unwrap();
+    embed::mark_admissions(&path, &[first_live.id.as_bytes().to_vec()], now + 1, true).unwrap();
+    embed::mark_admissions(&path, &[second_live.id.as_bytes().to_vec()], now + 2, true).unwrap();
+    embed::embed_recent_pending(&path, &mock, budget, now, 1)
+        .await
+        .unwrap();
+    assert!(
+        embed::event_vector(&path, &mock.space, first_live.id.as_bytes())
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        embed::event_vector(&path, &mock.space, second_live.id.as_bytes())
             .unwrap()
             .is_none()
     );

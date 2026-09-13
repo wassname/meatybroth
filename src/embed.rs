@@ -453,6 +453,30 @@ fn register_space(path: &Path, space: &Space, now: i64) -> Result<(), Error> {
     Ok(())
 }
 
+pub fn mark_admissions(
+    path: &Path,
+    event_ids: &[Vec<u8>],
+    admitted_at: i64,
+    live: bool,
+) -> Result<(), Error> {
+    let mut conn = db(path)?;
+    let transaction = conn.transaction()?;
+    for event_id in event_ids {
+        transaction.execute(
+            "INSERT INTO embedding_admissions(event_id,admitted_at,live) VALUES(?1,?2,?3)
+             ON CONFLICT(event_id) DO UPDATE SET
+               admitted_at=CASE
+                 WHEN embedding_admissions.live=0 AND excluded.live=1 THEN excluded.admitted_at
+                 ELSE min(embedding_admissions.admitted_at,excluded.admitted_at)
+               END,
+               live=max(embedding_admissions.live,excluded.live)",
+            rusqlite::params![event_id, admitted_at, live],
+        )?;
+    }
+    transaction.commit()?;
+    Ok(())
+}
+
 fn pending(
     path: &Path,
     space: &Space,
@@ -465,6 +489,7 @@ fn pending(
         "SELECT e.id,e.content
          FROM events e
          JOIN reader_post_events r ON r.event_id=e.id
+         LEFT JOIN embedding_admissions admission ON admission.event_id=e.id
          WHERE e.kind=1 AND e.created_at BETWEEN ?1 AND ?2 AND trim(e.content)!=''
            AND NOT EXISTS (
              SELECT 1 FROM post_embeddings v WHERE v.event_id=e.id AND v.space_id=?3)
@@ -472,7 +497,8 @@ fn pending(
              SELECT 1 FROM embedding_requests request
              WHERE request.event_id=e.id AND request.space_id=?3
                AND request.status IN ('reserved','uncertain'))
-         ORDER BY CASE WHEN ?4 THEN r.received_at END DESC,
+         ORDER BY CASE WHEN ?4 AND coalesce(admission.live,0)=1 THEN 0 ELSE 1 END,
+                  CASE WHEN ?4 AND coalesce(admission.live,0)=1 THEN admission.admitted_at END,
                   CASE WHEN NOT ?4 AND ?5='bedrock' THEN e.id END,
                   CASE WHEN NOT ?4 AND ?5!='bedrock' THEN e.created_at END DESC,e.id LIMIT ?6",
     )?;
