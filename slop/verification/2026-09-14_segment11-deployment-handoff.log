@@ -1,0 +1,30 @@
+source=.local/rust-live-8086/events.sqlite
+snapshot=.local/deployment-handoff/events-8136.sqlite
+settled_segment=11
+job1401=stopped_after_pause_during_segment12_credential_export_before_model_process
+2026-09-14T05:44:06+08:00
+source_sha256=cc8c54af8382f9b3a5e8bbe1eaf8c20edd7f21f3555323c262d4bd679093a9ef
+backup_sha256=cabe5372bd11729bd33468c311e9e980e5e20ddfa9bd47c973943be473cecd02
+backup_bytes=538599424
+'integrity'	integrity_check
+integrity	ok
+'eligible'	count(*)	'vectors'	sum(EXISTS(SELECT 1 FROM post_embeddings p,space WHERE p.event_id=eligible.id AND p.space_id=space.id))	'missing'	sum(NOT EXISTS(SELECT 1 FROM post_embeddings p,space WHERE p.event_id=eligible.id AND p.space_id=space.id))
+eligible	13852	vectors	8124	missing	5728
+'topics'	count(*)
+topics	16
+'memberships'	count(*)
+memberships	8136
+status	requests	reserved_nusd	actual_nusd
+reserved	3	491520	0
+succeeded	9018	1422551080	72300580
+uncertain	1	40	60
+id	event_id	status	reserved_nusd	actual_nusd	error
+18209	000001FCAD7E922BE53D8F2CCBF3DD8FEF8FBBD44A2DE95AB61773EF6C05CBA1	uncertain	40	60	actual cost exceeded reservation
+18560	0000470E216ADEDD2E6CDDCAE9117C37F6D07B779415B21DE8B0CA9D39E107D5	reserved	163840
+18561	0000475B21CCF89CB1B618BD26D3BC4BE8259235F145B2BE2C4C6C04756D7FBC	reserved	163840
+18562	000047C186B0B73E66E3EBA79BB58985FB6611BABB44DA7F0B05073B817822C5	reserved	163840
+max_request_id	max_requested_at
+27050	1789335276
+process_check:
+none
+{"Done":{"enqueued_at":"2026-09-14T04:06:34.565779597+08:00","start":"2026-09-14T04:06:34.836923576+08:00","end":"2026-09-14T05:42:43.517189940+08:00","result":"Killed"}}
