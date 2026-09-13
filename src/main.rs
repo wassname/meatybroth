@@ -25,7 +25,14 @@ use std::{
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
 const ROOT: &str = "60c052cf19fbfb973c1779585df423e3982a3a251fc826d4c76f8063621c5bb6";
-const MODES: [&str; 5] = ["new", "relevance", "meaning", "conversations", "discovery"];
+const MODES: [&str; 6] = [
+    "new",
+    "relevance",
+    "meaning",
+    "topics",
+    "conversations",
+    "discovery",
+];
 
 struct App {
     path: PathBuf,
@@ -80,6 +87,7 @@ struct Search {
     order: String,
     expression: Option<String>,
     similar: Option<String>,
+    topic: Option<i64>,
     error: Option<String>,
 }
 impl Search {
@@ -141,6 +149,7 @@ impl Search {
             .into(),
             expression,
             similar: args.get("similar").cloned(),
+            topic: args.get("topic").and_then(|value| value.parse().ok()),
             error,
         }
     }
@@ -159,6 +168,9 @@ impl Search {
         }
         if let Some(similar) = &self.similar {
             qs.append_pair("similar", similar);
+        }
+        if let Some(topic) = self.topic {
+            qs.append_pair("topic", &topic.to_string());
         }
         format!("{}&", qs.finish())
     }
@@ -209,12 +221,13 @@ fn templates() -> Result<Environment<'static>, Error> {
 }
 fn page(app: &App, name: &str, data: Value) -> Result<String, Error> {
     let mut shared = json!({"modes":MODES,"window_days":30,"mode":"new",
-    "mode_labels":{"new":"New","relevance":"Relevance","meaning":"Meaning","conversations":"Conversations","discovery":"Social","similar":"Similar"},
+    "mode_labels":{"new":"New","relevance":"Relevance","meaning":"Meaning","topics":"Topics","conversations":"Conversations","discovery":"Social","similar":"Similar"},
     "mode_explanations":{
         "new":"Every post from the last 30 days, newest first.",
         "relevance":"Posts matching your terms, best match first (BM25: lower = closer); newer breaks ties.",
         "meaning":"Posts nearest to your text in the local MiniLM vector space.",
         "similar":"Posts nearest to the selected post in the local MiniLM vector space.",
+        "topics":"Keyword-labelled clusters from the local MiniLM vector space.",
         "conversations":"Threads with the most distinct recent repliers first; with a query, only matching threads.",
         "discovery":"Recent posts within the selected 1–3 hop reach. Connections favours authors supported by more independent accounts you follow; lower distance score ranks first. Based on the collected, incomplete follow graph."
     }});
@@ -262,6 +275,7 @@ fn semantic_feed(
         exclude
             .as_ref()
             .map(|event_id| event_id.as_bytes().as_slice()),
+        now,
         offset + queries::PAGE_SIZE + 1,
     )?;
     let mut rows = Vec::new();
@@ -273,9 +287,54 @@ fn semantic_feed(
     Ok(rows)
 }
 
+fn topic_feed(
+    app: &App,
+    db: &Connection,
+    search: &Search,
+    now: i64,
+) -> Result<Vec<(queries::Post, f32)>, Error> {
+    let model = app
+        .embedding
+        .as_ref()
+        .ok_or("Topics are unavailable because no embedding backend is configured")?;
+    let Some(topic_id) = search.topic else {
+        return Ok(Vec::new());
+    };
+    let offset = usize::try_from(search.page)? * queries::PAGE_SIZE;
+    let event_ids = embed::topic_events(
+        &app.path,
+        model.vector_space(),
+        topic_id,
+        now,
+        queries::PAGE_SIZE + 1,
+        offset,
+    )?;
+    let mut rows = Vec::new();
+    for event_id in event_ids {
+        if let Some(post) = queries::get(db, &event_hex(&event_id), now)? {
+            rows.push((post, f32::NAN));
+        }
+    }
+    Ok(rows)
+}
+
 fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, String), Error> {
     let mut search = Search::parse(raw, now);
     let semantic = ["meaning", "similar"].contains(&search.mode.as_str());
+    let topic_mode = search.mode == "topics";
+    let topics = if topic_mode {
+        match app.embedding.as_ref() {
+            Some(model) => embed::topics(&app.path, model.vector_space())?,
+            None => {
+                search.error = Some(
+                    "Topics are unavailable because no embedding backend is configured".into(),
+                );
+                Vec::new()
+            }
+        }
+    } else {
+        Vec::new()
+    };
     let mut scored = if search.error.is_none() && semantic {
         match semantic_feed(app, db, &search, now) {
             Ok(rows) => rows,
@@ -284,6 +343,8 @@ fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, 
                 Vec::new()
             }
         }
+    } else if search.error.is_none() && topic_mode {
+        topic_feed(app, db, &search, now)?
     } else if search.error.is_none() {
         queries::feed(db, &search, &app.root, now)?
             .into_iter()
@@ -309,6 +370,7 @@ fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, 
         "feed.html",
         json!({"q":search.q,"mode":search.mode,"page":search.page,"error":search.error,
         "results":results,"has_next":has_next,"qs_base":search.query_string(),"now":now,"before":search.before,
+        "topics":topics,"selected_topic":search.topic,
         "reach":if search.mode=="discovery"{Some(search.reach)}else{None},
         "order":if search.mode=="discovery"{Some(&search.order)}else{None},"state_fields":[]}),
     )?;
@@ -513,6 +575,8 @@ async fn main() -> Result<(), Error> {
                 break;
             }
         }
+        let topics = embed::cluster_topics(&path, model.vector_space(), Utc::now().timestamp())?;
+        eprintln!("Built {topics} keyword-labelled MiniLM topics");
         return Ok(());
     }
     let app = router(App {

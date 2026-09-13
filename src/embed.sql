@@ -50,4 +50,20 @@ CREATE TABLE IF NOT EXISTS post_embeddings (
     embedded_at INTEGER NOT NULL,
     PRIMARY KEY(event_id, space_id)
 );
+CREATE TABLE IF NOT EXISTS embedding_topics (
+    space_id TEXT NOT NULL REFERENCES embedding_spaces(id),
+    topic_id INTEGER NOT NULL,
+    label TEXT NOT NULL,
+    post_count INTEGER NOT NULL,
+    centroid BLOB NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY(space_id, topic_id)
+);
+CREATE TABLE IF NOT EXISTS post_topics (
+    event_id BLOB NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    space_id TEXT NOT NULL,
+    topic_id INTEGER NOT NULL,
+    PRIMARY KEY(event_id, space_id),
+    FOREIGN KEY(space_id, topic_id) REFERENCES embedding_topics(space_id, topic_id) ON DELETE CASCADE
+);
 COMMIT;

@@ -33,6 +33,9 @@ article.post .body:has(details.rest[open]) .preview { display: none; }
 article.post details.rest summary { display: inline-flex; cursor: pointer; color: var(--rust); list-style: none; padding: 0.15rem 0; }
 article.post details.rest summary::-webkit-details-marker { display: none; }
 .scope-note, .hint { color: var(--muted); }
+.topics { display: flex; flex-wrap: wrap; gap: 0.45rem; margin: 0 0 1rem; }
+.topics a { background: var(--panel); border-radius: 0.35rem; padding: 0.3rem 0.55rem; text-decoration: none; }
+.topics a[aria-current="page"] { font-weight: 700; outline: 1px solid var(--rust); }
 .pagination { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.3rem 0.8rem; margin-top: 1rem; }
 .pagination form { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 0.3rem; }
 .pagination label { color: var(--muted); }

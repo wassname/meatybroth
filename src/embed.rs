@@ -102,7 +102,10 @@ pub struct MiniLm {
 }
 
 impl MiniLm {
-    /// Downloads or opens the pinned Hugging Face snapshot and records both content hashes.
+    /// Resolves Hugging Face `refs/main` and records its revision and loaded-file hashes.
+    ///
+    /// A revision or hash change creates a new space ID, so old vectors are never reused or mixed.
+    /// -- Pi/gpt-5.6-sol
     pub fn open(cache_dir: &Path) -> Result<Self, Error> {
         let model = TextEmbedding::try_new(
             TextInitOptions::new(EmbeddingModel::AllMiniLML6V2)
@@ -136,6 +139,11 @@ impl MiniLm {
     /// Embeds one tokenizer-bounded text without an async runtime boundary.
     pub fn embed_text(&self, text: &str) -> Result<Output, Error> {
         let mut model = self.model.lock().unwrap();
+        let mut untruncated = model.tokenizer.clone();
+        untruncated.with_truncation(None)?;
+        if untruncated.encode(text, false)?.len() > MINILM_CONTENT_TOKENS {
+            return Err("Meaning query exceeds MiniLM's 254-content-token window".into());
+        }
         let input_tokens = i64::try_from(model.tokenizer.encode(text, true)?.len())?;
         let mut vectors = model.embed(vec![text], None)?;
         if vectors.len() != 1 {
@@ -185,13 +193,29 @@ impl Transport for MiniLm {
         if chunks.concat() != text {
             return Err("MiniLM chunking did not preserve the full input".into());
         }
-        for chunk in &chunks {
-            let encoded = tokenizer.encode(chunk.as_str(), false)?;
-            if encoded.len() > MINILM_CONTENT_TOKENS {
-                return Err("MiniLM chunk exceeded the configured token window".into());
+        let mut pending: std::collections::VecDeque<_> = chunks.into();
+        let mut verified = Vec::new();
+        while let Some(chunk) = pending.pop_front() {
+            if tokenizer.encode(chunk.as_str(), false)?.len() <= MINILM_CONTENT_TOKENS {
+                verified.push(chunk);
+                continue;
             }
+            let midpoint = chunk.len() / 2;
+            let split = chunk
+                .char_indices()
+                .map(|(index, _)| index)
+                .min_by_key(|index| index.abs_diff(midpoint))
+                .filter(|index| *index > 0)
+                .ok_or("MiniLM could not split an over-window token span")?;
+            let right = chunk[split..].to_owned();
+            let left = chunk[..split].to_owned();
+            pending.push_front(right);
+            pending.push_front(left);
         }
-        Ok(chunks)
+        if verified.concat() != text {
+            return Err("Verified MiniLM chunks did not preserve the full input".into());
+        }
+        Ok(verified)
     }
 
     fn embed<'a>(
@@ -205,6 +229,7 @@ impl Transport for MiniLm {
 fn db(path: &Path) -> Result<Connection, Error> {
     let conn = Connection::open(path)?;
     conn.busy_timeout(std::time::Duration::from_secs(10))?;
+    conn.execute_batch("PRAGMA foreign_keys=ON")?;
     Ok(conn)
 }
 
@@ -605,6 +630,238 @@ pub async fn embed_pending(
     Ok(posts.len())
 }
 
+/// One keyword-labelled cluster in an exact embedding space.
+#[derive(Debug, serde::Serialize)]
+pub struct Topic {
+    pub id: i64,
+    pub label: String,
+    pub post_count: i64,
+}
+
+fn normalize(vector: &mut [f32]) -> Result<(), Error> {
+    let norm = vector.iter().map(|value| value * value).sum::<f32>().sqrt();
+    if !norm.is_finite() || norm == 0.0 {
+        return Err("Topic centroid has zero or invalid norm".into());
+    }
+    for value in vector {
+        *value /= norm;
+    }
+    Ok(())
+}
+
+fn topic_label(texts: &[&str]) -> String {
+    const STOP: &[&str] = &[
+        "about", "after", "also", "and", "are", "been", "but", "can", "for", "from", "has", "have",
+        "https", "into", "its", "just", "more", "not", "that", "the", "their", "then", "there",
+        "they", "this", "was", "were", "what", "when", "where", "which", "who", "will", "with",
+        "would", "you", "your",
+    ];
+    let words = regex::Regex::new(r"(?i)[\p{L}\p{N}][\p{L}\p{N}_-]{2,}").unwrap();
+    let mut counts = std::collections::HashMap::<String, usize>::new();
+    for text in texts {
+        let unique: std::collections::HashSet<_> = words
+            .find_iter(text)
+            .map(|word| word.as_str().to_lowercase())
+            .filter(|word| !STOP.contains(&word.as_str()) && !word.starts_with("http"))
+            .collect();
+        for word in unique {
+            *counts.entry(word).or_default() += 1;
+        }
+    }
+    let mut counts: Vec<_> = counts.into_iter().collect();
+    counts.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
+    let label = counts
+        .into_iter()
+        .take(3)
+        .map(|(word, _)| word)
+        .collect::<Vec<_>>()
+        .join(" · ");
+    if label.is_empty() {
+        "other".into()
+    } else {
+        label
+    }
+}
+
+/// Recomputes deterministic cosine clusters and labels from current post text.
+pub fn cluster_topics(path: &Path, space: &Space, now: i64) -> Result<usize, Error> {
+    let mut conn = db(path)?;
+    let mut statement = conn.prepare(
+        "SELECT embedding.event_id,embedding.vector,event.content
+         FROM post_embeddings embedding
+         JOIN events event ON event.id=embedding.event_id
+         WHERE embedding.space_id=?1 ORDER BY embedding.event_id",
+    )?;
+    let rows: Vec<(Vec<u8>, Vec<f32>, String)> = statement
+        .query_map([&space.id], |row| {
+            Ok((
+                row.get(0)?,
+                decode_vector(&row.get::<_, Vec<u8>>(1)?, space.dimensions)
+                    .map_err(rusqlite::Error::ToSqlConversionFailure)?,
+                row.get(2)?,
+            ))
+        })?
+        .collect::<Result<_, _>>()?;
+    drop(statement);
+    if rows.is_empty() {
+        return Ok(0);
+    }
+    let cluster_count = ((rows.len() as f64 / 25.0).sqrt().round() as usize)
+        .clamp(6, 16)
+        .min(rows.len());
+    let mut centroids = vec![rows[0].1.clone()];
+    while centroids.len() < cluster_count {
+        let next = rows
+            .iter()
+            .enumerate()
+            .min_by(|left, right| {
+                let nearest = |vector: &[f32]| {
+                    centroids
+                        .iter()
+                        .map(|center| vector.iter().zip(center).map(|(a, b)| a * b).sum::<f32>())
+                        .max_by(f32::total_cmp)
+                        .unwrap()
+                };
+                nearest(&left.1 .1).total_cmp(&nearest(&right.1 .1))
+            })
+            .unwrap()
+            .0;
+        centroids.push(rows[next].1.clone());
+    }
+    let mut assignments = vec![0; rows.len()];
+    for _ in 0..8 {
+        for (assignment, (_, vector, _)) in assignments.iter_mut().zip(&rows) {
+            *assignment = centroids
+                .iter()
+                .enumerate()
+                .max_by(|left, right| {
+                    let score =
+                        |center: &[f32]| vector.iter().zip(center).map(|(a, b)| a * b).sum::<f32>();
+                    score(left.1).total_cmp(&score(right.1))
+                })
+                .unwrap()
+                .0;
+        }
+        let mut sums = vec![vec![0.0_f32; space.dimensions]; cluster_count];
+        let mut sizes = vec![0; cluster_count];
+        for (assignment, (_, vector, _)) in assignments.iter().zip(&rows) {
+            sizes[*assignment] += 1;
+            for (sum, value) in sums[*assignment].iter_mut().zip(vector) {
+                *sum += value;
+            }
+        }
+        for (index, sum) in sums.iter_mut().enumerate() {
+            if sizes[index] > 0 {
+                normalize(sum)?;
+                centroids[index].clone_from(sum);
+            }
+        }
+    }
+    let labels: Vec<_> = (0..cluster_count)
+        .map(|cluster| {
+            topic_label(
+                &assignments
+                    .iter()
+                    .zip(&rows)
+                    .filter(|(assignment, _)| **assignment == cluster)
+                    .map(|(_, (_, _, text))| text.as_str())
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect();
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    tx.execute(
+        "DELETE FROM embedding_topics WHERE space_id=?1",
+        [&space.id],
+    )?;
+    for (topic_id, (label, centroid)) in labels.iter().zip(&centroids).enumerate() {
+        let post_count = assignments
+            .iter()
+            .filter(|value| **value == topic_id)
+            .count();
+        tx.execute(
+            "INSERT INTO embedding_topics(space_id,topic_id,label,post_count,centroid,created_at)
+             VALUES(?1,?2,?3,?4,?5,?6)",
+            (
+                &space.id,
+                i64::try_from(topic_id)?,
+                label,
+                i64::try_from(post_count)?,
+                vector_bytes(centroid),
+                now,
+            ),
+        )?;
+    }
+    for ((event_id, _, _), topic_id) in rows.iter().zip(assignments) {
+        tx.execute(
+            "INSERT INTO post_topics(event_id,space_id,topic_id) VALUES(?1,?2,?3)",
+            (event_id, &space.id, i64::try_from(topic_id)?),
+        )?;
+    }
+    tx.commit()?;
+    Ok(cluster_count)
+}
+
+/// Lists keyword-labelled topics largest first.
+pub fn topics(path: &Path, space: &Space) -> Result<Vec<Topic>, Error> {
+    let conn = db(path)?;
+    let mut statement = conn.prepare(
+        "SELECT topic_id,label,post_count FROM embedding_topics
+         WHERE space_id=?1 ORDER BY post_count DESC,topic_id",
+    )?;
+    let topics = statement
+        .query_map([&space.id], |row| {
+            Ok(Topic {
+                id: row.get(0)?,
+                label: row.get(1)?,
+                post_count: row.get(2)?,
+            })
+        })?
+        .collect::<Result<_, _>>()
+        .map_err(Into::into);
+    topics
+}
+
+/// Returns one topic's event IDs in newest-first order.
+pub fn topic_events(
+    path: &Path,
+    space: &Space,
+    topic_id: i64,
+    now: i64,
+    limit: usize,
+    offset: usize,
+) -> Result<Vec<Vec<u8>>, Error> {
+    let conn = db(path)?;
+    let mut statement = conn.prepare(
+        "SELECT topic.event_id FROM post_topics topic
+         JOIN events event ON event.id=topic.event_id
+         JOIN reader_events reader ON reader.event_id=event.id
+         WHERE topic.space_id=?1 AND topic.topic_id=?2 AND event.created_at BETWEEN ?3 AND ?4
+           AND NOT EXISTS (
+             SELECT 1 FROM policy_exclusions exclusion
+             WHERE exclusion.event_id=lower(hex(event.id)))
+           AND lower(hex(event.pubkey)) NOT IN (
+             SELECT member.value FROM moderation_lists list,json_each(list.members_json) member
+             WHERE list.identifier='nsfw' AND member.type='text')
+         ORDER BY event.created_at DESC,event.id LIMIT ?5 OFFSET ?6",
+    )?;
+    let events = statement
+        .query_map(
+            (
+                &space.id,
+                topic_id,
+                now - WINDOW,
+                now,
+                i64::try_from(limit)?,
+                i64::try_from(offset)?,
+            ),
+            |row| row.get(0),
+        )?
+        .collect::<Result<_, _>>()
+        .map_err(Into::into);
+    events
+}
+
 /// Loads one event vector from the model's exact space.
 pub fn event_vector(
     path: &Path,
@@ -630,16 +887,28 @@ pub fn nearest(
     space: &Space,
     query: &[f32],
     exclude: Option<&[u8]>,
+    now: i64,
     limit: usize,
 ) -> Result<Vec<(Vec<u8>, f32)>, Error> {
     if query.len() != space.dimensions {
         return Err("Query embedding has invalid dimensions".into());
     }
     let conn = db(path)?;
-    let mut statement =
-        conn.prepare("SELECT event_id,vector FROM post_embeddings WHERE space_id=?1")?;
+    let mut statement = conn.prepare(
+        "SELECT embedding.event_id,embedding.vector
+         FROM post_embeddings embedding
+         JOIN events event ON event.id=embedding.event_id
+         JOIN reader_events reader ON reader.event_id=event.id
+         WHERE embedding.space_id=?1 AND event.created_at BETWEEN ?2 AND ?3
+           AND NOT EXISTS (
+             SELECT 1 FROM policy_exclusions exclusion
+             WHERE exclusion.event_id=lower(hex(event.id)))
+           AND lower(hex(event.pubkey)) NOT IN (
+             SELECT member.value FROM moderation_lists list,json_each(list.members_json) member
+             WHERE list.identifier='nsfw' AND member.type='text')",
+    )?;
     let mut scored = statement
-        .query_map([&space.id], |row| {
+        .query_map((&space.id, now - WINDOW, now), |row| {
             Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, Vec<u8>>(1)?))
         })?
         .collect::<Result<Vec<_>, _>>()?

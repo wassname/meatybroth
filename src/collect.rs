@@ -924,6 +924,7 @@ pub async fn run(
         }
     }
     let mut unsupported_reconciliation = BTreeSet::new();
+    let mut topics_dirty = false;
     loop {
         *policy.blocked.write().unwrap() = load_blocks()?;
         let now_u64 = Timestamp::now().as_secs();
@@ -949,7 +950,20 @@ pub async fn run(
             )
             .await
             {
-                Ok(count) => eprintln!("Embedded {count} local posts before relay collection"),
+                Ok(count) if count > 0 => {
+                    topics_dirty = true;
+                    eprintln!("Embedded {count} local posts before relay collection");
+                }
+                Ok(_) if topics_dirty => {
+                    match embed::cluster_topics(path, model.vector_space(), now) {
+                        Ok(count) => {
+                            topics_dirty = false;
+                            eprintln!("Built {count} keyword-labelled MiniLM topics");
+                        }
+                        Err(error) => eprintln!("Topic clustering failed explicitly: {error}"),
+                    }
+                }
+                Ok(_) => {}
                 Err(error) => eprintln!(
                     "Local embedding cycle failed explicitly: {error}; relay collection continues"
                 ),

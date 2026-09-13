@@ -452,6 +452,14 @@ async fn incremental_embeddings_reuse_delete_and_budget_after_sdk_drain() {
         ),
         1
     );
+    assert_eq!(embed::cluster_topics(&path, &mock.space, now).unwrap(), 1);
+    let topics = embed::topics(&path, &mock.space).unwrap();
+    assert_eq!(topics.len(), 1);
+    assert_eq!(topics[0].post_count, 1);
+    assert_eq!(
+        embed::topic_events(&path, &mock.space, topics[0].id, now, 10, 0).unwrap(),
+        vec![long.id.as_bytes().to_vec()]
+    );
     assert_eq!(
         embed::embed_pending(&path, &mock, budget, now, 10)
             .await
@@ -464,6 +472,7 @@ async fn incremental_embeddings_reuse_delete_and_budget_after_sdk_drain() {
     let conn = Connection::open(&path).unwrap();
     assert_eq!(count(&conn, "SELECT count(*) FROM post_embeddings"), 0);
     assert_eq!(count(&conn, "SELECT count(*) FROM embedding_chunks"), 0);
+    assert_eq!(count(&conn, "SELECT count(*) FROM post_topics"), 0);
     let too_small = embed::Budget {
         total_nusd: 1,
         monthly_nusd: 1,

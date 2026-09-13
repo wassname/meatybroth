@@ -7,6 +7,12 @@
 {% if mode == 'discovery' and q and not results and not error %}
 <p class="hint">No Social matches for this query. <a href="/?q={{ q|urlencode }}&mode=relevance">Search everything instead</a>.</p>
 {% endif %}
+{% if mode == 'topics' %}
+<nav class="topics" aria-label="semantic topics">
+  {% for topic in topics %}<a href="/?mode=topics&amp;topic={{ topic.id }}" {% if topic.id == selected_topic %}aria-current="page"{% endif %}>{{ topic.label }} <small>{{ topic.post_count }}</small></a>{% endfor %}
+</nav>
+{% if not topics and not error %}<p class="hint">Topics are not built yet.</p>{% endif %}
+{% endif %}
 {% for p in results %}
 {{ post_card(p) }}
 {% else %}
