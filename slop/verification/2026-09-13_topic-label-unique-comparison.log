@@ -1,0 +1,39 @@
+total  same_topic_id  changed_topic_id
+-----  -------------  ----------------
+12179  12179          0
+topic_id  baseline_label                     unique_label                     post_count
+--------  ---------------------------------  -------------------------------  ----------
+6         mixed                              mixed                            1794
+15        news · photo · flickr              news · photo · flickr            1526
+1         mixed                              mixed                            954
+3         mixed                              mixed                            910
+8         mixed                              mixed                            902
+14        mixed                              mixed                            752
+5         agents · register                  mixed                            722
+2         trump · news                       trump · news                     720
+9         bitcoin · price · sats             bitcoin · price · sats           666
+12        mixed                              mixed                            641
+10        mixed                              mixed                            640
+0         mixed                              mixed                            565
+4         mixed                              mixed                            433
+13        trading · bots · sylunara          trading · bots · sylunara        323
+11        mixed                              mixed                            322
+7         connecting · connection · service  connecting · connection · error  309
+topic_id  baseline_label                     unique_label                     post_count
+--------  ---------------------------------  -------------------------------  ----------
+6         mixed                              mixed                            1794
+15        news · photo · flickr              news · photo · flickr            1526
+1         mixed                              mixed                            954
+3         mixed                              mixed                            910
+8         mixed                              mixed                            902
+14        mixed                              mixed                            752
+5         agents · register                  mixed                            722
+2         trump · news                       trump · news                     720
+9         bitcoin · price · sats             bitcoin · price · sats           666
+12        mixed                              mixed                            641
+10        mixed                              mixed                            640
+0         mixed                              mixed                            565
+4         mixed                              mixed                            433
+13        trading · bots · sylunara          trading · bots · sylunara        323
+11        mixed                              mixed                            322
+7         connecting · connection · service  connecting · connection · error  309
