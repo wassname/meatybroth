@@ -40,6 +40,7 @@ struct App {
     templates: Environment<'static>,
     embedding: Option<Arc<dyn embed::SemanticModel>>,
     default_embedding: String,
+    collecting: bool,
 }
 
 fn local_embedding(
@@ -234,7 +235,7 @@ fn templates() -> Result<Environment<'static>, Error> {
     Ok(env)
 }
 fn page(app: &App, name: &str, data: Value) -> Result<String, Error> {
-    let mut shared = json!({"modes":MODES,"window_days":30,"mode":"new",
+    let mut shared = json!({"modes":MODES,"window_days":30,"mode":"new","collecting":app.collecting,
     "mode_labels":{"new":"New","relevance":"Relevance","meaning":"Meaning","topics":"Topics","conversations":"Conversations","discovery":"Social","similar":"Similar"},
     "mode_explanations":{
         "new":"Every post from the last 30 days, newest first.",
@@ -569,10 +570,23 @@ fn status(app: &App, db: &Connection, now: i64) -> Result<String, Error> {
         "checked":r.get::<_,Option<i64>>(4)?.map(render::time),"members":r.get::<_,Option<i64>>(5)?,
         "attempted":r.get::<_,Option<i64>>(6)?.map(render::time),"error":r.get::<_,Option<String>>(7)?})))?.collect::<Result<Vec<_>,_>>()?;
     let counts = queries::count(db, now, None)?;
+    let embedding_spaces: Vec<_> = embed::cache_status(db, now)?
+        .into_iter()
+        .map(|status| {
+            let cost_usd = format!("{:.9}", status.cost_nusd as f64 / 1_000_000_000.0);
+            json!({"backend":status.backend,"model":status.model,"dimensions":status.dimensions,
+                "revision":status.revision,"model_sha256":status.model_sha256,
+                "tokenizer_sha256":status.tokenizer_sha256,"vectors":status.vectors,
+                "eligible_vectors":status.eligible_vectors,"pending":status.pending,
+                "requests":status.requests,"tokens":status.tokens,"cost_usd":cost_usd,
+                "uncertain":status.uncertain})
+        })
+        .collect();
     page(
         app,
         "status.html",
-        json!({"now":render::time(now),"eligible_posts":counts,"status_rows":rows,"gap_count":gap_count,"gaps":gaps,"lists":lists}),
+        json!({"now":render::time(now),"eligible_posts":counts,"status_rows":rows,"gap_count":gap_count,
+            "gaps":gaps,"lists":lists,"embedding_spaces":embedding_spaces}),
     )
 }
 
@@ -772,6 +786,7 @@ async fn main() -> Result<(), Error> {
             .clone()
             .map(|model| model as Arc<dyn embed::SemanticModel>),
         default_embedding,
+        collecting: !read_only,
     });
     let addr = std::env::var("MEATYBROTH_ADDR").unwrap_or_else(|_| "127.0.0.1:8083".into());
     let listener = tokio::net::TcpListener::bind(&addr).await?;

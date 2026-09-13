@@ -1,0 +1,25 @@
+Built 6 keyword-labelled topics from cached bedrock vectors
+Built 15 keyword-labelled topics from cached minilm vectors
+backend  topic_id  label                          post_count
+-------  --------  -----------------------------  ----------
+bedrock  2         mixed                          37
+bedrock  0         mixed                          30
+bedrock  5         mixed                          20
+bedrock  1         mixed                          18
+bedrock  3         nostr · people · channel       10
+bedrock  4         cards · cut · people           4
+minilm   1         mixed                          986
+minilm   5         type · dev · relays            808
+minilm   7         mixed                          416
+minilm   8         mixed                          375
+minilm   10        news · photo · flickr          322
+minilm   13        price · trading · bots         317
+minilm   2         mixed                          312
+minilm   14        mixed                          275
+minilm   11        mixed                          261
+minilm   9         mixed                          260
+minilm   6         mixed                          248
+minilm   3         mixed                          196
+minilm   0         block · mempool · bitcoinfees  178
+minilm   4         mixed                          163
+minilm   12        mixed                          157

@@ -48,6 +48,7 @@ impl Fixture {
             templates: templates().unwrap(),
             embedding: None,
             default_embedding: "minilm".into(),
+            collecting: false,
         }
     }
     fn post(
@@ -452,6 +453,7 @@ fn matched_reference_reader_outputs() {
         templates: templates().unwrap(),
         embedding: None,
         default_embedding: "minilm".into(),
+        collecting: false,
     };
     let mut observed = Vec::new();
     for case in expected["cases"].as_array().unwrap() {

@@ -38,6 +38,8 @@ MEATYBROTH_ADDR=127.0.0.1:8088 \
 
 Do not set `MEATYBROTH_EMBED_BACKEND` in that long-running process. Titan Similar and Topics use cached vectors. Titan Meaning accepts only queries cached during the approved one-off run. `MEATYBROTH_RECLUSTER_ONLY=bedrock` rebuilds Titan topics offline without loading a model or calling AWS.
 
+Topic labels use the pinned MIT [stopwords-iso English list](https://github.com/stopwords-iso/stopwords-en/tree/ccc8898188850d8fb019d5f69c14a6635c3bd115). A cluster is labelled `mixed` when fewer than two terms recur in at least one fifth of its posts.
+
 <!-- Pi/gpt-5.6-sol -->
 
 ```sh

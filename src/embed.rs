@@ -14,7 +14,7 @@ use std::{
     process::Command,
     sync::{
         atomic::{AtomicU64, Ordering},
-        Mutex,
+        LazyLock, Mutex,
     },
 };
 
@@ -891,6 +891,94 @@ pub fn cached_query(path: &Path, space: &Space, query: &str) -> Result<Option<Ve
         .transpose()
 }
 
+/// Stored-vector coverage and request-ledger totals for one provenance-separated space.
+#[derive(Debug, serde::Serialize)]
+pub struct CacheStatus {
+    pub backend: String,
+    pub model: String,
+    pub dimensions: i64,
+    pub revision: String,
+    pub model_sha256: String,
+    pub tokenizer_sha256: String,
+    pub vectors: i64,
+    pub eligible_vectors: i64,
+    pub pending: i64,
+    pub requests: i64,
+    pub tokens: i64,
+    pub cost_nusd: i64,
+    pub uncertain: i64,
+}
+
+/// Summarizes current eligibility separately from durable all-time provider accounting.
+pub fn cache_status(db: &Connection, now: i64) -> Result<Vec<CacheStatus>, Error> {
+    let exists: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='embedding_spaces')",
+        [],
+        |row| row.get(0),
+    )?;
+    if !exists {
+        return Ok(Vec::new());
+    }
+    let mut statement = db.prepare(
+        "WITH eligible AS MATERIALIZED (
+           SELECT event.id
+           FROM events event
+           JOIN reader_events reader ON reader.event_id=event.id
+           WHERE event.kind=1 AND event.created_at BETWEEN ?1 AND ?2
+             AND NOT EXISTS (
+               SELECT 1 FROM policy_exclusions exclusion
+               WHERE exclusion.event_id=lower(hex(event.id)))
+             AND lower(hex(event.pubkey)) NOT IN (
+               SELECT member.value
+               FROM moderation_lists list,json_each(list.members_json) member
+               WHERE list.identifier='nsfw' AND member.type='text')
+         )
+         SELECT
+           space.backend,
+           space.model,
+           space.dimensions,
+           space.revision,
+           space.model_sha256,
+           space.tokenizer_sha256,
+           (SELECT count(*) FROM post_embeddings post WHERE post.space_id=space.id),
+           (SELECT count(*) FROM post_embeddings post
+             JOIN eligible ON eligible.id=post.event_id WHERE post.space_id=space.id),
+           (SELECT count(*) FROM eligible
+             WHERE NOT EXISTS (SELECT 1 FROM post_embeddings post
+               WHERE post.event_id=eligible.id AND post.space_id=space.id)),
+           (SELECT count(*) FROM embedding_requests request
+             WHERE request.space_id=space.id AND request.status='succeeded'),
+           (SELECT coalesce(sum(request.actual_tokens),0) FROM embedding_requests request
+             WHERE request.space_id=space.id AND request.status='succeeded'),
+           (SELECT coalesce(sum(request.actual_nusd),0) FROM embedding_requests request
+             WHERE request.space_id=space.id AND request.status='succeeded'),
+           (SELECT count(*) FROM embedding_requests request
+             WHERE request.space_id=space.id AND request.status='uncertain')
+         FROM embedding_spaces space
+         ORDER BY space.backend,space.created_at DESC",
+    )?;
+    let statuses = statement
+        .query_map((now - WINDOW, now), |row| {
+            Ok(CacheStatus {
+                backend: row.get(0)?,
+                model: row.get(1)?,
+                dimensions: row.get(2)?,
+                revision: row.get(3)?,
+                model_sha256: row.get(4)?,
+                tokenizer_sha256: row.get(5)?,
+                vectors: row.get(6)?,
+                eligible_vectors: row.get(7)?,
+                pending: row.get(8)?,
+                requests: row.get(9)?,
+                tokens: row.get(10)?,
+                cost_nusd: row.get(11)?,
+                uncertain: row.get(12)?,
+            })
+        })?
+        .collect::<Result<_, _>>()?;
+    Ok(statuses)
+}
+
 /// One keyword-labelled cluster in an exact embedding space.
 #[derive(Debug, serde::Serialize)]
 pub struct Topic {
@@ -911,13 +999,10 @@ fn normalize(vector: &mut [f32]) -> Result<(), Error> {
 }
 
 fn topic_label(texts: &[&str]) -> String {
-    const STOP: &[&str] = &[
-        "about", "after", "also", "and", "any", "are", "been", "but", "can", "for", "free", "from",
-        "has", "have", "here", "how", "into", "its", "just", "like", "more", "nostr", "not", "one",
-        "post", "same", "still", "that", "the", "their", "then", "there", "they", "this", "type",
-        "was", "were", "what", "when", "where", "which", "who", "will", "with", "would", "you",
-        "your",
-    ];
+    // stopwords-iso English list, MIT, pinned at ccc8898. -- Pi/gpt-5.6-sol
+    // https://github.com/stopwords-iso/stopwords-en/tree/ccc8898188850d8fb019d5f69c14a6635c3bd115
+    static STOP: LazyLock<std::collections::HashSet<&'static str>> =
+        LazyLock::new(|| include_str!("data/english-stopwords.txt").lines().collect());
     let urls = regex::Regex::new(r"(?i)https?://\S+").unwrap();
     let words = regex::Regex::new(r"(?i)[\p{L}\p{N}][\p{L}\p{N}_-]{2,}").unwrap();
     let mut counts = std::collections::HashMap::<String, usize>::new();
@@ -932,7 +1017,7 @@ fn topic_label(texts: &[&str]) -> String {
                         .chars()
                         .any(|character| character.is_ascii_alphabetic())
                     && word.chars().count() <= 32
-                    && !STOP.contains(&word.as_str())
+                    && !STOP.contains(word.as_str())
                     && !word.starts_with("http")
             })
             .collect();
@@ -942,16 +1027,17 @@ fn topic_label(texts: &[&str]) -> String {
     }
     let mut counts: Vec<_> = counts.into_iter().collect();
     counts.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
-    let label = counts
+    let minimum_support = 2.max(texts.len().div_ceil(5));
+    let terms: Vec<_> = counts
         .into_iter()
+        .filter(|(_, support)| *support >= minimum_support)
         .take(3)
         .map(|(word, _)| word)
-        .collect::<Vec<_>>()
-        .join(" · ");
-    if label.is_empty() {
-        "other".into()
+        .collect();
+    if terms.len() < 2 {
+        "mixed".into()
     } else {
-        label
+        terms.join(" · ")
     }
 }
 
@@ -1220,4 +1306,21 @@ pub fn nearest(
     });
     scored.truncate(limit);
     Ok(scored)
+}
+
+#[cfg(test)]
+mod label_tests {
+    use super::topic_label;
+
+    #[test]
+    fn labels_remove_english_fragments_and_mark_heterogeneous_clusters() {
+        assert_eq!(
+            topic_label(&["good year all", "them because don't"]),
+            "mixed"
+        );
+        assert_eq!(
+            topic_label(&["rust vector search", "rust vector index", "rust vector"]),
+            "rust · vector"
+        );
+    }
 }

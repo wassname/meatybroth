@@ -51,6 +51,6 @@
   </form>
 </header>
 <main>
-<p class="scope-note">Live SDK collection and reader. Recent coverage is incomplete; see status.{% if embedding == 'titan' %} Titan is an incomplete cached one-off corpus; browsing does not call AWS.{% endif %}</p>
+<p class="scope-note">{% if collecting %}Live SDK collection and reader.{% else %}Reader snapshot; collection is paused in this process.{% endif %} Recent coverage is incomplete; see status.{% if embedding == 'titan' %} Titan is an incomplete cached one-off corpus; browsing does not call AWS.{% endif %}</p>
 {% block body %}{% endblock %}
 </main>

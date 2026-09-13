@@ -61,3 +61,11 @@ Do not set `MEATYBROTH_EMBED_BACKEND` in the long-running cached deployment. The
 4. Save a screenshot, ingest it, and obtain independent review.
 5. Commit only owned source/evidence, report the immutable SHA to the parent and deployment worker.
 6. Resume the full Titan run only after login refresh is fixed; keep the durable US$5 ledger and no automatic paid ingestion.
+
+## Follow-up after live review
+
+The status page now reports each embedding space's provenance, stored/eligible/pending counts, completed requests, input tokens, recorded cost, and uncertain requests. Read-only processes say collection is paused instead of claiming live collection.
+
+Topic labels use the pinned MIT stopwords-iso English list at commit `ccc8898`. Clusters without two terms recurring in at least one fifth of posts are labelled `mixed`. The offline rebuild assigned all 119 partial Titan vectors across six topics; this does not remove the documented proof-of-work cohort bias.
+
+The next runtime check starts the integrated SDK collector with local MiniLM on port 8088. Titan remains cached and no automatic Titan request path is enabled.

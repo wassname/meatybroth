@@ -134,6 +134,7 @@ async fn html_with_embedding(
         templates: templates().unwrap(),
         embedding,
         default_embedding: "minilm".into(),
+        collecting: false,
     });
     let response = app
         .oneshot(
@@ -530,6 +531,12 @@ async fn incremental_embeddings_reuse_delete_and_budget_after_sdk_drain() {
     assert_eq!(status, StatusCode::OK);
     assert!(topic.contains("<article"));
     assert!(topic.contains("embedding=minilm"));
+    let (status, cache_status) = html_with_embedding(&path, "/status", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(cache_status.contains("Embedding caches"));
+    assert!(cache_status.contains(embed::TITAN_MODEL));
+    assert!(cache_status.contains("eligible / 2 stored"));
+    assert!(cache_status.contains("US$0.000180420 recorded cost"));
 
     sdk.delete(Filter::new().ids([long.id, second.id]))
         .await
@@ -686,6 +693,7 @@ async fn sdk_storage_failure_does_not_stop_http_reader() {
         templates: templates().unwrap(),
         embedding: None,
         default_embedding: "minilm".into(),
+        collecting: false,
     });
     let server = tokio::spawn(async move { axum::serve(listener, app).await });
     let error = collect::scan(
