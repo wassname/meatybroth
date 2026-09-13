@@ -8,28 +8,42 @@ use serde_json::{json, Value};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tower::ServiceExt;
 
-#[derive(Default)]
 struct MockEmbedder {
     calls: AtomicUsize,
+    space: embed::Space,
+}
+
+impl Default for MockEmbedder {
+    fn default() -> Self {
+        Self {
+            calls: AtomicUsize::new(0),
+            space: embed::Space::titan_v2(),
+        }
+    }
 }
 
 impl embed::Transport for MockEmbedder {
+    fn space(&self) -> &embed::Space {
+        &self.space
+    }
+
+    fn split(&self, text: &str) -> Result<Vec<String>, Error> {
+        Ok(embed::titan_chunks(text))
+    }
+
     fn embed<'a>(
         &'a self,
-        input: embed::Input<'a>,
+        text: &'a str,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = Result<embed::Output, Error>> + Send + 'a>,
     > {
         Box::pin(async move {
-            assert_eq!(input.model, embed::MODEL);
-            assert_eq!(input.dimensions, 512);
-            assert!(input.normalize);
             let call = self.calls.fetch_add(1, Ordering::SeqCst);
-            let mut vector = vec![0.0; embed::DIMENSIONS];
-            vector[call % embed::DIMENSIONS] = 1.0;
+            let mut vector = vec![0.0; self.space.dimensions];
+            vector[call % self.space.dimensions] = 1.0;
             Ok(embed::Output {
                 vector,
-                input_tokens: i64::try_from(input.text.len().max(1)).unwrap(),
+                input_tokens: i64::try_from(text.len().max(1)).unwrap(),
             })
         })
     }
@@ -99,6 +113,7 @@ async fn html(path: &std::path::Path, uri: &str) -> (StatusCode, String) {
         path: path.to_path_buf(),
         root: ROOT.into(),
         templates: templates().unwrap(),
+        embedding: None,
     });
     let response = app
         .oneshot(
@@ -570,7 +585,7 @@ async fn eose_boundary_has_no_late_admitted_write() {
 }
 
 #[tokio::test]
-async fn sdk_storage_failure_reaches_supervisor() {
+async fn sdk_storage_failure_does_not_stop_http_reader() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("events.sqlite");
     let sdk = collect::open(&path, collect::PRIMAL_AUTHOR).await.unwrap();
@@ -593,25 +608,21 @@ async fn sdk_storage_failure_reaches_supervisor() {
         path,
         root: ROOT.into(),
         templates: templates().unwrap(),
+        embedding: None,
     });
-    let error = supervise(listener, app, async {
-        collect::scan(
-            &client,
-            &policy,
-            &url,
-            Filter::new().kind(Kind::TextNote),
-            Duration::from_secs(2),
-        )
-        .await?;
-        Ok(())
-    })
+    let server = tokio::spawn(async move { axum::serve(listener, app).await });
+    let error = collect::scan(
+        &client,
+        &policy,
+        &url,
+        Filter::new().kind(Kind::TextNote),
+        Duration::from_secs(2),
+    )
     .await
     .unwrap_err();
     assert!(error.to_string().contains("did not finish admitted event"));
-    assert!(tokio::net::TcpStream::connect(address).await.is_err());
+    assert!(tokio::net::TcpStream::connect(address).await.is_ok());
+    server.abort();
     client.shutdown().await;
     task.abort();
-    eprintln!(
-        "SDK save failure surfaced, HTTP listener stopped rather than silently remaining stale"
-    );
 }

@@ -1,5 +1,4 @@
 mod collect;
-#[cfg(test)]
 mod embed;
 mod policy;
 mod queries;
@@ -14,6 +13,7 @@ use axum::{
 };
 use chrono::{NaiveDate, Utc};
 use minijinja::Environment;
+use nostr_sdk::prelude::{EventId, PublicKey};
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{json, Value};
 use std::{
@@ -25,12 +25,50 @@ use std::{
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
 const ROOT: &str = "60c052cf19fbfb973c1779585df423e3982a3a251fc826d4c76f8063621c5bb6";
-const MODES: [&str; 4] = ["new", "relevance", "conversations", "discovery"];
+const MODES: [&str; 5] = ["new", "relevance", "meaning", "conversations", "discovery"];
 
 struct App {
     path: PathBuf,
     root: String,
     templates: Environment<'static>,
+    embedding: Option<Arc<embed::MiniLm>>,
+}
+
+fn local_embedding(path: &std::path::Path) -> Result<Option<Arc<embed::MiniLm>>, Error> {
+    let Ok(backend) = std::env::var("MEATYBROTH_EMBED_BACKEND") else {
+        return Ok(None);
+    };
+    match backend.as_str() {
+        "minilm" => {
+            if std::env::var("MEATYBROTH_EMBED_MODEL")? != embed::MINILM_MODEL
+                || std::env::var("MEATYBROTH_EMBED_DIMENSIONS")?.parse::<usize>()?
+                    != embed::MINILM_DIMENSIONS
+                || std::env::var("MEATYBROTH_EMBED_NORMALIZE")? != "true"
+            {
+                return Err(
+                    "MiniLM model, dimensions, or normalization do not match its vector space"
+                        .into(),
+                );
+            }
+            let cache = path.parent().unwrap().join("models/minilm");
+            std::fs::create_dir_all(&cache)?;
+            Ok(Some(Arc::new(embed::MiniLm::open(&cache)?)))
+        }
+        "bedrock" => {
+            if std::env::var("MEATYBROTH_EMBED_MODEL")? != embed::TITAN_MODEL
+                || std::env::var("MEATYBROTH_EMBED_DIMENSIONS")?.parse::<usize>()?
+                    != embed::TITAN_DIMENSIONS
+                || std::env::var("MEATYBROTH_EMBED_NORMALIZE")? != "true"
+            {
+                return Err(
+                    "Titan model, dimensions, or normalization do not match its vector space"
+                        .into(),
+                );
+            }
+            Err("Bedrock transport is disabled until the paid-call approval gate".into())
+        }
+        other => Err(format!("Unknown embedding backend: {other}").into()),
+    }
 }
 
 struct Search {
@@ -41,6 +79,7 @@ struct Search {
     reach: i64,
     order: String,
     expression: Option<String>,
+    similar: Option<String>,
     error: Option<String>,
 }
 impl Search {
@@ -58,7 +97,7 @@ impl Search {
         }
         if !q.is_empty() && args.contains_key("go") {
             mode = "relevance";
-        } else if !MODES.contains(&mode) {
+        } else if !MODES.contains(&mode) && mode != "similar" {
             mode = if q.is_empty() { "new" } else { "relevance" };
         }
         if q.is_empty() && mode == "relevance" {
@@ -76,7 +115,7 @@ impl Search {
         } else {
             None
         };
-        let parsed = if q.is_empty() {
+        let parsed = if q.is_empty() || ["meaning", "similar"].contains(&mode) {
             Ok(None)
         } else {
             parse_fts(&q).map(Some)
@@ -101,6 +140,7 @@ impl Search {
             }
             .into(),
             expression,
+            similar: args.get("similar").cloned(),
             error,
         }
     }
@@ -116,6 +156,9 @@ impl Search {
         if self.mode == "discovery" {
             qs.append_pair("reach", &self.reach.to_string())
                 .append_pair("order", &self.order);
+        }
+        if let Some(similar) = &self.similar {
+            qs.append_pair("similar", similar);
         }
         format!("{}&", qs.finish())
     }
@@ -166,10 +209,12 @@ fn templates() -> Result<Environment<'static>, Error> {
 }
 fn page(app: &App, name: &str, data: Value) -> Result<String, Error> {
     let mut shared = json!({"modes":MODES,"window_days":30,"mode":"new",
-    "mode_labels":{"new":"New","relevance":"Relevance","conversations":"Conversations","discovery":"Social"},
+    "mode_labels":{"new":"New","relevance":"Relevance","meaning":"Meaning","conversations":"Conversations","discovery":"Social","similar":"Similar"},
     "mode_explanations":{
         "new":"Every post from the last 30 days, newest first.",
         "relevance":"Posts matching your terms, best match first (BM25: lower = closer); newer breaks ties.",
+        "meaning":"Posts nearest to your text in the local MiniLM vector space.",
+        "similar":"Posts nearest to the selected post in the local MiniLM vector space.",
         "conversations":"Threads with the most distinct recent repliers first; with a query, only matching threads.",
         "discovery":"Recent posts within the selected 1–3 hop reach. Connections favours authors supported by more independent accounts you follow; lower distance score ranks first. Based on the collected, incomplete follow graph."
     }});
@@ -180,19 +225,85 @@ fn page(app: &App, name: &str, data: Value) -> Result<String, Error> {
     Ok(app.templates.get_template(name)?.render(shared)?)
 }
 
+fn event_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn semantic_feed(
+    app: &App,
+    db: &Connection,
+    search: &Search,
+    now: i64,
+) -> Result<Vec<(queries::Post, f32)>, Error> {
+    let model = app
+        .embedding
+        .as_ref()
+        .ok_or("Semantic search is unavailable because no embedding backend is configured")?;
+    let (query, exclude) = if search.mode == "meaning" {
+        if search.q.is_empty() {
+            return Err("Meaning search requires text".into());
+        }
+        (model.embed_text(&search.q)?.vector, None)
+    } else {
+        let id = search
+            .similar
+            .as_deref()
+            .ok_or("Similar search requires an event ID")?;
+        let event_id = EventId::from_hex(id)?;
+        let vector = embed::event_vector(&app.path, model.vector_space(), event_id.as_bytes())?
+            .ok_or("This post has not been embedded yet")?;
+        (vector, Some(event_id))
+    };
+    let offset = usize::try_from(search.page)? * queries::PAGE_SIZE;
+    let ranked = embed::nearest(
+        &app.path,
+        model.vector_space(),
+        &query,
+        exclude
+            .as_ref()
+            .map(|event_id| event_id.as_bytes().as_slice()),
+        offset + queries::PAGE_SIZE + 1,
+    )?;
+    let mut rows = Vec::new();
+    for (event_id, score) in ranked.into_iter().skip(offset) {
+        if let Some(post) = queries::get(db, &event_hex(&event_id), now)? {
+            rows.push((post, score));
+        }
+    }
+    Ok(rows)
+}
+
 fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, String), Error> {
-    let search = Search::parse(raw, now);
-    let mut rows = if search.error.is_none() {
+    let mut search = Search::parse(raw, now);
+    let semantic = ["meaning", "similar"].contains(&search.mode.as_str());
+    let mut scored = if search.error.is_none() && semantic {
+        match semantic_feed(app, db, &search, now) {
+            Ok(rows) => rows,
+            Err(error) => {
+                search.error = Some(error.to_string());
+                Vec::new()
+            }
+        }
+    } else if search.error.is_none() {
         queries::feed(db, &search, &app.root, now)?
+            .into_iter()
+            .map(|post| (post, f32::NAN))
+            .collect()
     } else {
         Vec::new()
     };
-    let has_next = rows.len() > queries::PAGE_SIZE;
-    rows.truncate(queries::PAGE_SIZE);
-    let results = rows
+    let has_next = scored.len() > queries::PAGE_SIZE;
+    scored.truncate(queries::PAGE_SIZE);
+    let results = scored
         .iter()
-        .map(|p| render::card(db, p, now, &search.mode, true))
-        .collect::<Result<Vec<_>, _>>()?;
+        .map(|(post, similarity)| {
+            let mut card = render::card(db, post, now, &search.mode, true)?;
+            if semantic {
+                card["score"] = json!(format!("cosine similarity {similarity:.3}"));
+            }
+            Ok(card)
+        })
+        .collect::<Result<Vec<_>, Error>>()?;
     let html = page(
         app,
         "feed.html",
@@ -377,10 +488,38 @@ async fn main() -> Result<(), Error> {
         Some(collect::open(&path, collect::PRIMAL_AUTHOR).await?)
     };
     let root = std::env::var("MEATYBROTH_ROOT").unwrap_or_else(|_| ROOT.into());
+    let root_key = PublicKey::from_hex(&root)?;
+    let embedding = local_embedding(&path)?;
+    if std::env::var("MEATYBROTH_EMBED_ONLY").as_deref() == Ok("1") {
+        let model = embedding
+            .as_ref()
+            .ok_or("MEATYBROTH_EMBED_ONLY requires an explicit embedding backend")?;
+        let mut total = 0;
+        loop {
+            let count = embed::embed_pending(
+                &path,
+                model.as_ref(),
+                embed::Budget {
+                    total_nusd: i64::MAX,
+                    monthly_nusd: i64::MAX,
+                },
+                Utc::now().timestamp(),
+                100,
+            )
+            .await?;
+            total += count;
+            eprintln!("Embedded {count} local posts in this batch; total={total}");
+            if count == 0 {
+                break;
+            }
+        }
+        return Ok(());
+    }
     let app = router(App {
         path: path.clone(),
         root,
         templates: templates()?,
+        embedding: embedding.clone(),
     });
     let addr = std::env::var("MEATYBROTH_ADDR").unwrap_or_else(|_| "127.0.0.1:8083".into());
     let listener = tokio::net::TcpListener::bind(&addr).await?;
@@ -391,25 +530,15 @@ async fn main() -> Result<(), Error> {
             .split(',')
             .map(str::to_owned)
             .collect();
-        supervise(listener, app, collect::run(&path, sdk, relays)).await?;
-    } else {
-        axum::serve(listener, app).await?;
+        tokio::spawn(async move {
+            if let Err(error) = collect::run(&path, sdk, relays, root_key, embedding).await {
+                eprintln!(
+                    "Collector stopped with an explicit error: {error}; HTTP reader remains available"
+                );
+            }
+        });
     }
-    Ok(())
-}
-
-async fn supervise(
-    listener: tokio::net::TcpListener,
-    app: Router,
-    collector: impl std::future::Future<Output = Result<(), Error>>,
-) -> Result<(), Error> {
-    tokio::try_join!(
-        async {
-            axum::serve(listener, app).await?;
-            Ok::<_, Error>(())
-        },
-        collector
-    )?;
+    axum::serve(listener, app).await?;
     Ok(())
 }
 

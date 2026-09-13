@@ -18,6 +18,12 @@ CREATE TABLE IF NOT EXISTS collection_runs (
  rejected INTEGER
 );
 CREATE INDEX IF NOT EXISTS collection_run_source ON collection_runs(relay,id);
+CREATE TABLE IF NOT EXISTS profile_hydration_attempts (
+ pubkey BLOB NOT NULL,
+ relay TEXT NOT NULL,
+ checked_at INTEGER NOT NULL,
+ PRIMARY KEY(pubkey,relay)
+);
 DROP VIEW IF EXISTS source_status;
 CREATE VIEW source_status AS
  SELECT r.relay AS source,coalesce(r.finished_at,r.started_at) AS updated_at,

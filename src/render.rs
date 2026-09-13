@@ -9,6 +9,9 @@ use rusqlite::{Connection, OptionalExtension};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 
+const PREVIEW_CHARACTERS: usize = 280;
+const MIN_COLLAPSED_REMAINDER: usize = 150;
+
 pub fn body(text: &str) -> String {
     let mut finder = linkify::LinkFinder::new();
     finder.kinds(&[linkify::LinkKind::Url]);
@@ -301,12 +304,13 @@ pub fn card(
         .filter(|u| ["http", "https"].contains(&u.scheme()))
         .map(|_| p.url.clone());
     let length = p.text.chars().count();
+    let collapsed = length.saturating_sub(PREVIEW_CHARACTERS) >= MIN_COLLAPSED_REMAINDER;
     Ok(
         json!({"canonical_id":p.canonical_id,"source":p.source,"source_id":p.source_id,
             "author_id":p.author_id,"author":author,"address":address,"named":named,"profile_url":profile_url,
             "original_url":original_url,"when":time(p.created_at),"age":age(p.created_at,now),
-            "full_html":body(&p.text),"preview_html":if length>280 {body(&p.text.chars().take(280).collect::<String>())}else{String::new()},
-            "rest_chars":length.saturating_sub(280),"warning":reasons.join(" · "),"warning_hides":hides(&reasons),
+            "full_html":body(&p.text),"preview_html":if collapsed {body(&p.text.chars().take(PREVIEW_CHARACTERS).collect::<String>())}else{String::new()},
+            "rest_chars":length.saturating_sub(PREVIEW_CHARACTERS),"warning":reasons.join(" · "),"warning_hides":hides(&reasons),
             "reply_count":queries::count(db,now,Some(&p.canonical_id))?,"parent_excerpt":parent_excerpt,"score":score,
             "score_title":if mode=="discovery" {"distance score: 1/distance² over each distinct first-hop account that endorses this author; lower ranks first"}else{""},
             "conversation":if mode=="conversations" {json!({"n_reply_authors":p.n_reply_authors,"n_replies":p.n_replies,

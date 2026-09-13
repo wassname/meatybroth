@@ -39,6 +39,7 @@ impl Fixture {
             path: self.dir.path().join("test.sqlite"),
             root: key(1),
             templates: templates().unwrap(),
+            embedding: None,
         }
     }
     fn post(
@@ -116,7 +117,7 @@ fn ids(html: &str) -> Vec<String> {
 #[tokio::test]
 async fn pages_query_state_and_invalid_requests_use_real_handlers() {
     let f = Fixture::new();
-    for i in 0..55 {
+    for i in 0..105 {
         f.post(
             100 + i,
             2,
@@ -130,10 +131,10 @@ async fn pages_query_state_and_invalid_requests_use_real_handlers() {
     f.post(301, 2, "future", -86400, None, None);
     let (code, html) = f.request("/?mode=new").await;
     assert_eq!(code, StatusCode::OK);
-    assert_eq!(ids(&html).len(), 50);
+    assert_eq!(ids(&html).len(), 100);
     assert_eq!(ids(&html)[0], cid(100));
     let (_, second) = f.request("/?mode=new&page=1").await;
-    assert_eq!(ids(&second), (150..155).map(cid).collect::<Vec<_>>());
+    assert_eq!(ids(&second), (200..205).map(cid).collect::<Vec<_>>());
     assert!(!second.contains("older &rarr;"));
     assert_eq!(ids(&f.request("/?mode=new&page=-2").await.1), ids(&html));
     assert_eq!(
@@ -146,7 +147,7 @@ async fn pages_query_state_and_invalid_requests_use_real_handlers() {
         assert!(html.contains("Search error"));
         assert!(ids(&html).is_empty());
     }
-    assert_eq!(ids(&f.request("/?q=NOT").await.1).len(), 50);
+    assert_eq!(ids(&f.request("/?q=NOT").await.1).len(), 100);
     for mode in ["new", "relevance", "conversations", "discovery"] {
         assert!(ids(&f.request(&format!("/?q=expired&mode={mode}")).await.1).is_empty());
     }
@@ -163,7 +164,7 @@ async fn pages_query_state_and_invalid_requests_use_real_handlers() {
     let (_, old) = f
         .request(&format!("/?mode=new&before={}", f.now - 150))
         .await;
-    assert_eq!(ids(&old), (150..155).map(cid).collect::<Vec<_>>());
+    assert_eq!(ids(&old), (150..205).map(cid).collect::<Vec<_>>());
     assert_eq!(
         f.request("/context/nostr/missing").await.0,
         StatusCode::NOT_FOUND
@@ -314,6 +315,22 @@ async fn rendering_preserves_safe_text_profiles_warnings_and_exclusions() {
     }
     assert!(html.contains("<code>https://code.invalid</code>"));
     assert!(html.contains("class=\"rest\""));
+
+    let boundary = |marker: &str, length: usize| {
+        format!(
+            "{marker} é{}",
+            "x".repeat(length - marker.chars().count() - 2)
+        )
+    };
+    f.post(103, 3, &boundary("boundary149", 429), 100, None, None);
+    let (_, short_html) = f.request("/?q=boundary149").await;
+    assert!(!short_html.contains("class=\"rest\""));
+    assert!(html_escape::decode_html_entities(&short_html).contains('é'));
+    f.post(104, 3, &boundary("boundary150", 430), 100, None, None);
+    let (_, collapsed_html) = f.request("/?q=boundary150").await;
+    assert!(collapsed_html.contains("class=\"rest\""));
+    assert!(collapsed_html.contains("150 more characters"));
+
     f.db.execute(
         "INSERT INTO content_warnings VALUES(?1,'spam','auto-flagged: link-farm')",
         [key(100)],
@@ -414,6 +431,7 @@ fn matched_reference_reader_outputs() {
         path: path.join("canonical.sqlite"),
         root: expected["root"].as_str().unwrap().into(),
         templates: templates().unwrap(),
+        embedding: None,
     };
     let mut observed = Vec::new();
     for case in expected["cases"].as_array().unwrap() {

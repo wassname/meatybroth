@@ -4,6 +4,7 @@
 //! -- Pi/gpt-5.6-sol
 
 use crate::{
+    embed::{self, Budget, MiniLm},
     policy::{Observation, Policy},
     queries::WINDOW,
     Error,
@@ -123,6 +124,21 @@ fn finish_run(
     let sql = format!("UPDATE collection_cursors SET {column}=?1,updated_at=?2 WHERE relay=?3");
     tx.execute(&sql, (value, now, relay))?;
     tx.commit()?;
+    Ok(())
+}
+
+fn record_gap(path: &Path, relay: &str, since: i64, until: i64, reason: &str) -> Result<(), Error> {
+    admin(path)?.execute(
+        "INSERT INTO collection_gaps(relay,since_at,until_at,reason,checked_at)
+         VALUES(?1,?2,?3,?4,?5)",
+        (
+            relay,
+            since,
+            until,
+            reason,
+            i64::try_from(Timestamp::now().as_secs())?,
+        ),
+    )?;
     Ok(())
 }
 
@@ -387,7 +403,7 @@ pub async fn scan(
     let mut observed = policy.finish(&id);
     relay.unsubscribe(&id).await?;
     observed.eose = eose;
-    for (event_id, accepted) in observed.accepted.iter().filter(|_| eose) {
+    for (event_id, accepted) in &observed.accepted {
         tokio::time::timeout(timeout, async {
             loop {
                 let complete = if accepted.kind == Kind::TextNote {
@@ -643,6 +659,63 @@ async fn hydrate_notes(
     Ok((metadata, parents))
 }
 
+fn missing_profile_authors(path: &Path, relay: &str, now: i64) -> Result<Vec<PublicKey>, Error> {
+    let conn = admin(path)?;
+    let mut statement = conn.prepare(
+        "SELECT DISTINCT notes.pubkey
+         FROM events notes
+         WHERE notes.kind=1
+           AND NOT EXISTS (SELECT 1 FROM events profile WHERE profile.kind=0 AND profile.pubkey=notes.pubkey)
+           AND NOT EXISTS (
+             SELECT 1 FROM profile_hydration_attempts attempt
+             WHERE attempt.pubkey=notes.pubkey AND attempt.relay=?1 AND attempt.checked_at>=?2)
+         ORDER BY notes.pubkey LIMIT 500",
+    )?;
+    let authors = statement
+        .query_map((relay, now - 86400), |row| row.get::<_, Vec<u8>>(0))?
+        .map(|bytes| Ok(PublicKey::from_slice(&bytes?)?))
+        .collect();
+    authors
+}
+
+async fn hydrate_missing_profiles(
+    path: &Path,
+    client: &Client,
+    policy: &Policy,
+    relay: &str,
+    now: i64,
+) -> Result<Observation, Error> {
+    let authors = missing_profile_authors(path, relay, now)?;
+    if authors.is_empty() {
+        return Ok(Observation {
+            eose: true,
+            ..Observation::default()
+        });
+    }
+    let observed = scan(
+        client,
+        policy,
+        relay,
+        Filter::new()
+            .authors(authors.iter().copied())
+            .kind(Kind::Metadata)
+            .limit(500),
+        Duration::from_secs(15),
+    )
+    .await?;
+    let mut conn = admin(path)?;
+    let tx = conn.transaction()?;
+    for author in authors {
+        tx.execute(
+            "INSERT INTO profile_hydration_attempts(pubkey,relay,checked_at) VALUES(?1,?2,?3)
+             ON CONFLICT(pubkey,relay) DO UPDATE SET checked_at=excluded.checked_at",
+            (author.as_bytes(), relay, now),
+        )?;
+    }
+    tx.commit()?;
+    Ok(observed)
+}
+
 /// Replaces admission state, then removes newly excluded stored notes.
 pub async fn apply_nsfw(
     sdk: &NostrSqlite,
@@ -686,8 +759,118 @@ pub async fn prune(sdk: &NostrSqlite, policy: &Policy, now: u64) -> Result<(), E
     }
     Ok(())
 }
+async fn collect_relay(
+    path: &Path,
+    client: &Client,
+    policy: &Policy,
+    sdk: &NostrSqlite,
+    relay: &str,
+    now: i64,
+    unsupported_reconciliation: &mut BTreeSet<String>,
+) -> Result<(), Error> {
+    let now_u64 = u64::try_from(now)?;
+    let mut admitted = Observation {
+        eose: true,
+        ..Observation::default()
+    };
+    let recent = scan(
+        client,
+        policy,
+        relay,
+        Filter::new()
+            .kind(Kind::TextNote)
+            .since(Timestamp::from(u64::try_from(now - COVERAGE_STEP)?))
+            .until(Timestamp::from(now_u64))
+            .limit(PAGE_LIMIT),
+        Duration::from_secs(15),
+    )
+    .await?;
+    if !recent.eose {
+        return Err("Recent scan timed out; partial arrivals retained".into());
+    }
+    merge(&mut admitted, recent);
+
+    let state = cursor(path, relay, now)?;
+    let mut reconciliation_supported = !unsupported_reconciliation.contains(relay);
+    if state.forward_at <= now {
+        let until = (state.forward_at + COVERAGE_STEP - 1).min(now);
+        let result = durable_window(
+            path,
+            client,
+            policy,
+            sdk,
+            CoverageWindow {
+                relay,
+                phase: "forward",
+                since: state.forward_at,
+                until,
+                cursor_column: "forward_at",
+                cursor_value: until + 1,
+                reconciliation_unsupported: !reconciliation_supported,
+            },
+        )
+        .await?;
+        reconciliation_supported &= result.reconciled;
+        if !result.reconciled {
+            unsupported_reconciliation.insert(relay.to_owned());
+        }
+        merge(&mut admitted, result.observed);
+    }
+    let cutoff = now - WINDOW;
+    if state.backfill_before > cutoff {
+        let since = state
+            .backfill_before
+            .saturating_sub(COVERAGE_STEP)
+            .max(cutoff);
+        let until = state.backfill_before - 1;
+        let result = durable_window(
+            path,
+            client,
+            policy,
+            sdk,
+            CoverageWindow {
+                relay,
+                phase: "backfill",
+                since,
+                until,
+                cursor_column: "backfill_before",
+                cursor_value: since,
+                reconciliation_unsupported: !reconciliation_supported,
+            },
+        )
+        .await?;
+        reconciliation_supported &= result.reconciled;
+        if !result.reconciled {
+            unsupported_reconciliation.insert(relay.to_owned());
+        }
+        merge(&mut admitted, result.observed);
+    }
+    let (metadata, parents) =
+        hydrate_notes(client, policy, sdk, relay, &admitted.accepted_notes).await?;
+    let missing_profiles = hydrate_missing_profiles(path, client, policy, relay, now).await?;
+    eprintln!(
+        "SDK notes={} rejected={}; metadata={} metadata_eose={}; missing_profiles={} missing_profiles_eose={}; parents={} parents_eose={}; reconciliation_supported={}; relay={relay}; completed reconciliation windows are durable, full retention coverage not established",
+        admitted.accepted_notes.len(),
+        admitted.rejected,
+        metadata.ids.len(),
+        metadata.eose,
+        missing_profiles.ids.len(),
+        missing_profiles.eose,
+        parents.accepted_notes.len(),
+        parents.eose,
+        reconciliation_supported,
+    );
+    Ok(())
+}
+
 /// Runs moderation refresh, bounded collection, hydration, and cleanup in one writer sequence.
-pub async fn run(path: &Path, sdk: NostrSqlite, relays: Vec<String>) -> Result<(), Error> {
+pub async fn run(
+    path: &Path,
+    sdk: NostrSqlite,
+    relays: Vec<String>,
+    root: PublicKey,
+    embedding: Option<Arc<MiniLm>>,
+) -> Result<(), Error> {
     let blocks = path.with_file_name("blocklist.txt");
     let load_blocks = || -> Result<BTreeSet<String>, Error> {
         let text = std::fs::read_to_string(&blocks)?;
@@ -712,6 +895,34 @@ pub async fn run(path: &Path, sdk: NostrSqlite, relays: Vec<String>) -> Result<(
         cursor(path, relay, i64::try_from(Timestamp::now().as_secs())?)?;
     }
     client.connect().await;
+    for relay in &relays {
+        let result = scan(
+            &client,
+            &policy,
+            relay,
+            Filter::new()
+                .author(root)
+                .kinds([Kind::Metadata, Kind::ContactList, Kind::RelayList]),
+            Duration::from_secs(15),
+        )
+        .await;
+        match result {
+            Ok(observed) if observed.eose => eprintln!(
+                "Hydrated root profile and follow list; events={}; relay={relay}",
+                observed.ids.len()
+            ),
+            Ok(_) => {
+                let reason = "root profile/follow hydration timed out; Social graph may be empty";
+                record_gap(path, relay, 0, 0, reason)?;
+                eprintln!("{reason}; relay={relay}; collector continues");
+            }
+            Err(error) => {
+                let reason = format!("root profile/follow hydration failed: {error}");
+                record_gap(path, relay, 0, 0, &reason)?;
+                eprintln!("{reason}; relay={relay}; collector continues");
+            }
+        }
+    }
     let mut unsupported_reconciliation = BTreeSet::new();
     loop {
         *policy.blocked.write().unwrap() = load_blocks()?;
@@ -725,98 +936,41 @@ pub async fn run(path: &Path, sdk: NostrSqlite, relays: Vec<String>) -> Result<(
         } else {
             prune(&sdk, &policy, now_u64).await?;
         }
+        if let Some(model) = &embedding {
+            match embed::embed_pending(
+                path,
+                model.as_ref(),
+                Budget {
+                    total_nusd: i64::MAX,
+                    monthly_nusd: i64::MAX,
+                },
+                now,
+                100,
+            )
+            .await
+            {
+                Ok(count) => eprintln!("Embedded {count} local posts before relay collection"),
+                Err(error) => eprintln!(
+                    "Local embedding cycle failed explicitly: {error}; relay collection continues"
+                ),
+            }
+        }
         for relay in &relays {
-            let mut admitted = Observation {
-                eose: true,
-                ..Observation::default()
-            };
-            let recent = scan(
+            if let Err(error) = collect_relay(
+                path,
                 &client,
                 &policy,
+                &sdk,
                 relay,
-                Filter::new()
-                    .kind(Kind::TextNote)
-                    .since(Timestamp::from(u64::try_from(now - COVERAGE_STEP)?))
-                    .until(Timestamp::from(now_u64))
-                    .limit(PAGE_LIMIT),
-                Duration::from_secs(15),
+                now,
+                &mut unsupported_reconciliation,
             )
-            .await?;
-            if !recent.eose {
-                return Err(format!(
-                    "Recent scan timed out for {relay}; partial arrivals retained"
-                )
-                .into());
+            .await
+            {
+                let reason = format!("recoverable relay cycle failure: {error}");
+                record_gap(path, relay, now - COVERAGE_STEP, now, &reason)?;
+                eprintln!("{reason}; relay={relay}; HTTP reader remains available");
             }
-            merge(&mut admitted, recent);
-
-            let state = cursor(path, relay, now)?;
-            let mut reconciliation_supported = !unsupported_reconciliation.contains(relay);
-            if state.forward_at <= now {
-                let until = (state.forward_at + COVERAGE_STEP - 1).min(now);
-                let result = durable_window(
-                    path,
-                    &client,
-                    &policy,
-                    &sdk,
-                    CoverageWindow {
-                        relay,
-                        phase: "forward",
-                        since: state.forward_at,
-                        until,
-                        cursor_column: "forward_at",
-                        cursor_value: until + 1,
-                        reconciliation_unsupported: !reconciliation_supported,
-                    },
-                )
-                .await?;
-                reconciliation_supported &= result.reconciled;
-                if !result.reconciled {
-                    unsupported_reconciliation.insert(relay.clone());
-                }
-                merge(&mut admitted, result.observed);
-            }
-            let cutoff = now - WINDOW;
-            if state.backfill_before > cutoff {
-                let since = state
-                    .backfill_before
-                    .saturating_sub(COVERAGE_STEP)
-                    .max(cutoff);
-                let until = state.backfill_before - 1;
-                let result = durable_window(
-                    path,
-                    &client,
-                    &policy,
-                    &sdk,
-                    CoverageWindow {
-                        relay,
-                        phase: "backfill",
-                        since,
-                        until,
-                        cursor_column: "backfill_before",
-                        cursor_value: since,
-                        reconciliation_unsupported: !reconciliation_supported,
-                    },
-                )
-                .await?;
-                reconciliation_supported &= result.reconciled;
-                if !result.reconciled {
-                    unsupported_reconciliation.insert(relay.clone());
-                }
-                merge(&mut admitted, result.observed);
-            }
-            let (metadata, parents) =
-                hydrate_notes(&client, &policy, &sdk, relay, &admitted.accepted_notes).await?;
-            eprintln!(
-                "SDK notes={} rejected={}; metadata={} metadata_eose={}; parents={} parents_eose={}; reconciliation_supported={}; relay={relay}; completed reconciliation windows are durable, full retention coverage not established",
-                admitted.accepted_notes.len(),
-                admitted.rejected,
-                metadata.ids.len(),
-                metadata.eose,
-                parents.accepted_notes.len(),
-                parents.eose,
-                reconciliation_supported,
-            );
         }
         tokio::time::sleep(Duration::from_secs(30)).await;
     }

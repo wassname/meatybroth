@@ -22,6 +22,8 @@ nostr-sdk = "=0.45.2"
 nostr-sqlite = "=0.45.1"
 futures-util = "0.3"
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
+fastembed = { version = "=6.0.2", default-features = false, features = ["hf-hub-rustls-tls", "ort-download-binaries-rustls-tls"] }
+sha2 = "=0.10.9"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

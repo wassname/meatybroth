@@ -10,7 +10,7 @@ use serde::Serialize;
 /// Reader retention window in seconds.
 pub const WINDOW: i64 = 30 * 86400;
 /// Number of cards returned per reader page.
-pub const PAGE_SIZE: usize = 50;
+pub const PAGE_SIZE: usize = 100;
 
 /// One reader card plus mode-specific ranking fields.
 #[derive(Clone, Debug, Serialize)]
