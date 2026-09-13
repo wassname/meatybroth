@@ -1,0 +1,60 @@
+# Rust production deployment log
+
+All timestamps UTC. User authorized an in-place Rust deployment attempt on 2026-09-13. No CloudFormation update, instance replacement, volume deletion, instance upgrade or continuous Bedrock configuration is authorized.
+
+## Temporary login behavior
+
+The first login cache file was written 13:12:09Z with access-token expiry 13:27:09Z. Profile `cds-login` correctly points to the existing login session; no `~/.aws/credentials` file exists; UTC clock was correct; a refresh token was present. A command at 13:25 received `CreateOAuth2Token INVALID_REQUEST` during proactive refresh. Multiple CLI processes had shared the rotating cache, so a refresh race is plausible but not proved; this was not evidence that the user login naturally ended after eight minutes. Pending alternate login commands were stopped before authorization, without logout. The user's refreshed cache was written 13:29:15Z with access expiry 13:44:15Z, and serialized STS/SSM calls then succeeded. No token or credential value was printed or saved here.
+
+## Initial state
+
+2026-09-13T13:26: production `https://meatybroth.com/` and `/status` returned HTTP 200 from `34.192.250.76` in 1.59 s and 0.78 s.
+
+Read-only AWS inventory:
+
+- stack: `meatybroth-exp-wassname`, `CREATE_COMPLETE`, us-east-1
+- EC2: `i-0a99d95567fc8d891`, t3.small, `34.192.250.76`, SSM Online
+- root: `vol-0ae3112f8e21ee374`, 30 GiB gp3, encrypted per template, `DeleteOnTermination=true`; no stack/template change was applied
+- host: Amazon Linux 2023.12.20260909, 1,909 MiB RAM, no swap, 28 GiB free before Rust packages
+- old containers: `meatybroth-web-1`, `meatybroth-collector-1`, `meatybroth-caddy-1`, all running
+- old source: commit `84facad159ec7c5c7693fb0d16b731abf4296b37`
+- old image: `sha256:14d6f4b54f9c9d81bf2510dc2035359fbd0b70794e2a8dcc46416519b780b112`
+- old database: `/var/lib/docker/volumes/meatybroth_meatybroth-data/_data/meatybroth.db`, integrity `ok`, 8,097 posts and 33,802 follows during initial read
+
+SSM read-only inventory command: `32ead5c3-7cec-499e-9b3b-b6095ee113b0` (Success). SQLite retry after a shell-quoting failure: `90e1f4fc-83e0-43ae-94ad-be418b3915c0` (Success). Failed quoting attempt `5cae0f40-33ef-43a4-b195-899c63a47d27` did not reach Python or modify the database.
+
+## Verified rollback backup
+
+SSM command `ac1ca3bf-c1e1-40a0-bccc-6217f67bda7a` used SQLite's online backup API while the old service remained live. It saved database, Caddyfile, Compose file, non-exported `.env`, source revision and image ID under root-only directory:
+
+`/opt/meatybroth-backups/pre-rust-20260913T133421Z`
+
+Observed outcome:
+
+- source and backup both had 8,098 posts and 33,802 follows
+- backup `PRAGMA integrity_check`: `ok`
+- copy-back restore-test `PRAGMA integrity_check`: `ok`; counts matched
+- database SHA-256: `c9d143edfee24f84b2914f786df8e08413c66daea9b13d9d994342ee583d7811`
+- size: 28 MiB
+
+The backup is on the same root volume. It supports an in-place service rollback, not instance/volume loss. This is why the deployment must not replace the instance or delete the stack.
+
+## Build prerequisites
+
+Read-only package preflight found Amazon Linux packages Rust/Cargo 1.97.0. SSM command `72330950-d60e-4ddf-b89a-854f3d11c6ca` installed signed Amazon Linux `cargo`, `rust`, and `gcc` packages plus dependencies. Verified:
+
+- `cargo 1.97.0 (Amazon Linux 1.97.0-2.amzn2023)`
+- `rustc 1.97.0 (Amazon Linux 1.97.0-2.amzn2023)`
+- 27 GiB remained free
+
+No service changed. The t3.small will not compile the Rust/ONNX release. A compatible artifact must be built and smoke-tested off-host in an Amazon Linux 2023 environment, then copied through a private bounded transfer.
+
+## Pending cutover conditions
+
+- app owner publishes the latency-reviewed immutable SHA to `rust-rewrite`; remote was still `91a730f` at inventory time
+- compatible release artifact passes runtime-library and private HTTP checks before Caddy changes
+- Rust uses its own canonical signed-event database; the old unsigned Python corpus is preserved but not fabricated into SDK events
+- long-running service exposes the cached Titan 512 space without an invocation-capable continuous Bedrock worker; MiniLM, if retained, is explicitly labelled fallback/demo and not silently presented as Titan
+- old containers stay available until public HTTPS verification; rollback restores the old Caddy upstream and containers
+
+-- Pi/gpt-5.6-sol
