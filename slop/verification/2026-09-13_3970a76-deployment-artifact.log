@@ -1,0 +1,52 @@
+Rust cached-Titan deployment artifact verification
+observed_utc=2026-09-13T15:42Z
+source_revision=3970a769ca5152bd5ddfd8ec1402e26b1d06eef5
+build_source=isolated exact git worktree
+build_command=cargo +stable build --locked --release
+lock_resolution=none (--locked); committed lock was resolved under repository age policy
+binary_sha256=47bbff8ef64657b75a171d4fc2e116a96e643a0b578450877ecb8c66c3e772d9
+runtime_base=ubuntu:24.04@sha256:a61567bd31828687156d735ea8eb01ba4e37636e225dd6a48ba94136a70d9d61
+image_id=sha256:6dc413104651e7e3a6e29093197a66dd69823a344b26fe1964dd275787ae3bf3
+image_bytes=48181324
+image_user=10001:10001
+
+snapshot=/tmp/meatybroth-deploy-3970a76/events.sqlite
+snapshot_bytes=225124352
+snapshot_sha256=efe16d6e03fd0c14e01a21251748eb2883384281307b14855f577a1d5c6fc322
+snapshot_integrity=ok
+events=9016
+reader_events=9016
+social_edges=174216
+sqlite_stat1_rows=7
+embedding_spaces=2
+titan_posts=119
+titan_topics=6
+titan_topic_members=119
+titan_actual_tokens=7247
+titan_actual_nusd=144940
+
+container_security=user10001 readonly_root=true database_file_readonly=true cap_drop=ALL no_new_privileges=true host_binding=127.0.0.1:18089
+sqlite_runtime_note=WAL-mode read-only open requires a writable /data directory; verified with 16MiB tmpfs around read-only /data/events.sqlite
+root=http200 bytes238908 seconds0.303391 cards100
+status=http200 bytes24099 seconds0.106018
+cached_titan_topic=http200 bytes87368 seconds0.289866 cards37
+cached_titan_similar=http200 bytes238991 seconds0.435163 cards100
+uncached_titan_meaning=http400 bytes3123 seconds0.001560
+status_assertions=119 eligible/119 stored; 6763 pending; 7247 input tokens; US$0.000144940 recorded cost; partial PoW cohort; browsing does not call AWS
+runtime_env=MEATYBROTH_READ_ONLY=1 MEATYBROTH_DEFAULT_EMBEDDING=titan MEATYBROTH_DB=/data/events.sqlite MEATYBROTH_ADDR=0.0.0.0:8088
+absent_env=MEATYBROTH_EMBED_BACKEND AWS_PROFILE AWS_REGION
+
+caddy_canary_network=existing-network-equivalent
+caddy_canary_upstream=meatybroth-rust:8088
+caddy_security=readonly_root cap_drop=ALL cap_add=NET_BIND_SERVICE localhost_binding=127.0.0.1:18080
+caddy_root=http200 seconds0.263768
+caddy_status=http200 seconds0.117226
+caddy_titan_topic=http200 seconds0.320062
+caddy_note=dropping NET_BIND_SERVICE prevented exec because official Caddy binary carries that file capability; adding only NET_BIND_SERVICE succeeded
+
+transfer_archive=/tmp/meatybroth-deploy-3970a76.tar
+transfer_archive_bytes=130191360
+transfer_archive_sha256=f2470fd1c3fef51efefd1762d43a883124b1acb2c162a8cf4710bd2023a632d4
+transfer_status=not transferred; AWS login refresh unavailable and production unchanged
+
+-- Pi/gpt-5.6-sol

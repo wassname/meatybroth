@@ -30,23 +30,21 @@ Expected identity: account `275713940406`, `arn:aws:iam::275713940406:user/wassn
 
 ## Off-host artifacts
 
-Temporary bundle: `/tmp/meatybroth-deploy-d1d72fc/`
+Final temporary bundle: `/tmp/meatybroth-deploy-3970a76/`; transfer archive: `/tmp/meatybroth-deploy-3970a76.tar`.
 
-- consistent SDK snapshot: `events.sqlite`, 194,793,472 bytes, integrity OK; 7,602 signed events, 149,923 social edges, `sqlite_stat1`, MiniLM space, cached Titan119 and six Titan topics assigning all119
+- source: `3970a769ca5152bd5ddfd8ec1402e26b1d06eef5`, built from an isolated exact worktree with the committed lockfile
+- binary SHA-256: `47bbff8ef64657b75a171d4fc2e116a96e643a0b578450877ecb8c66c3e772d9`
+- image: `meatybroth-rust:3970a76`, ID `sha256:6dc413104651e7e3a6e29093197a66dd69823a344b26fe1964dd275787ae3bf3`, 48,181,324 bytes
+- runtime base: `ubuntu:24.04@sha256:a61567bd31828687156d735ea8eb01ba4e37636e225dd6a48ba94136a70d9d61`
+- consistent SDK snapshot: 225,124,352 bytes, SHA-256 `efe16d6e03fd0c14e01a21251748eb2883384281307b14855f577a1d5c6fc322`, integrity OK; 9,016 signed events, 174,216 social edges, `sqlite_stat1`, cached Titan119 and six Titan topics assigning all119
+- transfer archive: 130,191,360 bytes, SHA-256 `f2470fd1c3fef51efefd1762d43a883124b1acb2c162a8cf4710bd2023a632d4`
 - runtime env: `READ_ONLY=1`, `DEFAULT_EMBEDDING=titan`, DB and address only; no embed backend or AWS variables
-- pinned runtime base: `ubuntu:24.04@sha256:a61567bd31828687156d735ea8eb01ba4e37636e225dd6a48ba94136a70d9d61`
 
-AL2023 native linking is invalid: `ort-sys` rc13 requires glibc ≥2.38 `__isoc23_strto*` and newer libstdc++; AL2023 has glibc2.34/GCC11. Use the Ubuntu runtime container, not an AL-native binary or an app feature change.
+AL2023 native linking is invalid: `ort-sys` rc13 requires glibc ≥2.38 `__isoc23_strto*` and newer libstdc++; AL2023 has glibc2.34/GCC11. Use the Ubuntu runtime container, not an AL-native binary or an app feature change. Stable Cargo ignores the age configuration, but `--locked` prevented resolution; the app owner's age-held lockfile was retained.
 
-Proved container method on app `d1d72fc`: non-root user10001, read-only rootfs and DB file, dropped capabilities, no-new-privileges. SQLite WAL mode requires a writable directory even for read-only app access; mount a small writable `/data` tmpfs around the read-only `/data/events.sqlite` bind. Private smoke returned root/status/cached Titan topic/Similar HTTP200 and uncached Titan Meaning HTTP400 without AWS.
+Final private image smoke used non-root user10001, read-only rootfs/database, dropped capabilities, no-new-privileges and host-only port `127.0.0.1:18089`. SQLite WAL mode requires a writable directory even for read-only app access; a 16 MiB `/data` tmpfs around the read-only `/data/events.sqlite` bind fixed the initially detected open failure. Root returned 100 cards/HTTP200 in 0.30 s; status 200/0.11 s; cached Titan topic 37 cards/200/0.29 s; cached Titan Similar 100 cards/200/0.44 s; uncached Titan Meaning returned the expected 400 without AWS.
 
-Latest built but not final app image:
-
-- source `3ea764bf3203781741bcebdd0301b63804e21f2b`
-- binary SHA-256 `ee4e86d5aa76d68ca8ae7b15a67b0a22821655944039601592e3ff0a1d0f18dd`
-- image `meatybroth-rust:3ea764b`, ID `sha256:0f4ef63483ccab7064bef4f36ad1060e263633d397f08b14d92fa846c0a3f7e0`, 48,175,465 bytes
-
-App owner is preparing one stable follow-up after Similar/about/protocol-telemetry review. Do not rebuild each UI commit. For the final SHA: verify app source files match that commit, run `cargo +stable build --locked --release` off-host, update the Docker label, build with `--network=none --pull=false`, then repeat the exact private cached-Titan smoke. Stable Cargo ignores the age configuration, but `--locked` prevents resolution; retain the app owner's age-held lockfile.
+A private Caddy canary on an existing-network equivalent resolved `meatybroth-rust:8088` and returned root/status/Titan topic HTTP200 in 0.12–0.32 s. Dropping every capability initially prevented execution because the Caddy binary carries a file capability; the verified minimum is `--cap-drop ALL --cap-add NET_BIND_SERVICE`.
 
 ## Intended reversible public upstream change
 
