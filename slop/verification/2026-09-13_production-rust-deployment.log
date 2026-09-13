@@ -49,14 +49,21 @@ Read-only package preflight found Amazon Linux packages Rust/Cargo 1.97.0. SSM c
 - `rustc 1.97.0 (Amazon Linux 1.97.0-2.amzn2023)`
 - 27 GiB remained free
 
-No service changed. The t3.small will not compile the Rust/ONNX release. A compatible artifact must be built and smoke-tested off-host in an Amazon Linux 2023 environment, then copied through a private bounded transfer.
+No service changed. The t3.small will not compile the Rust/ONNX release.
+
+Two off-host AL2023 link attempts established an ABI incompatibility rather than a missing compiler package. `ort-sys` rc13's prebuilt static archive references glibc ≥2.38 `__isoc23_strtol`, `__isoc23_strtoll`, `__isoc23_strtoull` and a newer libstdc++ `std::__cxx11::basic_string::_M_replace_cold`; AL2023 supplies glibc 2.34 and GCC/libstdc++ 11. Installing the correct `gcc-c++` package did not resolve it. Cached-Titan read-only runtime does not load MiniLM, but the immutable app links ONNX Runtime unconditionally.
+
+The reviewed pivot is a pinned Ubuntu 24.04 runtime container, not an app feature change. Exact source `d1d72fc4848cb4152feb0b7115bcee3796be9da1` built off-host with the committed lockfile. Binary SHA-256: `32d12edb830f7855caa1080c7ac4348649155d7bb34bc84469eee22cce955af9`. Its only dynamic dependencies are libstdc++, libgcc_s, libm, libc and the ELF loader. The runtime base is `ubuntu:24.04@sha256:a61567bd31828687156d735ea8eb01ba4e37636e225dd6a48ba94136a70d9d61`; local image ID `sha256:f7c2ac22b5474bcf8fc752fe03305b17b8a3319365f6c9c09a0d18f60e24bbd8`, 48,175,447 bytes, numeric non-root user 10001.
+
+A consistent 194,793,472-byte SDK snapshot passed integrity and contains 7,602 raw signed events, 149,923 social edges, planner statistics, MiniLM vectors, 119 cached Titan post vectors and six Titan topics assigning all 119 posts. The first read-only container start exposed a packaging failure: SQLite WAL mode requires a writable directory even when the main database file and application are read-only. Keeping `events.sqlite` bind-mounted read-only while mounting a 16 MiB `/data` tmpfs for WAL/SHM fixed it. The private container then returned root HTTP 200/100 cards in 0.53 s, status 200/0.08 s, cached Titan topic 200/37 cards in 0.56 s, cached Titan Similar 200/100 cards in 0.81 s, and an uncached Titan Meaning query HTTP 400 without AWS. This verifies the container method on `d1d72fc`; the final app SHA must repeat it.
 
 ## Pending cutover conditions
 
-- app owner publishes the latency-reviewed immutable SHA to `rust-rewrite`; remote was still `91a730f` at inventory time
-- compatible release artifact passes runtime-library and private HTTP checks before Caddy changes
+- latency-reviewed immutable SHA `d1d72fc4848cb4152feb0b7115bcee3796be9da1` is published to `rust-rewrite`; app tests, Clippy and release build are green
+- compatible Ubuntu runtime image passes cached-Titan private HTTP checks before Caddy changes
 - Rust uses its own canonical signed-event database; the old unsigned Python corpus is preserved but not fabricated into SDK events
 - long-running service exposes the cached Titan 512 space without an invocation-capable continuous Bedrock worker; MiniLM, if retained, is explicitly labelled fallback/demo and not silently presented as Titan
-- old containers stay available until public HTTPS verification; rollback restores the old Caddy upstream and containers
+- Rust joins the existing `meatybroth_default` Docker network, binds inside the container, and publishes only host `127.0.0.1:8088`; a temporary private Caddy verifies `meatybroth-rust:8088` before the existing Caddy upstream reload
+- old web/collector/Caddy definition, certificates and config volumes stay available until public HTTPS verification; rollback restores the old `web:8081` upstream
 
 -- Pi/gpt-5.6-sol
