@@ -1,0 +1,102 @@
+common_posts=119 k=6 exact_nn_agreement=50/119=0.4202 median_titan_nn_rank_in_minilm=3 mean_rank=17.504 ARI=0.0578
+
+MiniLM
+cluster=0 n=25 label=them · all · people
+  event=000008d9fa3fdc917302c7f711046dd3b878197251e5e84d03a08bc31f03ecc4 author=bf534db12c49d17ce0ffa5bd3ee83256360f02aa1d497473bda72be1a014a033 cosine=0.6408 quote=The concern is fair and the numbers back it up. I pulled 2,100 zap receipts from the last 7 days across 20 relays: median zap was 21 sats, and 61% of all zaps were 21 sats or less. So yes, the default
+  event=00000abdbd58f1fc7257d07a5c9e3f0d20306be7846246c52453587d060899d8 author=bf534db12c49d17ce0ffa5bd3ee83256360f02aa1d497473bda72be1a014a033 cosine=0.6408 quote=The concern is fair and the numbers back it up. I pulled 2,100 zap receipts from the last 7 days across 20 relays: median zap was 21 sats, and 61% of all zaps were 21 sats or less. So yes, the default
+  event=0000050cfb0d8bcb85cd087448202881d9284e2ed2c00660e2037cb3638bad0e author=311f5e3d9cda8b73465ab0b651f7a4b76c8d0f91b610839c247181d3720422e0 cosine=0.5549 quote=Let’s hope you never fell for their premium service. On Amethyst, you simply zap the devs instead of signing up for a subscription to something that doesn't work and where just like in Clown World, yo
+cluster=1 n=18 label=keep · long · day
+  event=00000006ed1ea51ad2e63b7e04ab0184074cd35439500ee7d5f4e4e1823acd0e author=6c792fd0fc84882216db08dfff16554c9f1ff7d82b928b481b9540f2c2cef70f cosine=0.6583 quote=nostr:nprofile1qqszd44fgen4ucpl3hjt7muuaazzqdahp3lwu9c07phdweelcdxf3ugpzpmhxue69uhkummnw3ezumt0d5hszrnhwden5te0dehhxtnvdakz7qg6waehxw309aex2mrp0yhxwet5v9kxy7fwvdhk6tmkxytswl7z
+  event=000001950c469ffdf12ecdc6022acc6c02762deb5d206b9522c0f6dacdc70dc2 author=cdecc31c6d9406e9a7d6b0067412aa661d9d31c8035c3fd65c06301d1cac3b92 cosine=0.6551 quote=God I want to go back to Asia. nostr:nevent1qqsff7clwykluay2ryrrqyev6t2a545fu55v2zefqgsmv4wc5dx2cdcpzdmhxue69uhhwmm59e6hg7r09ehkuef0qgsqc3wh630dkradmfppt5mv5rv6hgx8wxu96dchwe9c5y5dtezrungrqsqqqqqpzf0k
+  event=000001e5840e781eaa83f4a235851b67c74cab1460dcbd7c5b667408e14d7e18 author=311f5e3d9cda8b73465ab0b651f7a4b76c8d0f91b610839c247181d3720422e0 cosine=0.5882 quote=Free Nostr Tip unmute those people they are talking to you below your notes and tagging you have a nice sunday and keep going fwrd!! nostr:nprofile1qqs03ekxgdp0rczjfqrrpcn7zqtdec6lcwnpfesyxnl0f239qveg
+cluster=2 n=20 label=china · supply · actually
+  event=00000479d3f6e11704a85eb8acfe827a9c88c4dfb6ce9a5818430312e26d7069 author=ae1bbe3a1fe798758b8c708d0b26538f3b9d8475a42e0b07720d1985223fd9fa cosine=0.6558 quote=Critical Minerals for AI: Supply Chain Chokepoints 2026 Critical minerals AI supply chain: the chokepoints behind GPUs and data centers — who controls refining, and where shortages hit first. Read: ht
+  event=00000dd7bd1acc3ca4f2e24dce9e2a4d34af1f63ffc076190a41aae76206e331 author=27591b85245d79c8d0e7163ca2e459208eca39babe870b8c654fa0778d149609 cosine=0.5768 quote="Part of me gets why we need to secure these minerals, but how does cutting off China actually help when they control so much supply? Feels like this could just make everything more expensive and unst
+  event=000008bc990f6b2bf98e411bf6e9f255fc76fc335f6ea73c1d923bbf05a3aa46 author=9f36281746ae698011d8172241783f7d46ac4185e976c82470f9ab8048d85ce2 cosine=0.5728 quote="Isn’t it about time America stood up and crushed these supply chain threats before China strangles our future?" "Finally—a leader who’ll fight for our resources instead of bowing to weak-knee critics
+cluster=3 n=4 label=able · angled · back
+  event=00000ea20bcb75f29cda4e4510c7c0325503e2c731e0cdf8d5227efaa98f6fec author=cdecc31c6d9406e9a7d6b0067412aa661d9d31c8035c3fd65c06301d1cac3b92 cosine=0.6532 quote=Second clip looks like a lady I know and the first clip looks like a lady I want to know.
+  event=0000096bb11b1cb8ee6c47db2aa53033ee4d94e90e972cc3717341ae52a85223 author=010df0c948fe9ab54d2cb7ea420ffa08d57958981b6ea68e83aaa7eb2dd3f05a cosine=0.5994 quote=WORD5 #709 3/6* (Hard Mode) ⬛🟪⬛⬛⬛ ⬛🟪🟪⬛⬛ 🟪🟪🟪🟪🟪 https://otherstuff.ai/word5/
+  event=000000ca898428d574b5dd251c92a04f33b066a843b3862eaf61e1cba261db13 author=bf534db12c49d17ce0ffa5bd3ee83256360f02aa1d497473bda72be1a014a033 cosine=0.5988 quote=Middle of the back, angled down like a tripod leg. You would finally be able to hold the thing, the screw and the screwdriver at the same time.
+cluster=4 n=35 label=live · always · antonelli
+  event=0000027a3bd30f078b3279531b9ec8a30094707a82c399ecdd67d90105881f2c author=cdecc31c6d9406e9a7d6b0067412aa661d9d31c8035c3fd65c06301d1cac3b92 cosine=0.6030 quote=#live kpop broadcast https://live.24hrkpop.com/hls/stream.m3u8
+  event=00000105ad71be25d8ffe192c0f09a4b85c7d5ea34d5d77f727d713a4991d99b author=311f5e3d9cda8b73465ab0b651f7a4b76c8d0f91b610839c247181d3720422e0 cosine=0.6002 quote=GM one of the last beautiful days of this year 💚
+  event=0000032d551dc584c124dadbacb9db3a9ce5e44c869ddcba8ad98d756defbf61 author=311f5e3d9cda8b73465ab0b651f7a4b76c8d0f91b610839c247181d3720422e0 cosine=0.5483 quote=GM . Is that your brother ? 😉
+cluster=5 n=17 label=kids · land · them
+  event=000004fce8e4e2138f2cc0887c2a62c3ec52b6050a71a3284dd6af45cc147cd2 author=1c9dcd8fd2d2fb879d6f02d6cc56aeefd74a9678ae48434b0f0de7a21852f704 cosine=0.5502 quote=What this prick is actually doing here is he's saying to the EU "things may look bad for us, but please don't stop SENDING MONEY!" It's all these corrupt faggots give a shit about while they send thei
+  event=00000eddafa06806fc777b2c10c5e854f58b772c818383e23f55241d27e871cd author=dae0aff870620203370785a25cd1e90cd6e787d9eec0708636cda97d5bc0cec4 cosine=0.5383 quote=Most Jews then did not indulge in Qabbalist blood rituals, poison wells to buy up property on the cheap, or kidnap children to sell into slavery, just as most Jews today do not pimp children, blackmai
+  event=00000f59e04af83c259e101b0dd1ef64466e2e3de7f350c5e297e4de21943a73 author=cdecc31c6d9406e9a7d6b0067412aa661d9d31c8035c3fd65c06301d1cac3b92 cosine=0.5104 quote=And yet Americans believed it whole heartedly. Can't blame Israel for using the goyim. nostr:nevent1qqsgh8grp20uhn0r648u595cq6ytye56gfzkyx054dv2udw9s9r2duspzpmhxue69uhkummnw3ezumt0d5hsyg8edfz2qnywedyr
+
+Titan-partial
+cluster=0 n=30 label=them · because · don
+  event=00000b040d95b7b6f937ffe56cb5ef8732742af034e9c7913b26dbc1385b4862 author=cdecc31c6d9406e9a7d6b0067412aa661d9d31c8035c3fd65c06301d1cac3b92 cosine=0.5538 quote=Idk whose putting out this content but thank you for giving Nostr broader content http://wf.newscentral.ng:9080/hls/stream.m3u8
+  event=000006c21cc550be9b199ec1bc70b15e0b66aa6439ab4d580ce9d071eff11f0f author=311f5e3d9cda8b73465ab0b651f7a4b76c8d0f91b610839c247181d3720422e0 cosine=0.5463 quote=nostr:nprofile1qqsf9psvcxx9jt9uzrwmrt7r822ng3d6653k3hmaq3s5xa50wjakcjspzpmhxue69uhkummnw3ezumt0d5hszrnhwden5te0dehhxtnvdakz7qghwaehxw309aex2mrp0yh8qunfd4skctnwv46z7rlj9sa really is a stalker innit ? a
+  event=00000006ed1ea51ad2e63b7e04ab0184074cd35439500ee7d5f4e4e1823acd0e author=6c792fd0fc84882216db08dfff16554c9f1ff7d82b928b481b9540f2c2cef70f cosine=0.5407 quote=nostr:nprofile1qqszd44fgen4ucpl3hjt7muuaazzqdahp3lwu9c07phdweelcdxf3ugpzpmhxue69uhkummnw3ezumt0d5hszrnhwden5te0dehhxtnvdakz7qg6waehxw309aex2mrp0yhxwet5v9kxy7fwvdhk6tmkxytswl7z
+cluster=1 n=18 label=most · now · acting
+  event=000003f69bbe456b748760e0359429e7224a627602f27fbd28a57b79419971d2 author=cdecc31c6d9406e9a7d6b0067412aa661d9d31c8035c3fd65c06301d1cac3b92 cosine=0.4783 quote=https://npub1ehkvx8rdjsrwnf7kkqr8gy42vcwe6vwgqdwrl4juqccp689v8wfqr3mz4s.blossom.band/7f0a90bfe5ebc601a4900a362e8e8975156a8d190acb70334006d48504a41625.gif
+  event=00000014030c82f34b8093b7dae91c839996e0912966bb20d41c3d2624a3bc22 author=e4e847f9b3e29e930b3f05218767828f8ddd5ac177f5ad46a6616f52e5c37d6d cosine=0.4604 quote=Acting childish and impulsive and then dodging accountability is the essence of modern feminism.
+  event=000004f6bd08c4152fcd06997c1258282288cac8498cf456c267544c054fcb67 author=cdecc31c6d9406e9a7d6b0067412aa661d9d31c8035c3fd65c06301d1cac3b92 cosine=0.4534 quote=USA won't even touch them. Saudis asked for help and the USA flat out said Nah we won't attack the houthi's. Not like they didn't try last year and got scolded off. Not sure what it is, but houthi's a
+cluster=2 n=37 label=good · year · all
+  event=000000c811e22744beb9bb7421e78858b179aa4fade6511d1344a58e68d8576d author=311f5e3d9cda8b73465ab0b651f7a4b76c8d0f91b610839c247181d3720422e0 cosine=0.6453 quote=GM 🦾 https://npub1xy04u0vum29hx3j6kzm9raaykakg6ru3kcgg88pywxqaxusyytsqvrpf8a.blossom.band/81e24f4da8b632e314bd3879afa17abdfe7592d8b34cb6da13e6a6d936cbd459.jpg
+  event=0000005ec911e538e33f94e5db3c3829b0ad743f6aa93144cf803cb35e636228 author=c330881e28768381dd8bdfd274341dca0c5882c29b8642ea4bc82f7563264592 cosine=0.5431 quote=GM
+  event=0000148d9d0ca84468b62baa95ca219907df442f054b4ca25a58dca8e2ea947d author=c330881e28768381dd8bdfd274341dca0c5882c29b8642ea4bc82f7563264592 cosine=0.5431 quote=GM
+cluster=3 n=10 label=all · numbers · people
+  event=000008d9fa3fdc917302c7f711046dd3b878197251e5e84d03a08bc31f03ecc4 author=bf534db12c49d17ce0ffa5bd3ee83256360f02aa1d497473bda72be1a014a033 cosine=0.7031 quote=The concern is fair and the numbers back it up. I pulled 2,100 zap receipts from the last 7 days across 20 relays: median zap was 21 sats, and 61% of all zaps were 21 sats or less. So yes, the default
+  event=00000abdbd58f1fc7257d07a5c9e3f0d20306be7846246c52453587d060899d8 author=bf534db12c49d17ce0ffa5bd3ee83256360f02aa1d497473bda72be1a014a033 cosine=0.7031 quote=The concern is fair and the numbers back it up. I pulled 2,100 zap receipts from the last 7 days across 20 relays: median zap was 21 sats, and 61% of all zaps were 21 sats or less. So yes, the default
+  event=0000030834950c033cc947d95bff380404179c3854d9db0b07b9309e5ed6706c author=bf534db12c49d17ce0ffa5bd3ee83256360f02aa1d497473bda72be1a014a033 cosine=0.5811 quote=I pulled every zap receipt I could reach over the last 7 days: 2,100 of them, across 20 relays. Some numbers that surprised me. - total: 426,314 sats, about $327. Call it ~$47/day for everything I cou
+cluster=4 n=4 label=cards · cut · keep
+  event=000004c8c2ef40e8a6695e6598ffdd302abe3d2b92ee0d5d499cdc9f96b58f50 author=7055fc42c9a638ab56ad057016a2deface97b5eece31a3a7a46727ad847899e5 cosine=0.6900 quote=what's the most freedom & privacy friendly way to accept fiat (credit cards) i'd like that to be an additional option for purchasing my video game #AskNostr #Fiat
+  event=00000644c01234585dc792bfc2380bc2738cf5fe2bc521b4f5b0fd2c1dd7a513 author=bf534db12c49d17ce0ffa5bd3ee83256360f02aa1d497473bda72be1a014a033 cosine=0.6232 quote=Cards and privacy are in tension by construction, the card networks are the surveillance layer and you cannot fix that at your end. The split most people land on: BTCPay Server for bitcoin and lightni
+  event=0000049b5d86f803e2f49a36f3effb4ef4f919a6526035e32bbf5001a8671dce author=bf534db12c49d17ce0ffa5bd3ee83256360f02aa1d497473bda72be1a014a033 cosine=0.5638 quote=Cut carbohydrate rather than calories. Keep net carbs under roughly 20-30g a day, eat protein at about 1.6-2g per kg of target body weight so you do not lose muscle, and let fat make up the rest. Exer
+cluster=5 n=20 label=supply · chain · china
+  event=000010a32b0b561fdb3165dd8f1d417422a828e716ff2fcb933f56698f4226cf author=688ab41b24285828025da85ad85263a37b33f5a46e897820603046f3988d022e cosine=0.5510 quote=THREAD: Myanmar 2026: China vs India for Ore and Ports China and India courted Myanmar's junta in 2026 — but armed groups hold the ports and rare-earth mines that feed China's magnet supply chain. Ful
+  event=00000dd7bd1acc3ca4f2e24dce9e2a4d34af1f63ffc076190a41aae76206e331 author=27591b85245d79c8d0e7163ca2e459208eca39babe870b8c654fa0778d149609 cosine=0.5023 quote="Part of me gets why we need to secure these minerals, but how does cutting off China actually help when they control so much supply? Feels like this could just make everything more expensive and unst
+  event=000008c793c356bac0e824f5de6e9c25b16a13fc020afb00d5602190c9d6c7ff author=cdecc31c6d9406e9a7d6b0067412aa661d9d31c8035c3fd65c06301d1cac3b92 cosine=0.4940 quote=Probably resource stretched but the last time USA faced off against the Houthi's about a year ago, they had to bail on it because everyone was observing. So idk. The other thing is attacking civilian
+
+NEIGHBOR DISAGREEMENTS
+anchor=00000006ed1ea51ad2e63b7e04ab0184074cd35439500ee7d5f4e4e1823acd0e quote=nostr:nprofile1qqszd44fgen4ucpl3hjt7muuaazzqdahp3lwu9c07phdweelcdxf3ugpzpmhxue69uhkummnw3ezumt0d5hszrnhwden5te0dehhxtnvdakz7qg6wae
+  titan=000006c21cc550be9b199ec1bc70b15e0b66aa6439ab4d580ce9d071eff11f0f quote=nostr:nprofile1qqsf9psvcxx9jt9uzrwmrt7r822ng3d6653k3hmaq3s5xa50wjakcjspzpmhxue69uhkummnw3ezumt0d5hszrnhwden5te0dehhxtnvdakz7qghwae
+  mini =000001bb27f6bc866e7e453a3059e1b5b95ab0acaf83d8cc89b7bedaae540250 quote=Oh it's church nostr:nevent1qqsqqqqxqnxhfg9myqu7zyk9la729f3zr484skla27nn8eysttwdatqpzamhxue69uhhyetvv9ujuurjd9kkzmpwdejhgtczyrx7es
+anchor=000000081a513c1616573b7088e5b2a3f1e812714afbf2914f76bf528d378652 quote=https://youtu.be/CjQBr5kRR3M
+  titan=0000027a3bd30f078b3279531b9ec8a30094707a82c399ecdd67d90105881f2c quote=#live kpop broadcast https://live.24hrkpop.com/hls/stream.m3u8
+  mini =0000015914b989f38b40d5dfb244f7fe5d6a78928f6bed45a6a507a224240109 quote=Always been an achiever with dreams of driving beamers... #bmw
+anchor=0000000b8aba25670c59c13b246f16b5e90f1ef65e2f3af90c2808e54a10ddae quote=grown dog. ay puppy
+  titan=000016c8bb9b69c67bb812ab9a16e724c48645cdec089ee04202b4a19e3e609c quote=Yup
+  mini =000015ba1f7f1e1f85d02a32398674bb7acd005f7cd6d81197a0ed65a6d22f8f quote=https://blossom.primal.net/d8e9d1ed1db7d0b931d6110567ad8fe7374f7f9a312283393bc234dd92a3cada.jpg #Memestr #shitposting or #TrueStor
+anchor=00000014030c82f34b8093b7dae91c839996e0912966bb20d41c3d2624a3bc22 quote=Acting childish and impulsive and then dodging accountability is the essence of modern feminism.
+  titan=00000b7cfd64a59e50fd19df9e4ef4d5e81d6580c3cb1ecb84bc89871855e6a9 quote=I usually skip this part
+  mini =000002b34d9c1ff55fe05ab7d6186595dfc50aa7b4bd5110c0db2b8ee16628e1 quote=Hard to argue with that. Most of what we judge in people is only the version of themselves they can afford to show.
+anchor=0000001d75e6b1c9860bfe098540c1437efb57bf27e82a9f78f9191d66c8cae5 quote=GM it's Empty in here .it's a Good day today 🍊🦾
+  titan=000000c811e22744beb9bb7421e78858b179aa4fade6511d1344a58e68d8576d quote=GM 🦾 https://npub1xy04u0vum29hx3j6kzm9raaykakg6ru3kcgg88pywxqaxusyytsqvrpf8a.blossom.band/81e24f4da8b632e314bd3879afa17abdfe7592d8
+  mini =00000105ad71be25d8ffe192c0f09a4b85c7d5ea34d5d77f727d713a4991d99b quote=GM one of the last beautiful days of this year 💚
+anchor=0000003a12fce6ccc81983a760a2d8394633761e6046299b8cede0414ede83f1 quote=Momma told me Don sell... Cops looking Don yell... Blah blah 🔫 on your head... Or you end up in a Cell .. .
+  titan=000000c41318bfc3a06f1d871e65683426e3992218c5a20668e703a7d3c3cb3a quote=Popo wanna slay me for pushin d0pe...
+  mini =0000016c666d837106c9af40503c4d7084796c3872dd0579e015cecbc801eee3 quote=Had to push to get some studio 🎙️ time.. now you acting like you held me up . . . .
+anchor=0000003b46e6bbb2bf86220415c228b14b456e7ffbc98a08256fe7bde9c9d623 quote=They are delisting it already due to toxicity from the retards lol
+  titan=00000a7c3bd1f31aae51e4f52ed98bc8129a5b8529db73dd0c1d524c89817750 quote=Turns out my decision to pull all of the tomatoes yesterday was just in time. Damn, it’s too early in the year for this. https://b
+  mini =00000edef1ac1e2deecbbccf9488a348bc10fc3941462e99be571a77f52a9d50 quote=They'll probably make it illegal like marijuana.
+anchor=00000077b3013e77e9c217bbb96bd2e3b1b306542d999a09dfd7224b7b4c0d87 quote=why? ai?
+  titan=00000dc208adfc550bf4badf7916c77ef0d26a3ecd474ba328f2206d9134ac92 quote=At this stage do you think we'd have open source AGI? We have many models already opened, and like 2 years ago openAI were complai
+  mini =000001cc89622a89067f790c037b457f5e35c47c747fcad7348480addba68da6 quote=I know, I know, but Twitter / X is just wild with AI doomer / AI is going to kill you content. It's crazy. It's ramping up so quic
+
+SIGNAL COUNTS BY CLUSTER
+space cluster posts authors spamlist policy_explicit policy_linkfarm exploratory_marker exact_duplicate hop1 hop2 not_observed
+MiniLM 0 25 15 0 0 0 0 0 0 0 25
+MiniLM 1 18 7 0 0 0 0 0 0 0 18
+MiniLM 2 20 13 0 0 0 0 0 0 0 20
+MiniLM 3 4 4 0 0 0 0 0 0 0 4
+MiniLM 4 35 14 0 0 0 0 0 0 0 35
+MiniLM 5 17 9 0 0 0 0 0 0 0 17
+Titan-partial 0 30 11 0 0 0 0 0 0 0 30
+Titan-partial 1 18 10 0 0 0 0 0 0 0 18
+Titan-partial 2 37 17 0 0 0 0 0 0 0 37
+Titan-partial 3 10 6 0 0 0 0 0 0 0 10
+Titan-partial 4 4 3 0 0 0 0 0 0 0 4
+Titan-partial 5 20 15 0 0 0 0 0 0 0 20
+
+DATA CONTRACT
+Titan space=64c3c581f1da5a1973fb22e9bae7d91988c2298f14b92cbc3f89f1019703bbf5 posts=119 chunks=119 actual_tokens=7247 actual_nusd=144940 vector_bytes_each=2048
+MiniLM matched space=bd46d8b3badab3de9e7c2747879e27e781c69e059bf0a19dedf7a39516db644e posts=119 vector_bytes_each=1536
+Root graph: root_p_tags=109 direct_with_stored_kind3=1 full_minilm_cluster_authors=934 direct_cluster_authors=2 observed_twohop_cluster_authors=0
+Moderation lists: spam_members=1979 nsfw_members=1590; common119 overlap=0; production explicit/linkfarm matches=0.
+Temporary analysis code stayed in /tmp and is not a repository/runtime dependency.
+-- Pi/gpt-5.6-sol
