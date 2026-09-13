@@ -802,7 +802,7 @@ async fn main() -> Result<(), Error> {
             let region = std::env::var("AWS_REGION")?;
             backfill_embeddings(
                 &path,
-                &embed::BedrockCli::new(&region),
+                &embed::Bedrock::new(&region).await,
                 embed::Budget {
                     total_nusd,
                     monthly_nusd,

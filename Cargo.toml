@@ -5,6 +5,8 @@ edition = "2021"
 
 [dependencies]
 axum = "0.8"
+aws-config = { version = "1.12.0", default-features = false, features = ["default-https-client", "rt-tokio"] }
+aws-sdk-bedrockruntime = { version = "1.143.0", default-features = false, features = ["default-https-client", "rt-tokio", "rustls"] }
 minijinja = { version = "2", features = ["builtins", "json", "urlencode"] }
 rusqlite = "=0.38.0"
 serde = { version = "1", features = ["derive"] }

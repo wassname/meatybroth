@@ -1,0 +1,7 @@
+warning: unused config key `unstable.min-publish-age` in `/home/code/.cargo/config.toml`
+warning: unused config key `unstable.min-publish-age` in `/home/code/.cargo/config.toml`
+    Checking tungstenite v0.29.0
+    Checking tokio-tungstenite v0.29.0
+    Checking axum v0.8.9
+    Checking meatybroth v0.1.0 (/workspace/meatybroth-rust)
+    Finished `dev` profile [unoptimized] target(s) in 19.36s

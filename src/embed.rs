@@ -11,11 +11,7 @@ use std::{
     future::Future,
     path::{Path, PathBuf},
     pin::Pin,
-    process::Command,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        LazyLock, Mutex,
-    },
+    sync::{LazyLock, Mutex},
 };
 
 pub const TITAN_MODEL: &str = "amazon.titan-embed-text-v2:0";
@@ -102,24 +98,34 @@ pub trait SemanticModel: Send + Sync {
     fn embed_text(&self, text: &str) -> Result<Output, Error>;
 }
 
-/// Official AWS CLI transport for the explicitly approved one-off Titan backfill.
-pub struct BedrockCli {
-    region: String,
+/// Native AWS SDK transport for the explicitly approved one-off Titan backfill.
+pub struct Bedrock {
+    client: aws_sdk_bedrockruntime::Client,
     space: Space,
-    sequence: AtomicU64,
 }
 
-impl BedrockCli {
-    pub fn new(region: &str) -> Self {
+impl Bedrock {
+    pub async fn new(region: &str) -> Self {
+        let timeout = aws_config::timeout::TimeoutConfig::builder()
+            .operation_timeout(std::time::Duration::from_secs(30))
+            .operation_attempt_timeout(std::time::Duration::from_secs(30))
+            .build();
+        let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
+            .region(aws_sdk_bedrockruntime::config::Region::new(
+                region.to_owned(),
+            ))
+            .retry_config(aws_config::retry::RetryConfig::standard().with_max_attempts(1))
+            .timeout_config(timeout)
+            .load()
+            .await;
         Self {
-            region: region.to_owned(),
+            client: aws_sdk_bedrockruntime::Client::new(&config),
             space: Space::titan_v2(),
-            sequence: AtomicU64::new(0),
         }
     }
 }
 
-impl Transport for BedrockCli {
+impl Transport for Bedrock {
     fn space(&self) -> &Space {
         &self.space
     }
@@ -133,55 +139,31 @@ impl Transport for BedrockCli {
         text: &'a str,
     ) -> Pin<Box<dyn Future<Output = Result<Output, Error>> + Send + 'a>> {
         Box::pin(async move {
-            let output_path = std::env::temp_dir().join(format!(
-                "meatybroth-titan-{}-{}.json",
-                std::process::id(),
-                self.sequence.fetch_add(1, Ordering::Relaxed),
-            ));
             let body = serde_json::json!({
                 "inputText": text,
                 "dimensions": TITAN_DIMENSIONS,
                 "normalize": true,
-            })
-            .to_string();
-            let command = Command::new("/usr/local/bin/aws")
-                .env("AWS_MAX_ATTEMPTS", "1")
-                .env("AWS_RETRY_MODE", "standard")
-                .args([
-                    "bedrock-runtime",
-                    "invoke-model",
-                    "--region",
-                    &self.region,
-                    "--model-id",
-                    TITAN_MODEL,
-                    "--content-type",
-                    "application/json",
-                    "--accept",
-                    "application/json",
-                    "--cli-binary-format",
-                    "raw-in-base64-out",
-                    "--body",
-                    &body,
-                    "--cli-connect-timeout",
-                    "5",
-                    "--cli-read-timeout",
-                    "30",
-                ])
-                .arg(&output_path)
-                .output()?;
-            if !command.status.success() {
-                let _ = std::fs::remove_file(&output_path);
-                let stderr = String::from_utf8_lossy(&command.stderr);
-                let stage = if stderr.contains("CreateOAuth2Token") {
+            });
+            let result = self
+                .client
+                .invoke_model()
+                .model_id(TITAN_MODEL)
+                .content_type("application/json")
+                .accept("application/json")
+                .body(aws_sdk_bedrockruntime::primitives::Blob::new(
+                    serde_json::to_vec(&body)?,
+                ))
+                .send()
+                .await;
+            let response = result.map_err(|error| {
+                let stage = if error.to_string().contains("credentials") {
                     "preflight"
                 } else {
                     "uncertain"
                 };
-                return Err(format!("{stage}: Titan InvokeModel failed: {}", stderr.trim()).into());
-            }
-            let response: serde_json::Value =
-                serde_json::from_slice(&std::fs::read(&output_path)?)?;
-            std::fs::remove_file(output_path)?;
+                format!("{stage}: Titan InvokeModel failed: {error}")
+            })?;
+            let response: serde_json::Value = serde_json::from_slice(response.body.as_ref())?;
             let vector = response["embedding"]
                 .as_array()
                 .ok_or("Titan response omitted embedding")?
