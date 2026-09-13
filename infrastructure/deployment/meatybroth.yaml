@@ -1,0 +1,308 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Rust Meaty Broth deployment candidate: one EC2 host, HTTPS through Caddy,
+  SSM access, and exact-model Bedrock invocation. Deployment requires an
+  explicit paid-Bedrock approval parameter and a pinned public Rust source.
+
+Parameters:
+  SourceRepository:
+    Type: String
+    Description: Public HTTPS GitHub repository containing the reviewed Rust application.
+    AllowedPattern: '^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?$'
+    ConstraintDescription: Must be an explicit public HTTPS GitHub repository URL.
+  SourceRevision:
+    Type: String
+    Description: Pinned public commit of SourceRepository to run.
+    AllowedPattern: "^[0-9a-f]{40}$"
+    ConstraintDescription: Must be a full 40-character git commit SHA.
+  DomainName:
+    Type: String
+    Default: meatybroth.com
+    AllowedPattern: '^[a-z0-9][a-z0-9.-]*[a-z0-9]$'
+  HostedZoneId:
+    Type: AWS::Route53::HostedZone::Id
+  InstanceType:
+    Type: String
+    Default: t3.small
+  RootVolumeSize:
+    Type: Number
+    Default: 30
+  AmiId:
+    Type: "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>"
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+  PaidBedrockApproval:
+    Type: String
+    AllowedValues:
+      - I_APPROVE_USD_5_SETUP_AND_USD_5_MONTHLY
+    Description: >
+      Required with no default. Supplying the literal value records operator approval
+      for the application-enforced setup and monthly Bedrock limits.
+  EmbedBackend:
+    Type: String
+    Default: bedrock
+    AllowedValues: [bedrock]
+  EmbedModel:
+    Type: String
+    Default: amazon.titan-embed-text-v2:0
+    AllowedValues: [amazon.titan-embed-text-v2:0]
+  EmbedDimensions:
+    Type: Number
+    Default: 512
+    AllowedValues: [512]
+  EmbedNormalize:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true"]
+  EmbedRegion:
+    Type: String
+    Default: us-west-2
+    AllowedValues: [us-west-2]
+  EmbedTotalBudgetUsd:
+    Type: String
+    Default: "5.00"
+    AllowedPattern: '^5\.00$'
+  EmbedMonthlyBudgetUsd:
+    Type: String
+    Default: "5.00"
+    AllowedPattern: '^5\.00$'
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.42.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Project
+          Value: meatybroth
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Project
+          Value: meatybroth
+
+  VpcGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.42.0.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags:
+        - Key: Project
+          Value: meatybroth
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Project
+          Value: meatybroth
+
+  DefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VpcGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  SubnetRouteAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Meaty Broth HTTPS host; no SSH and no public application port
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Project
+          Value: meatybroth
+
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: invoke-configured-titan-embedding-model
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: InvokeConfiguredTitanEmbeddingModel
+                Effect: Allow
+                Action: bedrock:InvokeModel
+                Resource: !Sub arn:${AWS::Partition}:bedrock:${EmbedRegion}::foundation-model/${EmbedModel}
+                Condition:
+                  StringEquals:
+                    aws:RequestedRegion: !Ref EmbedRegion
+      Tags:
+        - Key: Project
+          Value: meatybroth
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref InstanceRole]
+
+  ReaderInstance:
+    Type: AWS::EC2::Instance
+    DependsOn: [DefaultRoute, SubnetRouteAssociation]
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: !Ref InstanceType
+      SubnetId: !Ref PublicSubnet
+      IamInstanceProfile: !Ref InstanceProfile
+      SecurityGroupIds: [!Ref InstanceSecurityGroup]
+      PrivateIpAddress: 10.42.0.10
+      InstanceInitiatedShutdownBehavior: terminate
+      MetadataOptions:
+        HttpTokens: required
+        HttpPutResponseHopLimit: 1
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: !Ref RootVolumeSize
+            VolumeType: gp3
+            Encrypted: true
+            DeleteOnTermination: true
+      Tags:
+        - Key: Project
+          Value: meatybroth
+        - Key: Name
+          Value: !Sub meatybroth-${AWS::StackName}
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          dnf install -y cargo docker gcc git rust
+          systemctl enable --now docker
+          rust_version=$(/usr/bin/rustc --version | awk '{print $2}')
+          test "$(printf '1.88.0\n%s\n' "$rust_version" | sort -V | head -1)" = 1.88.0
+          useradd --system --home-dir /var/lib/meatybroth --shell /sbin/nologin meatybroth
+          install -d -o meatybroth -g meatybroth /var/lib/meatybroth /var/lib/meatybroth/cargo /var/lib/meatybroth-caddy /etc/meatybroth
+          install -o meatybroth -g meatybroth /dev/null /var/lib/meatybroth/blocklist.txt
+          rm -rf /opt/meatybroth
+          git clone --filter=blob:none '${SourceRepository}' /opt/meatybroth
+          git -C /opt/meatybroth checkout --detach '${SourceRevision}'
+          test "$(git -C /opt/meatybroth rev-parse HEAD)" = '${SourceRevision}'
+          chown -R meatybroth:meatybroth /opt/meatybroth
+          cat >/etc/meatybroth/app.env <<'ENV'
+          MEATYBROTH_DB=/var/lib/meatybroth/events.sqlite
+          MEATYBROTH_ADDR=0.0.0.0:8088
+          MEATYBROTH_EMBED_BACKEND=${EmbedBackend}
+          MEATYBROTH_EMBED_MODEL=${EmbedModel}
+          MEATYBROTH_EMBED_DIMENSIONS=${EmbedDimensions}
+          MEATYBROTH_EMBED_NORMALIZE=${EmbedNormalize}
+          AWS_REGION=${EmbedRegion}
+          MEATYBROTH_EMBED_TOTAL_BUDGET_USD=${EmbedTotalBudgetUsd}
+          MEATYBROTH_EMBED_MONTHLY_BUDGET_USD=${EmbedMonthlyBudgetUsd}
+          ENV
+          chmod 0644 /etc/meatybroth/app.env
+          runuser -u meatybroth -- sh -c 'cd /opt/meatybroth && CARGO_HOME=/var/lib/meatybroth/cargo /usr/bin/cargo build --locked --release'
+          cat >/etc/systemd/system/meatybroth.service <<'UNIT'
+          [Unit]
+          Description=Meaty Broth Rust reader and collector
+          Wants=network-online.target
+          After=network-online.target
+
+          [Service]
+          Type=simple
+          User=meatybroth
+          Group=meatybroth
+          WorkingDirectory=/opt/meatybroth
+          Environment=CARGO_HOME=/var/lib/meatybroth/cargo
+          EnvironmentFile=/etc/meatybroth/app.env
+          ExecStart=/usr/bin/cargo run --locked --release
+          Restart=on-failure
+          RestartSec=5
+          UMask=0077
+          NoNewPrivileges=true
+          PrivateTmp=true
+          ProtectHome=true
+          ProtectSystem=full
+          ReadWritePaths=/var/lib/meatybroth /opt/meatybroth/target
+
+          [Install]
+          WantedBy=multi-user.target
+          UNIT
+          cat >/etc/meatybroth/Caddyfile <<'CADDY'
+          ${DomainName} {
+            reverse_proxy host.docker.internal:8088
+          }
+          CADDY
+          systemctl daemon-reload
+          systemctl enable --now meatybroth
+          docker run -d --name meatybroth-caddy --restart unless-stopped \
+            --add-host host.docker.internal:host-gateway \
+            --publish 80:80 --publish 443:443 \
+            --volume /etc/meatybroth/Caddyfile:/etc/caddy/Caddyfile:ro \
+            --volume /var/lib/meatybroth-caddy:/data \
+            --log-opt max-size=10m --log-opt max-file=3 \
+            caddy@sha256:d8c17a862962def15cde69863a3a463f25a2664942eafd7bdbf050e9c3116b83
+
+  ReaderAddress:
+    Type: AWS::EC2::EIP
+    DependsOn: VpcGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Project
+          Value: meatybroth
+
+  ReaderAddressAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt [ReaderAddress, AllocationId]
+      InstanceId: !Ref ReaderInstance
+
+  SiteRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: A
+      TTL: 60
+      ResourceRecords: [!Ref ReaderAddress]
+
+Outputs:
+  SiteUrl:
+    Value: !Sub https://${DomainName}
+  InstanceId:
+    Value: !Ref ReaderInstance
+  InstanceRoleArn:
+    Value: !GetAtt [InstanceRole, Arn]
+  BedrockModelArn:
+    Value: !Sub arn:${AWS::Partition}:bedrock:${EmbedRegion}::foundation-model/${EmbedModel}

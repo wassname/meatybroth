@@ -1,0 +1,9 @@
+PASS YAML parse: parameters=15 resources=14 outputs=4
+PASS required gate: source repository, source revision, paid approval have no defaults
+PASS IAM: only bedrock:InvokeModel on exact configured foundation-model ARN + requested-region condition
+PASS credentials/network: EC2 role + IMDSv2, no key strings, public ingress only 80/443
+PASS runtime env: exact 9-name contract, Bedrock us-west-2/Titan V2/512/normalize=true/USD 5.00 caps
+PASS startup: pinned checkout, project-root locked release build, cargo run --locked --release
+PASS rendered UserData bash -n
+PASS systemd unit syntax (sandbox cargo path substituted only for executable existence check)
+PASS Caddy config with locally cached Caddy 2

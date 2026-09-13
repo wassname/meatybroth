@@ -1,0 +1,15 @@
+AWS CLI was not usable in this COI container; no AWS API call was attempted.
+
+Observed commands/results:
+- `command -v aws` -> `/snap/bin/aws`
+- `snap list aws-cli` -> version 2.35.21, revision 2312, classic
+- `/snap/bin/aws --version` -> no stdout/stderr, exit 120
+- `snap run aws-cli.aws --version` -> no stdout/stderr, exit 120
+- Under `strace`, snap reported `error: permission denied`; the failing syscall was:
+  `execve("/snap/snapd/27738/usr/lib/snapd/snap-confine", ..., ...) = -1 EACCES`
+- The target is mode 0755 on a read-only `snapfuse` mount and carries privileged file capabilities.
+- Process context: AppArmor `unconfined`, `NoNewPrivs: 0`, seccomp mode 2.
+
+Inference: the failure occurs before AWS CLI starts. It is a snap-confine/container execution incompatibility, not an AWS authentication or Bedrock error. The exact container policy mechanism was not isolated further. Use AWS CLI >=2.32 on the authenticated deployment owner's host; do not interpret exit 120 as invalid AWS credentials.
+
+-- Pi/gpt-5.6-sol
