@@ -4,14 +4,14 @@ Date: 2026-09-13. This updates the original Python-era estimate for the Rust SQL
 
 ## Answer
 
-At the observed base rate, one retained month is **918,000 text notes**. Titan V2 API input is provisionally **$1.49–$2.21/month** using two MiniLM token proxies. Neither is a Titan bill: the first authorized Titan backfill must replace them with Bedrock's returned token count.
+At the observed base rate, one retained month is **918,000 text notes**. Titan V2 API input remains provisionally **$1.49–$2.21/month** using two MiniLM token proxies. An authorized partial run measured 7,247 Titan tokens and $0.00014494 for 119 posts, but `ORDER BY event_id` selected only NIP-13 proof-of-work notes. That cohort cannot calibrate the retained-corpus forecast.
 
 The current schema stores each chunk vector and one aggregate vector per post. SQLite allocation is therefore materially larger than `notes × dimensions × 4`:
 
 | space | retained DB↓ | +25% working room↓ | API/month↓ | use |
 |---|---:|---:|---:|---|
 | *MiniLM 384-fp32* | *5.72 GiB* | *7.15 GiB* | *$0* | measured local schema |
-| Titan V2 512-fp32 | 8.80 GiB | 11.00 GiB | ~$1.49–$2.21 | production after approval |
+| Titan V2 512-fp32 | 8.80 GiB | 11.00 GiB | ~$1.49–$2.21 | projected; partial run incomplete |
 
 These totals include measured Rust note/event/index/FTS density, measured MiniLM-table allocation and synthetic Titan-table allocation. They exclude profiles, follows, collection history, backups, model cache and a future ANN index. The current 30 GiB volume is probably enough for one month. Bedrock runs inference outside EC2, so embeddings alone do not justify a larger instance. Production web/collection CPU and RAM are still unmeasured, so this does not establish that the whole service needs no upgrade.
 
@@ -53,11 +53,11 @@ The completed set holds 4,414,464 aggregate-vector bytes and 5,268,480 chunk-vec
 
 - **Bedrock production:** inference is remote, so the EC2 host only chunks, sends and stores results. The API price and storage are the relevant embedding increments; web and collection load still need a representative host measurement.
 - **MiniLM CPU development:** the completed Rust command resumed 1,519 posts in 402.69 s: 3.77 posts/s wall time, 0.157 s CPU/post, 0.59 average cores and 571 MiB maximum RSS on an AMD Ryzen 9 5900X host with 12 cores/24 threads and 62 GiB RAM. This whole command also includes a 14.01 s development build and 11-topic clustering; clustering time is not isolated, and the resumed remainder is a biased subset. At the same desktop whole-command rate, 918,000 posts is 67.6 hours, but that arithmetic is not a t3.small forecast. The earlier Python fastembed path measured 17.4 posts/s on a different four-core setup and is not directly comparable.
-- **GPU backfill:** no current Rust/GPU throughput is measured. The original estimate's 5,000–18,000 posts/s range came from an unspecified sentence-transformers benchmark, so it is not adequate evidence to rent hardware. Titan's projected $1.49 backfill removes the economic reason to provision a GPU for production.
+- **GPU backfill:** no current Rust/GPU throughput is measured. The original estimate's 5,000–18,000 posts/s range came from an unspecified sentence-transformers benchmark, so it is not adequate evidence to rent hardware. Titan's projected $1.49–$2.21 backfill removes the economic reason to provision a GPU for production.
 
 ## Titan API cost
 
-The AWS us-west-2 metered-unit map reports Titan Text Embeddings V2 at $0.00002 per 1,000 input tokens, or **$0.02/million**. The old length sample averaged 81.2 MiniLM tokens/post. The completed Rust set records 345,272 MiniLM tokens / 2,874 posts = 120.14 tokens/post. These bound two local-tokenizer projections, not Titan billing:
+The AWS us-west-2 metered-unit map reports Titan Text Embeddings V2 at $0.00002 per 1,000 input tokens, or **$0.02/million**. The old length sample averaged 81.2 MiniLM tokens/post. The completed Rust set records 345,272 MiniLM tokens / 2,874 posts = 120.14 tokens/post. These give two local-tokenizer projections:
 
 | volume | notes/month | at 81.2 tokens/post | at 120.14 tokens/post |
 |---|---:|---:|---:|
@@ -65,7 +65,11 @@ The AWS us-west-2 metered-unit map reports Titan Text Embeddings V2 at $0.00002 
 | base | 918,000 | $1.49 | $2.21 |
 | ×3 | 2,754,000 | $4.47 | $6.62 |
 
-Initial backfill costs one ingestion-month equivalent under the matching token assumption. Queries, retries, uncertain requests and re-embedding after a model-space change are additional. The implementation currently treats $5 as a lifetime cumulative limit as well as a $5 monthly limit. At base volume, $5 permits 3.35 ingestion-month equivalents under the 81.2-token proxy or 2.27 under the 120.14-token proxy, including initial backfill. The ×3 high-token case exceeds both limits during its first month. Indefinite operation at up to $5/month is therefore not configured; it requires a reviewed change to the cumulative-limit policy or an explicit later budget increase. No Bedrock call has been made, and these figures are not an AWS bill.
+The partial Titan run completed 119 calls before temporary-login refresh failed. The ledger records 7,247 actual Titan tokens and 144,940 nano-USD ($0.00014494), or 60.90 tokens/post. The same 119 IDs use 6,511 MiniLM tokens, so Titan counted 1.113× as many tokens on matched text. The old 81.2-token proxy would predict 9,662.8 tokens for these posts, 25.0% above observed Titan usage.
+
+This is not a representative correction factor. All 119 Titan events have NIP-13 nonce tags and IDs beginning with four zero hex digits; only 267 and 262 respectively of 6,381 eligible non-Titan notes do. Low-ID ordering selected mined content first. [The exact matched-cohort query](../../slop/verification/2026-09-13_titan119-cost-evidence.md) is application-ledger evidence, not an AWS invoice.
+
+Initial backfill costs one ingestion-month equivalent under the matching token assumption. Queries, retries, uncertain requests and re-embedding after a model-space change are additional. The implementation currently treats $5 as a lifetime cumulative limit as well as a $5 monthly limit. At base volume, $5 permits 3.35 ingestion-month equivalents under the 81.2-token proxy or 2.27 under the 120.14-token proxy, including initial backfill. The ×3 high-token case exceeds both limits during its first month. Indefinite operation at up to $5/month is therefore not configured; it requires a reviewed change to the cumulative-limit policy or an explicit later budget increase. Full-corpus Titan usage and the AWS invoice remain unavailable.
 
 ## Model context
 
