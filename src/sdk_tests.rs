@@ -321,6 +321,28 @@ async fn sdk_relay_to_atomic_fts_http_policy_and_expiry() {
         ),
         0
     );
+    let restrictive = signed(
+        &primal,
+        30000,
+        "",
+        now + 2,
+        vec![
+            vec!["d", "nsfw_list"],
+            vec!["p", &author.public_key().to_hex()],
+        ],
+    );
+    let refreshed = collect::list_members(&restrictive, primal.public_key(), "nsfw_list").unwrap();
+    sdk.save_event(&restrictive).await.unwrap();
+    collect::apply_nsfw(&sdk, &policy, refreshed, now + 2)
+        .await
+        .unwrap();
+    assert_eq!(
+        count(
+            &db,
+            "SELECT count(*) FROM posts_fts WHERE posts_fts MATCH 'bridgeword'"
+        ),
+        0
+    );
     assert_eq!(count(&db,"SELECT count(*) FROM reader_events r LEFT JOIN events e ON e.id=r.event_id WHERE e.id IS NULL"),0);
     client.shutdown().await;
     task.abort();

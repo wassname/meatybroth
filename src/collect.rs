@@ -562,6 +562,16 @@ async fn hydrate_notes(
     Ok((metadata, parents))
 }
 
+pub async fn apply_nsfw(
+    sdk: &NostrSqlite,
+    policy: &Policy,
+    nsfw: BTreeSet<PublicKey>,
+    now: u64,
+) -> Result<(), Error> {
+    *policy.nsfw.write().unwrap() = nsfw;
+    prune(sdk, policy, now).await
+}
+
 pub async fn prune(sdk: &NostrSqlite, policy: &Policy, now: u64) -> Result<(), Error> {
     sdk.delete(
         Filter::new()
@@ -625,11 +635,12 @@ pub async fn run(path: &Path, sdk: NostrSqlite, relays: Vec<String>) -> Result<(
         let now = i64::try_from(now_u64)?;
         if now_u64 >= moderation_refresh_at {
             let nsfw = bootstrap(&sdk).await?;
-            *policy.nsfw.write().unwrap() = nsfw;
+            apply_nsfw(&sdk, &policy, nsfw, now_u64).await?;
             moderation_refresh_at = now_u64 + MODERATION_REFRESH;
             eprintln!("Verified Primal moderation snapshots refreshed before further admission");
+        } else {
+            prune(&sdk, &policy, now_u64).await?;
         }
-        prune(&sdk, &policy, now_u64).await?;
         for relay in &relays {
             let mut admitted = Observation {
                 eose: true,

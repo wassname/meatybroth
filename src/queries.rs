@@ -67,6 +67,7 @@ pub fn feed(db: &Connection, search: &Search, root: &str, now: i64) -> Result<Ve
     };
     let prefix = format!("{ELIGIBLE}, matches AS MATERIALIZED ({matches})");
     let sql = match search.mode.as_str() {
+        // Group each stored root with its replies before ranking recent distinct repliers. — Pi/gpt-5.6-sol
         "conversations" => format!("{prefix}, members AS (
           SELECT *,coalesce(root_id,canonical_id) AS thread FROM eligible
         ), stats AS (
@@ -87,6 +88,7 @@ pub fn feed(db: &Connection, search: &Search, root: &str, now: i64) -> Result<Ve
         ) SELECT c.*,s.n_reply_authors,s.n_replies,s.latest_activity,s.root_present,0 AS hops,0.0 AS mass
           FROM cards c JOIN stats s ON s.thread=c.thread WHERE c.position=1
           ORDER BY s.n_reply_authors DESC,s.latest_activity DESC,c.thread ASC"),
+        // Count independent first-hop endorsements after choosing each endorser's shortest path. — Pi/gpt-5.6-sol
         "discovery" => format!("{prefix}, edges AS MATERIALIZED (
           SELECT DISTINCT lower(hex(e.pubkey)) AS follower,json_extract(t.value,'$[1]') AS followee
           FROM events e,json_each(e.tags) t WHERE e.kind=3 AND json_extract(t.value,'$[0]')='p'
