@@ -125,6 +125,7 @@ def load_tokenizer(model, prov: dict):
 
     tok = Tokenizer.from_file(prov["loaded_files"]["tokenizer.json"])
     tok.no_truncation()
+    tok.no_padding()  # padding would pad every encode to 128 ids and corrupt token counts
     encode = lambda text: tok.encode(text).ids  # noqa: E731
     return encode, lambda ids: tok.decode(ids, skip_special_tokens=True)  # noqa: E731
 
