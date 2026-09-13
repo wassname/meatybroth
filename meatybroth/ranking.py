@@ -8,6 +8,7 @@ Every query applies the strict 30-day creation-time window; the Nostr graph
 restriction applies to social discovery alone.
 """
 
+import json
 import math
 from collections import Counter
 import re
@@ -169,16 +170,7 @@ def _chunked(keys, size: int = 500) -> list:
 
 
 def _load_social_graph(store: Store, root_pubkey: str):
-    """Batch-load the observed 3-hop follow subgraph in ONE SQLite connection.
-
-    Returns (direct, hop_lists, hub_lists) identical to the former per-author
-    store.followed()/store.metadata() sequence: hop_lists covers every direct
-    follow (even empty lists); hub_lists covers only hubs with a truthy stored
-    kind-3 row, matching the old `if store.metadata(h, 3)` gate. Scores,
-    formulas, and ordering downstream are untouched.
-    """
-    import json
-
+    """Load (direct, hop_lists, hub_lists) in one SQLite connection."""
     with store.connect() as db:
         direct = {row[0] for row in db.execute(
             "SELECT followee FROM follows WHERE follower=?", (root_pubkey,))}
