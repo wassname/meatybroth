@@ -1,6 +1,6 @@
 # Rust production deployment handover
 
-Status 2026-09-13T15:24Z: deployment authorized but paused. Old production is still serving. No CloudFormation, instance, volume, Caddy or application-service cutover occurred.
+Status 2026-09-13T15:24Z: deployment authorized but paused. Old production is still serving. No CloudFormation, instance, volume, Caddy-upstream or application-service change occurred.
 
 ## Evidence and retained production state
 
@@ -48,7 +48,7 @@ Latest built but not final app image:
 
 App owner is preparing one stable follow-up after Similar/about/protocol-telemetry review. Do not rebuild each UI commit. For the final SHA: verify app source files match that commit, run `cargo +stable build --locked --release` off-host, update the Docker label, build with `--network=none --pull=false`, then repeat the exact private cached-Titan smoke. Stable Cargo ignores the age configuration, but `--locked` prevents resolution; retain the app owner's age-held lockfile.
 
-## Intended reversible cutover
+## Intended reversible public upstream change
 
 1. Make a fresh consistent local SQLite backup after the stable app checkpoint and verify Titan topics/membership plus `sqlite_stat1`.
 2. Build/save the final pinned Ubuntu image off-host. Transfer the image and DB through a bounded private channel only; no transfer has occurred. An existing private same-region S3 deployment bucket may be used after auth review, with encryption, exact SHA verification and immediate object deletion.
