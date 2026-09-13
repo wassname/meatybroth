@@ -1,4 +1,4 @@
-Rust cached-Titan deployment artifact verification
+Rust cached-Titan container compatibility and transfer-method verification; NOT deployable
 observed_utc=2026-09-13T15:42Z
 source_revision=3970a769ca5152bd5ddfd8ec1402e26b1d06eef5
 remote_ref=refs/heads/rust-rewrite at 3970a769ca5152bd5ddfd8ec1402e26b1d06eef5 (git ls-remote verified after artifact build)
@@ -49,5 +49,6 @@ transfer_archive=/tmp/meatybroth-deploy-3970a76.tar
 transfer_archive_bytes=130191360
 transfer_archive_sha256=f2470fd1c3fef51efefd1762d43a883124b1acb2c162a8cf4710bd2023a632d4
 transfer_status=not transferred; AWS login refresh unavailable and production unchanged
+approval_status=do not deploy: later uncommitted fix removes stale-telemetry Similar leakage; rebuild approved cleanup/moderation SHA and fresh DB snapshot
 
 -- Pi/gpt-5.6-sol

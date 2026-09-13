@@ -24,13 +24,13 @@ Next human-attended test, exactly:
 /usr/local/bin/aws sts get-caller-identity --profile cds-login --region us-west-2
 ```
 
-Confirm the authorization host is `us-east-1.signin.aws.amazon.com`; then make one serial unpaid STS call after the 15-minute refresh boundary. Alternate issuer region is a test derived from aws-cli#10267, not an established fix. Until then, make no AWS or production mutation.
+Confirm the authorization host is `us-east-1.signin.aws.amazon.com`; then make one serial unpaid STS call after the 15-minute refresh boundary. Alternate issuer region is a test derived from aws-cli#10267, not an established fix. At 15:49Z the parent retried STS with `--region us-east-1` against the existing login issuer; refresh still returned `INVALID_REQUEST` request 254. That changed the STS resource region, not the login issuer, so it did not test the proposed login command. Do not poll authentication repeatedly. Until a human attends the issuer-region test, make no AWS or production mutation.
 
 Expected identity: account `275713940406`, `arn:aws:iam::275713940406:user/wassname100`. Titan metadata in us-west-2 was ACTIVE/AUTHORIZED/AVAILABLE. Do not log tokens or cache contents.
 
 ## Off-host artifacts
 
-Final temporary bundle: `/tmp/meatybroth-deploy-3970a76/`; transfer archive: `/tmp/meatybroth-deploy-3970a76.tar`.
+Compatibility/transfer proof bundle only: `/tmp/meatybroth-deploy-3970a76/`; archive: `/tmp/meatybroth-deploy-3970a76.tar`. Do not deploy it. A later app fix removes stale-telemetry Similar leakage, and this snapshot may retain those vectors; wait for the approved cleanup/moderation SHA and a fresh consistent snapshot.
 
 - source: `3970a769ca5152bd5ddfd8ec1402e26b1d06eef5`, built from an isolated exact worktree with the committed lockfile
 - binary SHA-256: `47bbff8ef64657b75a171d4fc2e116a96e643a0b578450877ecb8c66c3e772d9`
@@ -42,7 +42,7 @@ Final temporary bundle: `/tmp/meatybroth-deploy-3970a76/`; transfer archive: `/t
 
 AL2023 native linking is invalid: `ort-sys` rc13 requires glibc ≥2.38 `__isoc23_strto*` and newer libstdc++; AL2023 has glibc2.34/GCC11. Use the Ubuntu runtime container, not an AL-native binary or an app feature change. Stable Cargo ignores the age configuration, but `--locked` prevented resolution; the app owner's age-held lockfile was retained.
 
-Final private image smoke used non-root user10001, read-only rootfs/database, dropped capabilities, no-new-privileges and host-only port `127.0.0.1:18089`. SQLite WAL mode requires a writable directory even for read-only app access; a 16 MiB `/data` tmpfs around the read-only `/data/events.sqlite` bind fixed the initially detected open failure. Root returned 100 cards/HTTP200 in 0.30 s; status 200/0.11 s; cached Titan topic 37 cards/200/0.29 s; cached Titan Similar 100 cards/200/0.44 s; uncached Titan Meaning returned the expected 400 without AWS.
+Compatibility image smoke used non-root user10001, read-only rootfs/database, dropped capabilities, no-new-privileges and host-only port `127.0.0.1:18089`. SQLite WAL mode requires a writable directory even for read-only app access; a 16 MiB `/data` tmpfs around the read-only `/data/events.sqlite` bind fixed the initially detected open failure. Root returned 100 cards/HTTP200 in 0.30 s; status 200/0.11 s; cached Titan topic 37 cards/200/0.29 s; cached Titan Similar 100 cards/200/0.44 s; uncached Titan Meaning returned the expected 400 without AWS.
 
 A private Caddy canary on an existing-network equivalent resolved `meatybroth-rust:8088` and returned root/status/Titan topic HTTP200 in 0.12–0.32 s. Dropping every capability initially prevented execution because the Caddy binary carries a file capability; the verified minimum is `--cap-drop ALL --cap-add NET_BIND_SERVICE`.
 
