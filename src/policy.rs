@@ -1,8 +1,13 @@
+//! Rejects unsafe or out-of-scope Nostr events before the SDK writes them.
+//!
+//! Each active subscription also records events needed for coverage and storage-drain checks.
+//! -- Pi/gpt-5.6-sol
+
 use futures_util::future::BoxFuture;
 use nostr_sdk::prelude::*;
 use regex::Regex;
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     sync::{Arc, LazyLock, Mutex, RwLock},
 };
 
@@ -15,6 +20,7 @@ static EXPLICIT: LazyLock<Regex> = LazyLock::new(|| {
 });
 static URLS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://\S+").unwrap());
 
+/// Returns local warning labels without changing admission.
 pub fn text_labels(text: &str) -> Vec<String> {
     let mut labels = Vec::new();
     if EXPLICIT.is_match(text) {
@@ -25,6 +31,7 @@ pub fn text_labels(text: &str) -> Vec<String> {
     }
     labels
 }
+/// Detects credential-shaped content and tags that must never be stored.
 pub fn secret(event: &Event) -> bool {
     SECRETS.is_match(&event.content)
         || event
@@ -32,15 +39,25 @@ pub fn secret(event: &Event) -> bool {
             .iter()
             .any(|tag| tag.as_slice().iter().any(|value| SECRETS.is_match(value)))
 }
+/// Identity needed to confirm an accepted event reached a canonical SDK state.
+#[derive(Debug, Clone)]
+pub struct Accepted {
+    pub pubkey: PublicKey,
+    pub kind: Kind,
+    pub created_at: Timestamp,
+}
+
+/// Events observed during one bounded relay subscription.
 #[derive(Debug, Default, Clone)]
 pub struct Observation {
     pub ids: BTreeSet<EventId>,
     pub oldest: Option<Timestamp>,
     pub rejected: usize,
-    pub accepted: BTreeSet<EventId>,
+    pub accepted: BTreeMap<EventId, Accepted>,
     pub accepted_notes: BTreeSet<EventId>,
     pub eose: bool,
 }
+/// Shared admission state and per-subscription observations.
 #[derive(Debug, Clone)]
 pub struct Policy {
     pub blocked: Arc<RwLock<BTreeSet<String>>>,
@@ -48,6 +65,7 @@ pub struct Policy {
     requests: Arc<Mutex<HashMap<SubscriptionId, (Filter, Observation)>>>,
 }
 impl Policy {
+    /// Creates policy state from the local blocklist and verified NSFW authors.
     pub fn new(blocked: BTreeSet<String>, nsfw: BTreeSet<PublicKey>) -> Self {
         Self {
             blocked: Arc::new(RwLock::new(blocked)),
@@ -55,6 +73,7 @@ impl Policy {
             requests: Arc::default(),
         }
     }
+    /// Registers the exact filter before its relay subscription starts.
     pub fn begin(&self, id: SubscriptionId, filter: Filter) {
         assert!(self
             .requests
@@ -63,9 +82,11 @@ impl Policy {
             .insert(id, (filter, Observation::default()))
             .is_none());
     }
+    /// Removes and returns one subscription's observation.
     pub fn finish(&self, id: &SubscriptionId) -> Observation {
         self.requests.lock().unwrap().remove(id).unwrap().1
     }
+    /// Applies storage exclusions after signature and filter validation.
     pub fn reject(&self, event: &Event) -> bool {
         secret(event)
             || !matches!(event.kind.as_u16(), 0 | 1 | 3 | 10002)
@@ -93,7 +114,8 @@ impl AdmitPolicy for Policy {
             if !filter.match_event(event, Default::default()) || event.verify().is_err() {
                 return Ok(AdmitStatus::rejected("invalid event or filter"));
             }
-            // SDK verification caches only IDs, so verify this message before counting it. -- Pi/gpt-6-astra
+            // Reverify bytes because the SDK 0.45.2 verification cache is keyed by event ID. -- Pi/gpt-5.6-sol
+            // Source: https://docs.rs/nostr-sdk/0.45.2/src/nostr_sdk/shared.rs.html#73-90
             observed.ids.insert(event.id);
             observed.oldest = Some(
                 observed
@@ -104,7 +126,14 @@ impl AdmitPolicy for Policy {
                 observed.rejected += 1;
                 Ok(AdmitStatus::rejected("collection policy"))
             } else {
-                observed.accepted.insert(event.id);
+                observed.accepted.insert(
+                    event.id,
+                    Accepted {
+                        pubkey: event.pubkey,
+                        kind: event.kind,
+                        created_at: event.created_at,
+                    },
+                );
                 if event.kind == Kind::TextNote {
                     observed.accepted_notes.insert(event.id);
                 }

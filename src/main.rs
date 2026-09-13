@@ -1,4 +1,6 @@
 mod collect;
+#[cfg(test)]
+mod embed;
 mod policy;
 mod queries;
 mod render;

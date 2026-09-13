@@ -5,7 +5,35 @@ use nostr_sdk::prelude::{
     PublicKey, Tag, Timestamp,
 };
 use serde_json::{json, Value};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use tower::ServiceExt;
+
+#[derive(Default)]
+struct MockEmbedder {
+    calls: AtomicUsize,
+}
+
+impl embed::Transport for MockEmbedder {
+    fn embed<'a>(
+        &'a self,
+        input: embed::Input<'a>,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<embed::Output, Error>> + Send + 'a>,
+    > {
+        Box::pin(async move {
+            assert_eq!(input.model, embed::MODEL);
+            assert_eq!(input.dimensions, 512);
+            assert!(input.normalize);
+            let call = self.calls.fetch_add(1, Ordering::SeqCst);
+            let mut vector = vec![0.0; embed::DIMENSIONS];
+            vector[call % embed::DIMENSIONS] = 1.0;
+            Ok(embed::Output {
+                vector,
+                input_tokens: i64::try_from(input.text.len().max(1)).unwrap(),
+            })
+        })
+    }
+}
 
 fn signed(keys: &Keys, kind: u16, content: &str, time: u64, tags: Vec<Vec<&str>>) -> Event {
     EventBuilder::new(Kind::from(kind), content)
@@ -363,6 +391,82 @@ async fn sdk_relay_to_atomic_fts_http_policy_and_expiry() {
 }
 
 #[tokio::test]
+async fn incremental_embeddings_reuse_delete_and_budget_after_sdk_drain() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("events.sqlite");
+    let sdk = collect::open(&path, collect::PRIMAL_AUTHOR).await.unwrap();
+    let now = i64::try_from(Timestamp::now().as_secs()).unwrap();
+    let keys = Keys::generate();
+    let long = signed(&keys, 1, &"a".repeat(9_000), now as u64, vec![]);
+    let profile = signed(&keys, 0, r#"{"name":"embedded"}"#, now as u64, vec![]);
+    let (url, relay_task) = relay(vec![
+        serde_json::from_str(&long.as_json()).unwrap(),
+        serde_json::from_str(&profile.as_json()).unwrap(),
+    ])
+    .await;
+    let policy = Arc::new(policy::Policy::new(Default::default(), Default::default()));
+    let client = collect::client(sdk.clone(), policy.clone());
+    client.add_relay(&url).await.unwrap();
+    client.connect().await;
+    let observed = collect::scan(
+        &client,
+        &policy,
+        &url,
+        Filter::new().kinds([Kind::TextNote, Kind::Metadata]),
+        Duration::from_secs(2),
+    )
+    .await
+    .unwrap();
+    assert_eq!(observed.accepted.len(), 2);
+    let mock = MockEmbedder::default();
+    let budget = embed::Budget {
+        total_nusd: 5_000_000_000,
+        monthly_nusd: 5_000_000_000,
+    };
+    assert_eq!(
+        embed::embed_pending(&path, &mock, budget, now, 10)
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(mock.calls.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        count(
+            &Connection::open(&path).unwrap(),
+            "SELECT count(*) FROM post_embeddings"
+        ),
+        1
+    );
+    assert_eq!(
+        embed::embed_pending(&path, &mock, budget, now, 10)
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(mock.calls.load(Ordering::SeqCst), 2);
+
+    sdk.delete(Filter::new().id(long.id)).await.unwrap();
+    let conn = Connection::open(&path).unwrap();
+    assert_eq!(count(&conn, "SELECT count(*) FROM post_embeddings"), 0);
+    assert_eq!(count(&conn, "SELECT count(*) FROM embedding_chunks"), 0);
+    let too_small = embed::Budget {
+        total_nusd: 1,
+        monthly_nusd: 1,
+    };
+    let pending = signed(&keys, 1, "budget guard", now as u64, vec![]);
+    sdk.save_event(&pending).await.unwrap();
+    let calls = mock.calls.load(Ordering::SeqCst);
+    assert!(embed::embed_pending(&path, &mock, too_small, now, 10)
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("budget exhausted"));
+    assert_eq!(mock.calls.load(Ordering::SeqCst), calls);
+    client.shutdown().await;
+    relay_task.abort();
+}
+
+#[tokio::test]
 async fn moderation_refresh_rejects_future_and_rollback_snapshots() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("events.sqlite");
@@ -459,7 +563,7 @@ async fn eose_boundary_has_no_late_admitted_write() {
     assert_eq!(sdk.check_id(&note.id).await.unwrap(), at_return);
     assert_eq!(
         matches!(at_return, DatabaseEventStatus::Saved),
-        observed.accepted.contains(&note.id)
+        observed.accepted.contains_key(&note.id)
     );
     client.shutdown().await;
     task.abort();
@@ -503,7 +607,7 @@ async fn sdk_storage_failure_reaches_supervisor() {
     })
     .await
     .unwrap_err();
-    assert!(error.to_string().contains("did not persist admitted note"));
+    assert!(error.to_string().contains("did not finish admitted event"));
     assert!(tokio::net::TcpStream::connect(address).await.is_err());
     client.shutdown().await;
     task.abort();

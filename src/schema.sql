@@ -33,7 +33,8 @@ CREATE VIRTUAL TABLE posts_fts USING fts5(
     tokenize = 'porter unicode61'
 );
 
--- Parse NIP-10 links once when the admitted event enters the SDK store. — Pi/gpt-5.6-sol
+-- Parse NIP-10 root/reply markers once when the admitted event enters the SDK store. -- Pi/gpt-5.6-sol
+-- Source: https://github.com/nostr-protocol/nips/blob/master/10.md
 CREATE TRIGGER reader_insert AFTER INSERT ON events BEGIN
     INSERT INTO reader_events(event_id, root_id, parent_id)
     SELECT
@@ -69,7 +70,7 @@ CREATE TRIGGER reader_insert AFTER INSERT ON events BEGIN
     WHERE event_id = new.id AND new.kind = 1;
 END;
 
--- Remove the external-content FTS row in the same event deletion transaction. — Pi/gpt-5.6-sol
+-- Remove the external-content FTS row in the same event deletion transaction. -- Pi/gpt-5.6-sol
 CREATE TRIGGER reader_delete BEFORE DELETE ON events WHEN old.kind = 1 BEGIN
     INSERT INTO posts_fts(posts_fts, rowid, text)
     SELECT 'delete', id, old.content

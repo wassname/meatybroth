@@ -1,3 +1,8 @@
+//! Collects policy-admitted Nostr events into the SQLite file used by the reader.
+//!
+//! The SDK owns Nostr event storage; this module owns moderation and collection progress tables.
+//! -- Pi/gpt-5.6-sol
+
 use crate::{
     policy::{Observation, Policy},
     queries::WINDOW,
@@ -152,6 +157,7 @@ fn finish_unreconciled(
     Ok(())
 }
 
+/// Opens an owned SDK store and installs the reader, coverage, and embedding schemas.
 pub async fn open(path: &Path, primal_author: &str) -> Result<NostrSqlite, Error> {
     if path.exists() {
         let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
@@ -183,11 +189,13 @@ pub async fn open(path: &Path, primal_author: &str) -> Result<NostrSqlite, Error
         conn.execute_batch(&include_str!("schema.sql").replace("{primal_author}", primal_author))?;
     }
     conn.execute_batch(include_str!("coverage.sql"))?;
+    conn.execute_batch(include_str!("embed.sql"))?;
     drop(conn);
     recover_interrupted(path, i64::try_from(Timestamp::now().as_secs())?)?;
     Ok(sdk)
 }
 
+/// Verifies a Primal parameterized list and returns its canonical public-key members.
 pub fn list_members(
     event: &Event,
     author: PublicKey,
@@ -255,6 +263,10 @@ async fn fetch_list(identifier: &str) -> Result<Event, Error> {
     };
     tokio::time::timeout(Duration::from_secs(20), fetch).await?
 }
+/// Validates a full moderation refresh before saving any snapshot.
+///
+/// Future and rollback snapshots are rejected. The returned NSFW set is read from the SDK's
+/// canonical replaceable event rather than from the fetched candidate. -- Pi/gpt-5.6-sol
 pub async fn install_primal_snapshots(
     sdk: &NostrSqlite,
     author: PublicKey,
@@ -302,6 +314,7 @@ pub async fn install_primal_snapshots(
     list_members(&current, author, "nsfw_list")
 }
 
+/// Fetches and installs the signed Primal NSFW and spam snapshots.
 pub async fn bootstrap(sdk: &NostrSqlite) -> Result<BTreeSet<PublicKey>, Error> {
     let author = PublicKey::from_hex(PRIMAL_AUTHOR)?;
     let mut snapshots = Vec::new();
@@ -319,6 +332,10 @@ pub async fn bootstrap(sdk: &NostrSqlite) -> Result<BTreeSet<PublicKey>, Error> 
     install_primal_snapshots(sdk, author, snapshots, Timestamp::now().as_secs()).await
 }
 
+/// Builds the relay client with policy admission before SDK persistence.
+///
+/// Pinned SDK order: <https://docs.rs/nostr-sdk/0.45.2/src/nostr_sdk/relay/inner.rs.html#1270-1291>.
+/// -- Pi/gpt-5.6-sol
 pub fn client(sdk: NostrSqlite, policy: Arc<Policy>) -> Client {
     Client::builder()
         .database(sdk)
@@ -326,6 +343,11 @@ pub fn client(sdk: NostrSqlite, policy: Arc<Policy>) -> Client {
         .verify_subscriptions(true)
         .build()
 }
+/// Runs one auto-closing request and waits for admitted events to reach a stored outcome.
+///
+/// NIP-01 EOSE ends stored history, not later live delivery, and does not prove relay completeness:
+/// <https://github.com/nostr-protocol/nips/blob/master/01.md#from-client-to-relay-sending-events-and-creating-subscriptions>.
+/// -- Pi/gpt-5.6-sol
 pub async fn scan(
     client: &Client,
     policy: &Policy,
@@ -349,32 +371,51 @@ pub async fn scan(
                 .timeout(Some(timeout)),
         )
         .await?;
-    let eose=tokio::time::timeout(timeout,async {
-        while let Some(notification)=messages.next().await {
-            if let RelayNotification::Message{message,..}=notification {
-                if matches!(*message,RelayMessage::EndOfStoredEvents(ref received) if received.as_ref()==&id){return true;}
+    let eose = tokio::time::timeout(timeout, async {
+        while let Some(notification) = messages.next().await {
+            if let RelayNotification::Message { message, .. } = notification {
+                if matches!(*message, RelayMessage::EndOfStoredEvents(ref received) if received.as_ref() == &id)
+                {
+                    return true;
+                }
             }
         }
         false
-    }).await.unwrap_or(false);
+    })
+    .await
+    .unwrap_or(false);
     let mut observed = policy.finish(&id);
     relay.unsubscribe(&id).await?;
     observed.eose = eose;
-    for event_id in observed.accepted_notes.iter().filter(|_| eose) {
+    for (event_id, accepted) in observed.accepted.iter().filter(|_| eose) {
         tokio::time::timeout(timeout, async {
             loop {
-                match client.database().check_id(event_id).await? {
-                    DatabaseEventStatus::Saved | DatabaseEventStatus::Deleted => {
-                        return Ok::<_, Error>(())
-                    }
-                    DatabaseEventStatus::NotExistent => {
-                        tokio::time::sleep(Duration::from_millis(10)).await
-                    }
+                let complete = if accepted.kind == Kind::TextNote {
+                    matches!(
+                        client.database().check_id(event_id).await?,
+                        DatabaseEventStatus::Saved | DatabaseEventStatus::Deleted
+                    )
+                } else {
+                    client
+                        .database()
+                        .query(
+                            Filter::new()
+                                .author(accepted.pubkey)
+                                .kind(accepted.kind)
+                                .limit(1),
+                        )
+                        .await?
+                        .iter()
+                        .any(|stored| stored.created_at >= accepted.created_at)
+                };
+                if complete {
+                    return Ok::<_, Error>(());
                 }
+                tokio::time::sleep(Duration::from_millis(10)).await;
             }
         })
         .await
-        .map_err(|_| format!("SDK did not persist admitted note {event_id}"))??;
+        .map_err(|_| format!("SDK did not finish admitted event {event_id}"))??;
     }
     Ok(observed)
 }
@@ -602,6 +643,7 @@ async fn hydrate_notes(
     Ok((metadata, parents))
 }
 
+/// Replaces admission state, then removes newly excluded stored notes.
 pub async fn apply_nsfw(
     sdk: &NostrSqlite,
     policy: &Policy,
@@ -612,6 +654,7 @@ pub async fn apply_nsfw(
     prune(sdk, policy, now).await
 }
 
+/// Deletes expired, NSFW-author, and locally blocked events through the SDK.
 pub async fn prune(sdk: &NostrSqlite, policy: &Policy, now: u64) -> Result<(), Error> {
     sdk.delete(
         Filter::new()
@@ -643,6 +686,7 @@ pub async fn prune(sdk: &NostrSqlite, policy: &Policy, now: u64) -> Result<(), E
     }
     Ok(())
 }
+/// Runs moderation refresh, bounded collection, hydration, and cleanup in one writer sequence.
 pub async fn run(path: &Path, sdk: NostrSqlite, relays: Vec<String>) -> Result<(), Error> {
     let blocks = path.with_file_name("blocklist.txt");
     let load_blocks = || -> Result<BTreeSet<String>, Error> {
