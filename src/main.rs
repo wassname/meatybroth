@@ -279,16 +279,16 @@ fn semantic_feed(
     app: &App,
     db: &Connection,
     search: &Search,
+    space: &embed::Space,
     now: i64,
 ) -> Result<Vec<(queries::Post, f32)>, Error> {
     let started = std::time::Instant::now();
-    let space = selected_space(app, search)?;
     let (query, exclude) = if search.mode == "meaning" {
         if search.q.is_empty() {
             return Err("Meaning search requires text".into());
         }
         let query = if search.embedding == "titan" {
-            embed::cached_query(&app.path, &space, &search.q)?.ok_or(
+            embed::cached_query(&app.path, space, &search.q)?.ok_or(
                 "This Titan query was not cached during the approved one-off run; choose MiniLM",
             )?
         } else {
@@ -308,7 +308,7 @@ fn semantic_feed(
         if queries::get(db, &canonical_event_id(event_id.as_bytes()), now)?.is_none() {
             return Err("The source post is not eligible in the current reader window".into());
         }
-        let vector = embed::event_vector(&app.path, &space, event_id.as_bytes())?
+        let vector = embed::event_vector(&app.path, space, event_id.as_bytes())?
             .ok_or("This post is absent from the selected embedding cache")?;
         (vector, Some(event_id))
     };
@@ -316,7 +316,7 @@ fn semantic_feed(
     let offset = usize::try_from(search.page)? * queries::PAGE_SIZE;
     let ranked = embed::nearest(
         &app.path,
-        &space,
+        space,
         &query,
         exclude
             .as_ref()
@@ -349,16 +349,16 @@ fn topic_feed(
     app: &App,
     db: &Connection,
     search: &Search,
+    space: &embed::Space,
     now: i64,
 ) -> Result<Vec<(queries::Post, f32)>, Error> {
-    let space = selected_space(app, search)?;
     let Some(topic_id) = search.topic else {
         return Ok(Vec::new());
     };
     let offset = usize::try_from(search.page)? * queries::PAGE_SIZE;
     let event_ids = embed::topic_events(
         &app.path,
-        &space,
+        space,
         topic_id,
         now,
         queries::PAGE_SIZE + 1,
@@ -377,33 +377,48 @@ fn topic_feed(
 fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, String), Error> {
     let started = std::time::Instant::now();
     let mut search = Search::parse(raw, now, &app.default_embedding);
-    let titan_vectors = if search.embedding == "titan" {
-        selected_space(app, &search)
-            .ok()
-            .map(|space| embed::vector_count(&app.path, &space))
-            .transpose()?
-    } else {
-        None
-    };
     let similar_context = search.similar.as_deref().and_then(|id| {
         id.split_once(':')
             .map(|(source, source_id)| format!("/context/{source}/{source_id}"))
     });
     let semantic = ["meaning", "similar"].contains(&search.mode.as_str());
     let topic_mode = search.mode == "topics";
-    let topics = if topic_mode {
+    let selected_space = if semantic || topic_mode || search.embedding == "titan" {
         match selected_space(app, &search) {
-            Ok(space) => embed::topics(&app.path, &space)?,
+            Ok(space) => Some(space),
             Err(error) => {
                 search.error = Some(error.to_string());
-                Vec::new()
+                None
             }
         }
+    } else {
+        None
+    };
+    let titan_vectors = if search.embedding == "titan" {
+        selected_space
+            .as_ref()
+            .map(|space| embed::vector_count(&app.path, space))
+            .transpose()?
+    } else {
+        None
+    };
+    let topics = if topic_mode {
+        selected_space
+            .as_ref()
+            .map(|space| embed::topics(&app.path, space))
+            .transpose()?
+            .unwrap_or_default()
     } else {
         Vec::new()
     };
     let mut scored = if search.error.is_none() && semantic {
-        match semantic_feed(app, db, &search, now) {
+        match semantic_feed(
+            app,
+            db,
+            &search,
+            selected_space.as_ref().expect("space resolved above"),
+            now,
+        ) {
             Ok(rows) => rows,
             Err(error) => {
                 search.error = Some(error.to_string());
@@ -411,7 +426,13 @@ fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, 
             }
         }
     } else if search.error.is_none() && topic_mode {
-        topic_feed(app, db, &search, now)?
+        topic_feed(
+            app,
+            db,
+            &search,
+            selected_space.as_ref().expect("space resolved above"),
+            now,
+        )?
     } else if search.error.is_none() {
         queries::feed(db, &search, &app.root, now)?
             .into_iter()
