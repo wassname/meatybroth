@@ -275,6 +275,85 @@ RequiresRecreation=Never
 
 It executed successfully. Stack `meatybroth-exp-wassname` reached `UPDATE_COMPLETE` at 21:00:53Z. The policy then read back with the exact action and model ARN above. Saved applied source: `slop/deployment/2026-09-13_live-stack-template-with-titan.yaml`. Public status remained HTTP 200/24,179 bytes and Social HTTP 200/246,053 bytes after the stack update.
 
-The current public revision remains read-only `1d36733`. Isolated collection-enabled revision `18b4f62` initialized no embedder (`embedding_setup_ms=0`) but panicked before relay connection because rustls could not select between compiled crypto providers. Audit: `slop/audits/2026-09-13_collection-enabled-no-embedding.md`. Do not enable production collection until the app owner's explicit provider fix passes the same isolated WSS/new-event test.
+At that checkpoint the public revision remained read-only `1d36733`. Isolated collection-enabled revision `18b4f62` initialized no embedder (`embedding_setup_ms=0`) but panicked before relay connection because rustls could not select between compiled crypto providers. Audit: `slop/audits/2026-09-13_collection-enabled-no-embedding.md`.
+
+## Continuous SDK/Titan cutover, 2026-09-14
+
+The settled segment-11 handoff DB SHA-256 was `cabe5372bd11729bd33468c311e9e980e5e20ddfa9bd47c973943be473cecd02`, 538,599,424 bytes, integrity `ok`. It retained all historical succeeded, uncertain and reserved ledger states. The canonical empty blocklist SHA-256 was `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`. Full manifest: `slop/deployment/2026-09-14_continuous-rust-manifest.txt`.
+
+Revision `e1c8fbe` proved relay collection but every Titan request failed at HTTP dispatch. The writer was stopped after 64 new uncertain rows. Exact-image unpaid diagnostics then observed:
+
+```text
+ca_bundle=false
+bedrock_dns_ipv4=54.245.51.143
+bedrock_tcp_443=true
+imdsv2=true
+role=meatybroth-exp-wassname-InstanceRole-y6KZvcRn9Q6K
+values_printed=false
+```
+
+Audit: `slop/audits/2026-09-14_private-role-backed-titan-failure.md`. The failed rows remain conservative holds.
+
+Revision `5dca648a2676ea261905a06c9f35a23d2dc58d2d` added one-failure protection. Its runtime package also added CA bundle SHA-256 `ecd9dc38bc3efb7dbd6431f57e29d2f8d6a0f0d211e1464b3fef2cbfe266fcd2`. Release binary SHA-256 was `8247cfa69d8d303c6f751d43a3a717b371f30f6127845d124545d9822bd3f7f5`; the EC2 image config ID is `sha256:0e6ca3a16664583a2427f527a08b524079a7f62b71e718045f9c4617b2b35865`.
+
+The intended one-request diagnostic isolation failed because `MEATYBROTH_EMBED_DEADLINE_EPOCH=0` does not gate `embed_recent_pending`. One successful cached-query preflight enabled ordinary concurrency. Before stop, 279 requests succeeded with 627,264 tokens and $0.01254528 actual cost; 85 newly admitted posts embedded with p50 7 seconds, maximum 42 seconds and zero over 300 seconds. The 30-second stop ended with SIGKILL and added eight uncertain and two reserved rows. These states remain in the canonical database. This was a deployment-control error, not an unauthorized budget increase; continuous collection was already authorized.
+
+The sole continuous writer started at 22:14:47Z. A cached Meaning request completed HTTP 200 in 11 seconds. Private Status, Topics, cached Meaning and Similar all returned HTTP 200 before the route switch. Caddy first remained on the old upstream because `sed -i` replaced the host file inode while the container retained the old bind-mounted inode. Restarting only Caddy remounted the validated file; active upstream then became `meatybroth-rust-next:8088` at about 22:22:56Z. The writer was not interrupted.
+
+Public checks after the effective switch:
+
+```text
+https://meatybroth.com/status                                      HTTP 200
+https://meatybroth.com/?mode=topics&embedding=titan               HTTP 200
+cached Titan Meaning                                               HTTP 200
+eligible Titan Similar                                             HTTP 200
+writer revision                                                    5dca648a2676ea261905a06c9f35a23d2dc58d2d
+writer restart count                                               0
+```
+
+At 22:24:43Z, live DB evidence was:
+
+```text
+current eligible=17137 vectors=9068 missing=8069
+since steady start: eligible=1938 embedded=844 pending=1094
+completed latency: p50=9s max=47s >300s=0
+pending age: p50=350s max=591s >300s=576
+ledger: succeeded=12210 uncertain=73 reserved=3
+ledger cost: succeeded=$0.218890160 uncertain-held=$0.011796540 reserved-held=$0.000491520
+latest succeeded request=30314 requested_at=1789338280
+```
+
+The header still showed a stale cached/unavailable label despite working Meaning and vector progress.
+
+## Host recovery and responsive reader, 2026-09-14
+
+A bounded `strace` attempt did not terminate through `timeout` after SSM cancellation. SSM stopped heartbeating and public Status also stopped responding. A soft reboot did not recover the OS management path, so the instance was force-stopped at 22:47:59Z and returned SSM-online after start at 22:50:52Z. The EBS database recovered with `integrity_check=ok`. The reboot-cleared `/tmp` contained zero matching trace files at inspection; no raw syscall trace was copied or published. The recovered ledger initially contained 13,608 succeeded, 73 uncertain and three reserved Bedrock rows.
+
+Revision `5dca648` auto-started. To upgrade without abandoning a provider request, the container was briefly paused and the live ledger sampled until it contained exactly the three historical reserved Bedrock rows. This clean paid boundary occurred at epoch `1789340198` on attempt 20. The paused process was killed; the post-stop ledger still contained exactly three reserved rows.
+
+Revision `cb71d87af3c1d9d6eb7b9658c4c878f756561fca` started at 22:57:08Z. Container stop timeout and Docker daemon shutdown timeout are 180 seconds. Image evidence:
+
+```text
+release binary sha256=3e35b1adae0bfbe1f16b138b507a0de53d95483ead846965512f7c4cceae25c4
+local image=sha256:3132bd9d9a21abbc9334b538ee25da14e70c12d1347c73ec9e840a19157bc037
+EC2 image config=sha256:09c526852a0dfc373fcebcbfae0ad155a950c2c038cb28e1663d7ccfbd9cec52
+CA bundle sha256=ecd9dc38bc3efb7dbd6431f57e29d2f8d6a0f0d211e1464b3fef2cbfe266fcd2
+restart count=0
+```
+
+First public checks against `https://meatybroth.com`:
+
+```text
+Status                  HTTP 200, 2.65s, 23,936 bytes
+Topics, zero cards      HTTP 200, 0.79s, 4,754 bytes
+New, 100 cards          HTTP 200, TTFB 4.99s, total 15.09s, 6,569,066 bytes
+Similar, 100 cards      HTTP 200, total 7.18s, 214,629 bytes
+cached Meaning,100 cards HTTP 200, total 8.75s, 226,379 bytes
+header                  Semantic search / Titan
+```
+
+At 22:58:51Z, the current window held 19,657 eligible posts and 9,785 Titan vectors. Since `cb71d87` start, 377 eligible posts were admitted: 97 embedded and 280 pending. Completed admission-to-embedding latency was p50 6 seconds, maximum 35 seconds, zero above 300 seconds. Pending age was p50 77 seconds, maximum 94 seconds, zero above 300 seconds. The writer was still running with restart count zero. The ledger contained 14,594 succeeded and 73 historical uncertain rows. Four reserved rows were visible in this active sample: the three historical holds plus one transient provider request; do not classify the transient row as stuck without a later settled observation.
+
+`strace` caused the host incident and did not produce usable bottleneck evidence. The targeted application measurements distinguish the reader work: zero-card Topics 0.79 seconds, while the 100-card New response spent 4.21 seconds server-side and emitted 6.57 MB. This supports bounded-card-query and response-size work, not a claim that WAL size or RSS alone caused the stall.
 
 -- Pi/gpt-5.6-sol

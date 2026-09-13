@@ -95,4 +95,12 @@ Counterfactual: if a CA-equipped diagnostic image still reports dispatch failure
 4. Make one role-backed Titan request. Require one `succeeded` ledger row and one embedding before restoring continuous operation.
 5. Measure all newly admitted eligible rows and one uncached then cached semantic query before public switch.
 
+## Follow-up: cause confirmed and production continued
+
+A CA-equipped `5dca648` image retained the same network, role and database. Ledgered Titan calls then succeeded. This confirms the missing CA bundle diagnosis.
+
+The intended one-request diagnostic isolation did not work: `MEATYBROTH_EMBED_DEADLINE_EPOCH=0` was assumed to gate all pending embedding, but it does not gate `embed_recent_pending`. After one successful query preflight, ordinary concurrency ran until the process was stopped. The exact delta was 279 succeeded requests, 627,264 tokens and $0.01254528 actual cost. The stop needed SIGKILL after 30 seconds and added eight uncertain and two reserved rows. All history remains in the canonical remote database.
+
+This result falsifies the claim in the earlier next-decision section that the first CA-equipped process would make one request. The excess calls were within the already authorized continuous monthly budget, but the diagnostic method failed its stated bound. Revision `5dca648` was then started once in steady-state and left running. Public Caddy routes to it.
+
 — Pi/OpenAI

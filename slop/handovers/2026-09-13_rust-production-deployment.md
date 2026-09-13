@@ -1,6 +1,6 @@
 # Rust production deployment handover
 
-Status 2026-09-13T20:58Z: Rust revision `1d367334fad3aec55a4a8331e926e2259d87a046` is serving production at `https://meatybroth.com`. Public Social cold/repeat, root, status, cached-Titan Topic/Similar, moderation exclusions and positive controls passed. Continuous collection/Titan is user-authorized but not switched on yet: the isolated collection checkpoint panicked before relay TLS, and the app owner is preparing the explicit rustls-provider/AWS-default-chain checkpoint. The old Python web and collector remain running for rollback; CloudFormation, instance and volume were not replaced.
+Status 2026-09-14T06:58+08: Rust revision `cb71d87af3c1d9d6eb7b9658c4c878f756561fca` is serving `https://meatybroth.com` and is the sole continuous SDK/Titan writer. Public Status, Topics, cached Meaning and Similar return HTTP 200. The instance role completed ledgered Titan calls with no profile or static credentials. The old Python web, collector and read-only Rust container remain available for rollback; they do not write to the continuous embedding ledger. CloudFormation, instance and volume were not replaced.
 
 ## Production instance IAM
 
@@ -21,7 +21,7 @@ SSM command `fae82b3f-f0b1-46ea-83a1-ac22b03f18ec` unset AWS credential/profile/
 
 ## User-visible limitations
 
-This is a cached-Titan deployment candidate, not complete embedding-search functionality. The UI disables Meaning as `Meaning unavailable`, omits MiniLM and selects Titan. Direct Meaning and MiniLM URLs still return explicit HTTP 400. Cached-Titan Similar and Topic work; functional Meaning search does not.
+Titan Meaning, Similar and Topics work, and the header now shows Semantic/Titan availability on all pages. MiniLM is not configured. A full 100-card New response was 6.57 MB and took 15.09 seconds in the first public check; this remains the clearest user-visible performance limitation.
 
 ## Evidence and retained production state
 
@@ -44,9 +44,23 @@ The human login is not used by the production application. Continuous Titan will
 
 Expected identity: account `275713940406`, `arn:aws:iam::275713940406:user/wassname100`. Titan metadata in us-west-2 was ACTIVE/AUTHORIZED/AVAILABLE. Do not log tokens or cache contents.
 
-## Final off-host artifacts
+## Current continuous artifact
 
-Final local bundle: `/tmp/meatybroth-deploy-1d36733/`. The image and database were transferred through two AES256-encrypted, public-blocked S3 objects with 15-minute presigned downloads; exact hashes were verified on the instance and both objects were deleted immediately. Build and smoke evidence is in `slop/verification/2026-09-13_production-rust-deployment.log`.
+- source: `cb71d87af3c1d9d6eb7b9658c4c878f756561fca`
+- release binary SHA-256: `3e35b1adae0bfbe1f16b138b507a0de53d95483ead846965512f7c4cceae25c4`
+- local image digest: `sha256:3132bd9d9a21abbc9334b538ee25da14e70c12d1347c73ec9e840a19157bc037`
+- EC2 image config ID: `sha256:09c526852a0dfc373fcebcbfae0ad155a950c2c038cb28e1663d7ccfbd9cec52`
+- CA bundle SHA-256: `ecd9dc38bc3efb7dbd6431f57e29d2f8d6a0f0d211e1464b3fef2cbfe266fcd2`
+- canonical data: `/opt/meatybroth-rust/continuous/events.sqlite` and sibling `blocklist.txt`
+- container: `meatybroth-rust-next`, user10001, read-only root, all capabilities dropped, no-new-privileges, restart `unless-stopped`, stop timeout 180 seconds
+- public upstream: `meatybroth-rust-next:8088`; prior Caddy file: `/opt/meatybroth/Caddyfile.pre-continuous-5dca648`
+- manifest: `slop/deployment/2026-09-14_continuous-rust-manifest.txt`
+
+The app handles SIGTERM/INT by blocking new provider windows and draining the current provider future and ledger. Docker container stop timeout and daemon shutdown timeout are both 180 seconds. Continue to use a verified no-inflight boundary for planned upgrades.
+
+## Earlier read-only artifact
+
+Earlier local bundle: `/tmp/meatybroth-deploy-1d36733/`. The image and database were transferred through two AES256-encrypted, public-blocked S3 objects with 15-minute presigned downloads; exact hashes were verified on the instance and both objects were deleted immediately. Build and smoke evidence is in `slop/verification/2026-09-13_production-rust-deployment.log`.
 
 - source: `1d367334fad3aec55a4a8331e926e2259d87a046`, built from an isolated exact worktree with the committed lockfile
 - binary SHA-256: `2cd80dbef4915f7214ef6e344b7a8607a79c7c94d351d26ffcf43086d0901a61`
