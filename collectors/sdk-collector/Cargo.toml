@@ -1,0 +1,16 @@
+[package]
+name = "sdk-collector"
+version = "0.1.0"
+edition = "2021"
+description = "Isolated Nostr collector on nostrdevkit SDK crates (scaffold, unbuilt, M1)"
+license = "MIT"
+
+# Pinned against inspected upstream: nostr-sdk 0.45.2 / nostr-sqlite 0.45.1
+# (nostrdevkit/nostr master, last push 2026-09-11). Re-pin before first build.
+[dependencies]
+nostr-sdk = "=0.45.2"
+nostr-database = "=0.45.0"
+nostr-sqlite = "=0.45.1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serde_json = "1"
