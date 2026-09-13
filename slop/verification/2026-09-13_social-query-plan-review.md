@@ -51,8 +51,8 @@ A hypothetical reach-2 rewrite that avoided `edges AS MATERIALIZED` and removed 
 
 Observed cause: `social.sql` creates and fills indexes but the database has no planner statistics. Without `events` statistics, SQLite declines to build an automatic index for the materialized matches join. `ANALYZE events` changes that decision and reduces the isolated rank query by about 9× on the same data.
 
-The remaining difference between a 3.6–7.7 s direct live SQL read and the 15.3 s HTTP response was not assigned without the handler's rank/reply/card timing. Filesystem cold-cache cost and per-card parent/warning/identity queries remain plausible, not established.
+The app owner then reproduced the change on the live database. Before statistics, the handler recorded `rank_ms=15644`, `replies_ms=1008`, `cards_ms=821`. `ANALYZE events` took 1.79 s; the next Social request returned HTTP 200 with 12 cards in 3.11 s and recorded `rank_ms=2019`, `replies_ms=193`, `cards_ms=867`. This confirms ranking—not card rendering—caused most of the timeout and that event statistics remove most of it. The remaining two-second live rank is slower than the 0.25-second snapshot and still includes filesystem/cache conditions not isolated here.
 
-Recommended discriminator for the app owner: add production-path event statistics after bulk collection/schema migration, then record one cold and one warm Social handler breakdown. Do not rewrite the graph CTEs unless Social rank remains slow after the plan shows the automatic matches index.
+The app owner added event statistics to writable startup and retained the simpler materialized-edge design. Do not add a second reach cache unless a new query plan remains slow after statistics.
 
 -- Pi/gpt-5.6-sol
