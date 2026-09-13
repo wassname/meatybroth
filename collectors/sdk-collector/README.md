@@ -1,13 +1,15 @@
-# sdk-collector (isolated prototype, M1 scaffold — NOT built, NOT wired)
+# sdk-collector (isolated prototype, M1 scaffold — builds clean, not wired/run)
 
 Owner: SDK-migration worker. Only files under `collectors/sdk-collector/` belong here.
 Do NOT edit `meatybroth/`, `tests/`, runtime units, or the live DB from this lane
 (`ingest.py`/`store.py` stay with their owner until the Primal worker is done;
 `ranking.py` stays with the ranking worker).
 
-Status: HOLD per 2026-09-13 parent message — no app/schema/runtime/commit changes until
-baseline parity screenshots are confirmed. This directory is new isolated scaffolding
-only; it changes nothing existing and is currently UNBUILT (no `cargo` run yet).
+Status: checkpoint CLOSED 2026-09-13 ~01:30 UTC (commit 0654896). Baseline parity
+captured; build verified clean (nightly lockfile under 8-day hold + stable 1.88.0
+`cargo build` success). Binary NOT run; policy bodies are still `todo!()` stubs.
+New-plan hold: no migration/cutover/wiring until the new plan. This directory is new
+isolated scaffolding only; no existing file was touched for it.
 
 Backend decision: `nostr-sqlite` file store (see `.local/reviews/nostr-sdk-reuse.md`
 §7). ONE physical DB: SDK tables canonical; reader adds FTS5 + triggers + VIEWs in the
@@ -17,7 +19,7 @@ committed. LMDB stays open as the more-new-code alternative (§7d), not a one-ca
 Pre-store moderation: custom `AdmitPolicy::admit_event` (secret scan, blocklist, kind
 gate) runs BEFORE save on live AND sync-download paths (report §7b) — no post-hoc purge.
 
-Milestones: M1 scaffold (this) → M2 MockRelay acceptance (100cap / 520 same-second /
+Milestones: M1 scaffold built (this, done) → M2 MockRelay acceptance (new plan) (100cap / 520 same-second /
 timeout-buffer / control fixtures + AdmitPolicy rejection-before-save proof) → M3
 dry_run vs status relays → M4 same-file FTS/VIEW queries vs current reader output diff →
 M5 cutover only on parent approval after baseline parity.
