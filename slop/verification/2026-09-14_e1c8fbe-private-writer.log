@@ -1,0 +1,57 @@
+Startup stage sdk_open_ms=10
+Startup stage posts_schema_ms=6
+Startup stage coverage_schema_ms=5
+Startup stage embedding_schema_ms=0
+Startup stage social_schema_ms=22
+Startup stage derived_cleanup_ms=968
+Startup stage analyze_events_ms=40
+Startup stage embedding_setup_ms=58
+Rust reader listening on http://0.0.0.0:8088
+Collector stopped with an explicit error: No such file or directory (os error 2); HTTP reader remains available
+Startup stage sdk_open_ms=2
+Startup stage posts_schema_ms=5
+Startup stage coverage_schema_ms=2
+Startup stage embedding_schema_ms=0
+Startup stage social_schema_ms=35
+Startup stage derived_cleanup_ms=1108
+Startup stage analyze_events_ms=39
+Startup stage embedding_setup_ms=0
+Rust reader listening on http://0.0.0.0:8088
+Verified Primal nsfw_list snapshot id=c4bb56ddd3b476d6b0ff6266eb13ef20b34cc096b6a225feefd0679df1823843 signed_at=1693603030 members=143
+Verified Primal spam_list snapshot id=c788b323272348258dd49df80d229f1b7e773e7de662a68bc72a2d58e941d88e signed_at=1726079985 members=13
+Hydrated root profile and follow list; events=0; relay=wss://relay.damus.io
+Hydrated root profile and follow list; events=0; relay=wss://relay.primal.net
+Hydrated root profile and follow list; events=3; relay=wss://purplepag.es
+Hydrated direct-follow contact lists; requested=74 missing=74; relay=wss://relay.damus.io
+Hydrated direct-follow contact lists; requested=74 missing=74; relay=wss://relay.primal.net
+Hydrated direct-follow contact lists; requested=74 missing=49; relay=wss://purplepag.es
+SDK notes=104 rejected=1; metadata=57 metadata_eose=true; missing_profiles=5 missing_profiles_eose=true; parents=24 parents_eose=true; reconciliation_supported=false; relay=wss://relay.damus.io; completed reconciliation windows are durable, full retention coverage not established
+bedrock embedding between completed SDK work failed: uncertain: Titan InvokeModel failed: dispatch failure; collection continues
+SDK notes=325 rejected=0; metadata=56 metadata_eose=true; missing_profiles=3 missing_profiles_eose=true; parents=46 parents_eose=true; reconciliation_supported=false; relay=wss://relay.primal.net; completed reconciliation windows are durable, full retention coverage not established
+bedrock embedding between completed SDK work failed: uncertain: Titan InvokeModel failed: dispatch failure; collection continues
+bedrock embedding between completed SDK work failed: uncertain: Titan InvokeModel failed: dispatch failure; collection continues
+SDK notes=139 rejected=0; metadata=39 metadata_eose=true; missing_profiles=0 missing_profiles_eose=true; parents=20 parents_eose=true; reconciliation_supported=false; relay=wss://relay.damus.io; completed reconciliation windows are durable, full retention coverage not established
+bedrock embedding between completed SDK work failed: uncertain: Titan InvokeModel failed: dispatch failure; collection continues
+SDK notes=265 rejected=0; metadata=50 metadata_eose=true; missing_profiles=0 missing_profiles_eose=true; parents=39 parents_eose=true; reconciliation_supported=false; relay=wss://relay.primal.net; completed reconciliation windows are durable, full retention coverage not established
+bedrock embedding between completed SDK work failed: uncertain: Titan InvokeModel failed: dispatch failure; collection continues
+bedrock embedding between completed SDK work failed: uncertain: Titan InvokeModel failed: dispatch failure; collection continues
+SDK notes=146 rejected=1; metadata=16 metadata_eose=true; missing_profiles=0 missing_profiles_eose=true; parents=24 parents_eose=true; reconciliation_supported=false; relay=wss://relay.damus.io; completed reconciliation windows are durable, full retention coverage not established
+bedrock embedding between completed SDK work failed: uncertain: Titan InvokeModel failed: dispatch failure; collection continues
+SDK notes=283 rejected=0; metadata=69 metadata_eose=true; missing_profiles=0 missing_profiles_eose=true; parents=50 parents_eose=true; reconciliation_supported=false; relay=wss://relay.primal.net; completed reconciliation windows are durable, full retention coverage not established
+bedrock embedding between completed SDK work failed: uncertain: Titan InvokeModel failed: dispatch failure; collection continues
+bedrock embedding between completed SDK work failed: uncertain: Titan InvokeModel failed: dispatch failure; collection continues
+SDK notes=112 rejected=1; metadata=30 metadata_eose=true; missing_profiles=0 missing_profiles_eose=true; parents=15 parents_eose=true; reconciliation_supported=false; relay=wss://relay.damus.io; completed reconciliation windows are durable, full retention coverage not established
+bedrock embedding between completed SDK work failed: uncertain: Titan InvokeModel failed: dispatch failure; collection continues
+SDK notes=298 rejected=0; metadata=54 metadata_eose=true; missing_profiles=0 missing_profiles_eose=true; parents=54 parents_eose=true; reconciliation_supported=false; relay=wss://relay.primal.net; completed reconciliation windows are durable, full retention coverage not established
+bedrock embedding between completed SDK work failed: uncertain: Titan InvokeModel failed: dispatch failure; collection continues
+bedrock embedding between completed SDK work failed: uncertain: Titan InvokeModel failed: dispatch failure; collection continues
+SDK notes=92 rejected=1; metadata=39 metadata_eose=true; missing_profiles=0 missing_profiles_eose=true; parents=23 parents_eose=true; reconciliation_supported=false; relay=wss://relay.damus.io; completed reconciliation windows are durable, full retention coverage not established
+bedrock embedding between completed SDK work failed: uncertain: Titan InvokeModel failed: dispatch failure; collection continues
+SDK notes=266 rejected=0; metadata=50 metadata_eose=true; missing_profiles=2 missing_profiles_eose=true; parents=59 parents_eose=true; reconciliation_supported=false; relay=wss://relay.primal.net; completed reconciliation windows are durable, full retention coverage not established
+bedrock embedding between completed SDK work failed: uncertain: Titan InvokeModel failed: dispatch failure; collection continues
+bedrock embedding between completed SDK work failed: uncertain: Titan InvokeModel failed: dispatch failure; collection continues
+SDK notes=108 rejected=1; metadata=40 metadata_eose=true; missing_profiles=2 missing_profiles_eose=true; parents=29 parents_eose=true; reconciliation_supported=false; relay=wss://relay.damus.io; completed reconciliation windows are durable, full retention coverage not established
+bedrock embedding between completed SDK work failed: uncertain: Titan InvokeModel failed: dispatch failure; collection continues
+SDK notes=267 rejected=0; metadata=53 metadata_eose=true; missing_profiles=0 missing_profiles_eose=true; parents=48 parents_eose=true; reconciliation_supported=false; relay=wss://relay.primal.net; completed reconciliation windows are durable, full retention coverage not established
+bedrock embedding between completed SDK work failed: uncertain: Titan InvokeModel failed: dispatch failure; collection continues
+bedrock embedding between completed SDK work failed: uncertain: Titan InvokeModel failed: dispatch failure; collection continues

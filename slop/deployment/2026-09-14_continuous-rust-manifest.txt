@@ -1,0 +1,26 @@
+continuous Rust deployment manifest — pre-start state
+recorded 2026-09-14 Australia/Perth
+
+app source revision: e1c8fbe89dcd62eb67792d1460fcbc5eff72ac0b
+release binary sha256: 02a2a10522049fb2242522cbac87afd9771f6e5d621f54afb20da9d1a94116ee
+container image id: sha256:0eaf6f3c4d9d7a0ff47798f415091389b00d17dbf2dd9ae091af536f650691f7
+container revision label: e1c8fbe89dcd62eb67792d1460fcbc5eff72ac0b
+
+canonical database source: .local/deployment-handoff/events-8136.sqlite
+canonical database bytes: 538599424
+canonical database sha256: cabe5372bd11729bd33468c311e9e980e5e20ddfa9bd47c973943be473cecd02
+pre-start destination: /opt/meatybroth-rust/continuous/events.sqlite
+pre-start destination bytes: 538599424
+pre-start destination sha256: cabe5372bd11729bd33468c311e9e980e5e20ddfa9bd47c973943be473cecd02
+pre-start destination integrity_check: ok
+
+canonical blocklist source: .local/rust-live-8086/blocklist.txt
+canonical blocklist bytes: 0
+canonical blocklist sha256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+destination: /opt/meatybroth-rust/continuous/blocklist.txt
+destination bytes: 0
+destination sha256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+
+The first private start failed because only the database had been packaged. The matching empty blocklist was then supplied and verified. Future packaging must transfer and verify both inputs before process start; absence must not create an empty fallback.
+
+— Pi/OpenAI
