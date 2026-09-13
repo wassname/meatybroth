@@ -6,8 +6,8 @@
 
 - Permanent local URL: `http://localhost:8088/`
 - Owned SQLite: `/workspace/meatybroth-rust/.local/rust-live-8086/events.sqlite`
-- The current local reader is intentionally read-only on a consistent frozen database copy only while the bounded Titan writer runs against `.local/rust-live-8086/events.sqlite`. This is temporary and is not the approved production state.
-- Production is explicitly authorized to run continuous SDK collection, Titan embedding, and semantic search through the EC2 instance role. Keep port 8088 fixed.
+- Local `http://localhost:8088/` is restored as a read-only snapshot reader. Public production is now the writable continuous Rust SDK/Titan service on the existing EC2 host.
+- Continuous SDK collection, Titan embedding, and semantic search are explicitly authorized through the EC2 instance role. Keep local forwarding and the public container on port 8088.
 
 ## MiniLM cache
 
@@ -23,11 +23,11 @@ Titan V2 uses `amazon.titan-embed-text-v2:0`, 512 dimensions, normalized, in `us
 
 Authentication refreshes `cds-login` through its issuer region `us-east-2`, evaluates temporary credentials only in process memory, unsets `AWS_PROFILE`, and calls Bedrock in `us-west-2`. The bounded script is `slop/scripts/2026-09-13_resume_titan_native.sh`. It refreshes before each segment and passes an absolute expiry-minus-120-second deadline. The embedder checks that deadline before each concurrency window and every chunk; partial chunks resume in the next segment. Tests, Clippy, release build, and the two-chunk resume regression passed at immutable commit `18b4f62`.
 
-Active job: Pueue API task `1401` (`titan-native-per-chunk-deadline`), follow process `proc_c960`. Segment 1 finished naturally at `04:19:43+08:00`: 2,188 total vectors, 11,686 eligible missing, four historical incomplete requests and US$0.016471080 succeeded cost. Segment 2 is running with a fresh 900-second credential TTL. Do not kill it mid-window; let natural deadline drains finish.
+The local Pueue backfill stopped at a settled segment-11 boundary with 8,136 vectors. Its consistent deployment snapshot is `.local/deployment-handoff/events-8136.sqlite`, SHA-256 `cabe5372bd11729bd33468c311e9e980e5e20ddfa9bd47c973943be473cecd02`; audit: `slop/verification/2026-09-14_segment11-deployment-handoff.log`. Do not resume that local paid writer or merge a second ledger. Production continues the same canonical database and ledger.
 
 Four historical incomplete requests are excluded from automatic retry: one `uncertain` request `18209` with known 60 nUSD actual cost, and three `reserved` requests `18560`–`18562` left by a killed concurrency window, each holding the conservative 163,840 nUSD reservation. After ordinary pending work finishes, make one explicit retry for only those four event IDs. Preserve every old attempt and its actual/reserved cost. Final audit must separately report missing vectors, successful recovery requests, and historical uncertain/reserved charge range. Evidence: `slop/verification/2026-09-13_titan-killed-window-audit.log`.
 
-Titan Similar and Topics can read cached vectors without AWS. Cached-only production disables and removes Meaning/MiniLM controls. Unsupported direct URLs return explicit HTTP 400. The original 119 rows were entirely NIP-13 proof-of-work-tagged. Raw event-ID ascending order is deterministic and resumable but remains proof-of-work-biased while the corpus is partial. Only completion of the full intended cohort removes that selection bias; do not use any partial cohort for a global quality claim.
+Titan Similar and Topics read stored vectors without AWS. Semantic search embeds a new query through the same serialized production worker and durable budget ledger; it never substitutes MiniLM. Unsupported direct URLs return explicit HTTP 400. The original 119 rows were entirely NIP-13 proof-of-work-tagged. Raw event-ID ascending order is deterministic and resumable but remains proof-of-work-biased while the corpus is partial. Only completion of the full intended cohort removes that selection bias; do not use any partial cohort for a global quality claim.
 
 ## Reader latency and Social
 
@@ -54,14 +54,15 @@ AWS_REGION=us-west-2 \
 
 Do not set `AWS_PROFILE` or static AWS credentials on EC2. `aws-config` uses the instance role through the default credential chain and refreshes temporary role credentials. The collector and embedding ledger remain one serialized SQLite writer sequence. The deployment worker owns backup, private verification, and reversible cutover.
 
-## Remaining checks
+## Current production and remaining checks
 
-1. Let Pueue task `1401` run through natural credential deadlines; do not interrupt paid windows for routine patches.
-2. After ordinary pending work reaches zero, recover only the four explicitly audited incomplete event IDs once, preserving prior rows and costs.
-3. Audit all intended eligible IDs: vector present or explicitly historical-incomplete; report tokens, succeeded cost, held uncertain/reserved cost, and the US$5 cap.
-4. Rebuild final Titan topics only after vector completion, then verify root, Social, Similar, Topics and status on the exact snapshot sequentially and concurrently.
-5. Make a consistent database snapshot for deployment, then enable the authorized continuous collector and Titan embedding with the EC2 instance role.
-6. Batch-mark or hide Similar links whose selected-space vector is still pending; do not add one metadata query per card.
+- Public commit `cb71d87` is live. Independent root: HTTP 200 in 0.816 seconds. Actual public UAT under the writer: empty Topics 0.79 s, Similar 100 posts 7.18 s, cached Semantic 100 posts 8.75 s, and Latest 100 posts TTFB 4.99 s / total 15.09 s without requested response compression.
+- `13a286f` is the next scheduling candidate: admissions after process start outrank historical backlog and are FIFO by `received_at`. It removes newest-first starvation but cannot make an arrival burst faster than provider capacity.
+- Full freshness acceptance is open. At 518 seconds, production admitted 1,595 eligible posts but embedded 465; 495 pending posts were already older than five minutes. Completed-only latency was selection-biased and must not be used as the denominator.
+- Preserve all provider history. Besides the original uncertain request `18209` and reserved requests `18560`–`18562`, the missing-CA deployment produced 64 uncertain attempts; a later forced stop added eight uncertain and two reserved attempts. Audit before any explicit recovery. Do not automatically retry uncertain/reserved rows.
+- The runtime CA bundle is required for AWS SDK HTTPS. `cb71d87` also stops paid calls after one failed preflight, supports one-call diagnostic mode, and drains in-flight calls on SIGTERM/SIGINT before exit.
+- Stop the verified duplicate legacy Python collector, preserving rollback configuration. Do not stop the Rust writer for routine checks.
+- DBSCAN/fixed-k Topics and `Similar replies:` are implemented as work in progress but are not yet the deployed checkpoint.
 
 ## Follow-up after live review
 
