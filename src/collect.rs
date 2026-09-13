@@ -23,7 +23,10 @@ use rusqlite::{Connection, OptionalExtension};
 use std::{
     collections::BTreeSet,
     path::Path,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     time::Duration,
 };
 use tokio::sync::{mpsc, oneshot};
@@ -999,11 +1002,12 @@ pub(crate) async fn embed_until_next_scan(
     transport: &dyn Transport,
     budget: Budget,
     queries: &mut mpsc::Receiver<EmbeddingQuery>,
+    shutdown: &AtomicBool,
     topics_dirty: &mut bool,
     next_scan_at: tokio::time::Instant,
 ) -> Result<(), Error> {
     loop {
-        if tokio::time::Instant::now() >= next_scan_at {
+        if shutdown.load(Ordering::Acquire) || tokio::time::Instant::now() >= next_scan_at {
             return Ok(());
         }
         let now = i64::try_from(Timestamp::now().as_secs())?;
@@ -1051,6 +1055,8 @@ pub struct EmbeddingWorker {
     pub error: Arc<Mutex<Option<String>>>,
     pub disabled: bool,
     pub validated: bool,
+    pub preflight_only: bool,
+    pub shutdown: Arc<AtomicBool>,
 }
 
 pub(crate) async fn service_embeddings(
@@ -1059,7 +1065,7 @@ pub(crate) async fn service_embeddings(
     topics_dirty: &mut bool,
     duration: Duration,
 ) {
-    if worker.disabled {
+    if worker.disabled || worker.shutdown.load(Ordering::Acquire) {
         return;
     }
     if !worker.validated {
@@ -1077,6 +1083,13 @@ pub(crate) async fn service_embeddings(
             Ok(_) => {
                 worker.validated = true;
                 *topics_dirty = true;
+                if worker.preflight_only {
+                    worker.disabled = true;
+                    eprintln!(
+                        "Embedding preflight succeeded; preflight-only mode made no further calls"
+                    );
+                    return;
+                }
             }
             Err(error) => {
                 let message = format!(
@@ -1095,6 +1108,7 @@ pub(crate) async fn service_embeddings(
         worker.transport.as_ref(),
         worker.budget,
         &mut worker.queries,
+        &worker.shutdown,
         topics_dirty,
         tokio::time::Instant::now() + duration,
     )
@@ -1120,6 +1134,7 @@ pub async fn run(
     profile_relays: Vec<String>,
     root: PublicKey,
     mut embedding: Option<EmbeddingWorker>,
+    mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) -> Result<(), Error> {
     let blocks = path.with_file_name("blocklist.txt");
     let load_blocks = || -> Result<BTreeSet<String>, Error> {
@@ -1208,7 +1223,10 @@ pub async fn run(
     }
     let mut unsupported_reconciliation = BTreeSet::new();
     let mut topics_dirty = false;
-    loop {
+    'collector: loop {
+        if *shutdown.borrow() {
+            break;
+        }
         *policy.blocked.write().unwrap() = load_blocks()?;
         let now_u64 = Timestamp::now().as_secs();
         let now = i64::try_from(now_u64)?;
@@ -1221,6 +1239,9 @@ pub async fn run(
             prune(&sdk, &policy, now_u64).await?;
         }
         for relay in &relays {
+            if *shutdown.borrow() {
+                break 'collector;
+            }
             let deadline = tokio::time::Instant::now() + Duration::from_secs(RELAY_WORK_BUDGET);
             let error = collect_relay(
                 path,
@@ -1239,6 +1260,9 @@ pub async fn run(
                 record_gap(path, relay, now - COVERAGE_STEP, now, &reason)?;
                 eprintln!("{reason}; relay={relay}; HTTP reader remains available");
             }
+            if *shutdown.borrow() {
+                break 'collector;
+            }
             if let Some(worker) = &mut embedding {
                 service_embeddings(
                     path,
@@ -1248,6 +1272,9 @@ pub async fn run(
                 )
                 .await;
             }
+        }
+        if *shutdown.borrow() {
+            break;
         }
         let next_scan_at = tokio::time::Instant::now() + Duration::from_secs(30);
         if let Some(worker) = &mut embedding {
@@ -1259,8 +1286,12 @@ pub async fn run(
             )
             .await;
         }
-        tokio::time::sleep_until(next_scan_at).await;
+        tokio::select! {
+            _ = tokio::time::sleep_until(next_scan_at) => {}
+            _ = shutdown.changed() => {}
+        }
     }
+    Ok(())
 }
 
 #[cfg(test)]

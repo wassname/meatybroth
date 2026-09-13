@@ -36,7 +36,7 @@
     <label for="embedding-select">Vectors:</label>
     <select id="embedding-select" name="embedding" onchange="this.form.submit()">
       {% if minilm_available %}<option value="minilm" {% if embedding != 'titan' %}selected{% endif %}>MiniLM local</option>{% endif %}
-      <option value="titan" {% if embedding == 'titan' or not minilm_available %}selected{% endif %}>Titan cached</option>
+      <option value="titan" {% if embedding == 'titan' or not minilm_available %}selected{% endif %}>Titan</option>
     </select>
     {% if mode == 'discovery' %}
     <label for="reach-select">Reach:</label>

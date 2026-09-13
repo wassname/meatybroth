@@ -139,6 +139,28 @@ fn ids(html: &str) -> Vec<String> {
         .collect()
 }
 
+#[test]
+fn bounded_card_queries_match_full_window_results() {
+    let fixture = Fixture::new();
+    fixture.post(1, 11, "root excerpt text", 20, None, None);
+    fixture.post(2, 12, "first reply", 10, Some(1), Some(1));
+    fixture.post(3, 13, "unrelated", 5, None, None);
+    let ids = vec![cid(1), cid(2)];
+    let full = queries::eligible_map_for(&fixture.db, fixture.now, None).unwrap();
+    let bounded = queries::eligible_map_for(&fixture.db, fixture.now, Some(&ids)).unwrap();
+    assert_eq!(bounded.len(), 2);
+    for id in &ids {
+        assert_eq!(bounded[id].text, full[id].text);
+    }
+    let full_counts = queries::reply_counts_for(&fixture.db, fixture.now, None).unwrap();
+    let bounded_counts = queries::reply_counts_for(&fixture.db, fixture.now, Some(&ids)).unwrap();
+    assert_eq!(bounded_counts.get(&cid(1)), full_counts.get(&cid(1)));
+    let excerpts =
+        render::parent_excerpt_map(&fixture.db, [bounded.get(&cid(2)).unwrap()], fixture.now)
+            .unwrap();
+    assert!(excerpts[&cid(2)].to_string().contains("root excerpt text"));
+}
+
 #[tokio::test]
 async fn pages_query_state_and_invalid_requests_use_real_handlers() {
     let f = Fixture::new();

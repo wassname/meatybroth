@@ -249,19 +249,35 @@ pub fn feed(db: &Connection, search: &Search, root: &str, now: i64) -> Result<Ve
 }
 
 /// Loads the current eligible card set once for semantic rank lookup.
-pub fn eligible_map(db: &Connection, now: i64) -> Result<HashMap<String, Post>, Error> {
+pub fn eligible_map_for(
+    db: &Connection,
+    now: i64,
+    canonical_ids: Option<&[String]>,
+) -> Result<HashMap<String, Post>, Error> {
+    let id_filter = canonical_ids
+        .map(|_| "WHERE canonical_id IN (SELECT value FROM json_each(:ids))")
+        .unwrap_or("");
     let mut statement = db.prepare(&format!(
         "{ELIGIBLE}
          SELECT
            *,
            NULL AS bm25,
            {CARD_DEFAULTS}
-         FROM eligible"
+         FROM eligible {id_filter}"
     ))?;
-    let posts = statement
-        .query_map(named_params! {":since": now - WINDOW, ":until": now}, post)?
-        .map(|post| post.map(|post| (post.canonical_id.clone(), post)))
-        .collect::<Result<_, _>>()?;
+    statement.raw_bind_parameter(statement.parameter_index(":since")?.unwrap(), now - WINDOW)?;
+    statement.raw_bind_parameter(statement.parameter_index(":until")?.unwrap(), now)?;
+    let ids_json;
+    if let Some(ids) = canonical_ids {
+        ids_json = serde_json::to_string(ids)?;
+        statement.raw_bind_parameter(statement.parameter_index(":ids")?.unwrap(), &ids_json)?;
+    }
+    let mut rows = statement.raw_query();
+    let mut posts = HashMap::new();
+    while let Some(row) = rows.next()? {
+        let post = post(row)?;
+        posts.insert(post.canonical_id.clone(), post);
+    }
     Ok(posts)
 }
 
@@ -281,22 +297,34 @@ pub fn get(db: &Connection, id: &str, now: i64) -> Result<Option<Post>, Error> {
 }
 
 /// Counts eligible direct replies for every stored parent in one reader scan.
-pub fn reply_counts(db: &Connection, now: i64) -> Result<HashMap<String, i64>, Error> {
+pub fn reply_counts_for(
+    db: &Connection,
+    now: i64,
+    parent_ids: Option<&[String]>,
+) -> Result<HashMap<String, i64>, Error> {
+    let id_filter = parent_ids
+        .map(|_| "AND parent_id IN (SELECT value FROM json_each(:ids))")
+        .unwrap_or("");
     let mut statement = db.prepare(&format!(
         "{ELIGIBLE}
          SELECT parent_id, count(*)
          FROM eligible
-         WHERE parent_id IS NOT NULL
+         WHERE parent_id IS NOT NULL {id_filter}
          GROUP BY parent_id"
     ))?;
-    let counts = statement
-        .query_map(
-            named_params! {":since": now - WINDOW, ":until": now},
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )?
-        .collect::<Result<_, _>>()
-        .map_err(Into::into);
-    counts
+    statement.raw_bind_parameter(statement.parameter_index(":since")?.unwrap(), now - WINDOW)?;
+    statement.raw_bind_parameter(statement.parameter_index(":until")?.unwrap(), now)?;
+    let ids_json;
+    if let Some(ids) = parent_ids {
+        ids_json = serde_json::to_string(ids)?;
+        statement.raw_bind_parameter(statement.parameter_index(":ids")?.unwrap(), &ids_json)?;
+    }
+    let mut rows = statement.raw_query();
+    let mut counts = HashMap::new();
+    while let Some(row) = rows.next()? {
+        counts.insert(row.get(0)?, row.get(1)?);
+    }
+    Ok(counts)
 }
 
 /// Counts eligible posts, or direct replies when `parent` is set.

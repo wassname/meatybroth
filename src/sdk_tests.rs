@@ -54,6 +54,43 @@ impl embed::Transport for FailingEmbedder {
     }
 }
 
+#[derive(Clone)]
+struct SlowEmbedder {
+    space: embed::Space,
+    calls: Arc<AtomicUsize>,
+    started: Arc<tokio::sync::Notify>,
+    release: Arc<tokio::sync::Notify>,
+}
+
+impl embed::Transport for SlowEmbedder {
+    fn space(&self) -> &embed::Space {
+        &self.space
+    }
+
+    fn split(&self, text: &str) -> Result<Vec<String>, Error> {
+        Ok(embed::titan_chunks(text))
+    }
+
+    fn embed<'a>(
+        &'a self,
+        text: &'a str,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<embed::Output, Error>> + Send + 'a>,
+    > {
+        Box::pin(async move {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.started.notify_one();
+            self.release.notified().await;
+            let mut vector = vec![0.0; self.space.dimensions];
+            vector[0] = 1.0;
+            Ok(embed::Output {
+                vector,
+                input_tokens: i64::try_from(text.len()).unwrap(),
+            })
+        })
+    }
+}
+
 impl embed::SemanticModel for MockEmbedder {
     fn vector_space(&self) -> &embed::Space {
         &self.space
@@ -728,6 +765,8 @@ async fn transport_failure_disables_further_paid_calls_until_restart() {
         error: error.clone(),
         disabled: false,
         validated: false,
+        preflight_only: false,
+        shutdown: Arc::new(std::sync::atomic::AtomicBool::new(false)),
     };
     let mut topics_dirty = false;
     collect::service_embeddings(
@@ -753,6 +792,136 @@ async fn transport_failure_disables_further_paid_calls_until_restart() {
     )
     .await;
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn preflight_only_makes_exactly_one_successful_provider_call() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("events.sqlite");
+    let sdk = collect::open(&path, collect::PRIMAL_AUTHOR).await.unwrap();
+    sdk.save_event(&signed(
+        &Keys::generate(),
+        1,
+        "successful preflight fixture",
+        Utc::now().timestamp() as u64,
+        vec![],
+    ))
+    .await
+    .unwrap();
+    let mock = Arc::new(MockEmbedder::default());
+    let transport: Arc<dyn embed::Transport> = mock.clone();
+    let (_sender, queries) = tokio::sync::mpsc::channel(1);
+    let mut worker = collect::EmbeddingWorker {
+        transport,
+        budget: embed::Budget {
+            total_nusd: 1_000_000,
+            monthly_nusd: 1_000_000,
+        },
+        queries,
+        error: Arc::new(Mutex::new(None)),
+        disabled: false,
+        validated: false,
+        preflight_only: true,
+        shutdown: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    };
+    let mut topics_dirty = false;
+    collect::service_embeddings(
+        &path,
+        &mut worker,
+        &mut topics_dirty,
+        Duration::from_secs(1),
+    )
+    .await;
+    assert!(worker.disabled);
+    assert!(worker.validated);
+    assert_eq!(mock.calls.load(Ordering::SeqCst), 1);
+    collect::service_embeddings(
+        &path,
+        &mut worker,
+        &mut topics_dirty,
+        Duration::from_secs(1),
+    )
+    .await;
+    assert_eq!(mock.calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn shutdown_waits_for_one_inflight_call_to_settle_without_starting_another() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("events.sqlite");
+    let sdk = collect::open(&path, collect::PRIMAL_AUTHOR).await.unwrap();
+    sdk.save_event(&signed(
+        &Keys::generate(),
+        1,
+        "slow provider fixture",
+        Utc::now().timestamp() as u64,
+        vec![],
+    ))
+    .await
+    .unwrap();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let started = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    let shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let transport: Arc<dyn embed::Transport> = Arc::new(SlowEmbedder {
+        space: embed::Space::titan_v2(),
+        calls: calls.clone(),
+        started: started.clone(),
+        release: release.clone(),
+    });
+    let (_sender, queries) = tokio::sync::mpsc::channel(1);
+    let worker = collect::EmbeddingWorker {
+        transport,
+        budget: embed::Budget {
+            total_nusd: 1_000_000,
+            monthly_nusd: 1_000_000,
+        },
+        queries,
+        error: Arc::new(Mutex::new(None)),
+        disabled: false,
+        validated: false,
+        preflight_only: false,
+        shutdown: shutdown.clone(),
+    };
+    let path_for_task = path.clone();
+    let task = tokio::spawn(async move {
+        let mut worker = worker;
+        let mut topics_dirty = false;
+        collect::service_embeddings(
+            &path_for_task,
+            &mut worker,
+            &mut topics_dirty,
+            Duration::from_secs(1),
+        )
+        .await;
+        worker
+    });
+    started.notified().await;
+    shutdown.store(true, Ordering::Release);
+    assert!(!task.is_finished());
+    release.notify_one();
+    let worker = task.await.unwrap();
+    assert!(worker.validated);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    assert_eq!(
+        conn.query_row(
+            "SELECT count(*) FROM embedding_requests WHERE status='succeeded'",
+            [],
+            |row| row.get::<_, i64>(0)
+        )
+        .unwrap(),
+        1
+    );
+    assert_eq!(
+        conn.query_row(
+            "SELECT count(*) FROM embedding_requests WHERE status='reserved'",
+            [],
+            |row| row.get::<_, i64>(0)
+        )
+        .unwrap(),
+        0
+    );
 }
 
 #[tokio::test]
@@ -885,11 +1054,13 @@ async fn incremental_embeddings_reuse_delete_and_budget_after_sdk_drain() {
     sdk.save_event(&second).await.unwrap();
     let mut topics_dirty = false;
     let (_query_sender, mut queries) = tokio::sync::mpsc::channel(1);
+    let shutdown = std::sync::atomic::AtomicBool::new(false);
     collect::embed_until_next_scan(
         &path,
         mock.as_ref(),
         budget,
         &mut queries,
+        &shutdown,
         &mut topics_dirty,
         tokio::time::Instant::now() + Duration::from_secs(1),
     )
@@ -916,12 +1087,17 @@ async fn incremental_embeddings_reuse_delete_and_budget_after_sdk_drain() {
         &path,
         "/?q=related+concept&mode=meaning&embedding=titan",
         None,
-        Some(provider),
+        Some(provider.clone()),
         Some(budget),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(mock.calls.load(Ordering::SeqCst), calls_after_query);
+    let (status, provider_status) =
+        html_with_models(&path, "/status", None, Some(provider), Some(budget)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!provider_status.contains("Semantic search unavailable"));
+    assert!(provider_status.contains(">Titan</option>"));
 
     let semantic: Arc<dyn embed::SemanticModel> = mock.clone();
     let (status, meaning) =
