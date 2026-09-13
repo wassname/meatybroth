@@ -6,7 +6,7 @@
 
 - Permanent local URL: `http://localhost:8088/`
 - Owned SQLite: `/workspace/meatybroth-rust/.local/rust-live-8086/events.sqlite`
-- The current local reader is intentionally read-only while the bounded Titan run is paused. Collection coverage gaps remain visible; this is not a complete migration of the older production corpus.
+- The current local reader is intentionally read-only on a consistent frozen database copy while the bounded Titan writer runs against `.local/rust-live-8086/events.sqlite`. Collection is paused. This is not a complete migration of the older production corpus.
 - Keep port 8088 fixed. Do not configure automatic Bedrock calls in the long-running service.
 
 ## MiniLM cache
@@ -19,19 +19,15 @@ Meaning, Similar, and keyword-labelled Topics use the selected, provenance-separ
 
 ## Titan one-off cache
 
-The approved one-off Titan V2 settings are `amazon.titan-embed-text-v2:0`, 512 dimensions, normalized, `us-west-2`, with US$5 total and monthly ceilings. The request ledger reserves spend before each call. AWS CLI retries are disabled and connect/read timeouts are bounded.
+The approved one-off Titan V2 settings are `amazon.titan-embed-text-v2:0`, 512 dimensions, normalized, `us-west-2`, with US$5 total and monthly ceilings. Native `aws-sdk-bedrockruntime` replaced the per-note CLI. It overlaps at most four provider awaits while all reservation/completion SQLite sections remain synchronous in one task. SDK retries are one and operation timeout is 30 seconds. Each call reserves the documented 8,192-token maximum; actual tokens settle afterward.
 
-One call and a later segment succeeded before AWS login refresh failed:
+Authentication refreshes `cds-login` through its issuer region `us-east-2`, evaluates temporary credentials only in process memory, unsets `AWS_PROFILE`, and calls Bedrock in `us-west-2`. The bounded script is `slop/scripts/2026-09-13_resume_titan_native.sh`. It refreshes before each segment and passes an absolute expiry-minus-120-second deadline. The embedder checks that deadline before each concurrency window and every chunk; partial chunks resume in the next segment. Tests, Clippy, release build, and the two-chunk resume regression passed at immutable commit `18b4f62`.
 
-- 119 post vectors and requests
-- 7,247 actual tokens
-- 144,940 nano-USD = US$0.00014494
-- 243,712 post-vector bytes
-- no uncertain requests
+Active job: Pueue API task `1401` (`titan-native-per-chunk-deadline`), follow process `proc_c960`. Segment 1 finished naturally at `04:19:43+08:00`: 2,188 total vectors, 11,686 eligible missing, four historical incomplete requests and US$0.016471080 succeeded cost. Segment 2 is running with a fresh 900-second credential TTL. Do not kill it mid-window; let natural deadline drains finish.
 
-The 119 rows are not representative: all are NIP-13 nonce-tagged and have IDs beginning `0000`, caused by the former raw-ID ordering. Pending work now orders newest first. Do not use this partial cohort to judge cluster quality. Preserve it for eventual full resume. Evidence: `slop/verification/2026-09-13_titan-corpus-oneoff.log`; its final joined summary is Cartesian and must not be quoted. Pre-provider auth failures are archived in `embedding_preflight_failures`, not mistaken for provider spend.
+Four historical incomplete requests are excluded from automatic retry: one `uncertain` request `18209` with known 60 nUSD actual cost, and three `reserved` requests `18560`–`18562` left by a killed concurrency window, each holding the conservative 163,840 nUSD reservation. After ordinary pending work finishes, make one explicit retry for only those four event IDs. Preserve every old attempt and its actual/reserved cost. Final audit must separately report missing vectors, successful recovery requests, and historical uncertain/reserved charge range. Evidence: `slop/verification/2026-09-13_titan-killed-window-audit.log`.
 
-Titan Similar and Topics can read cached vectors without AWS. Titan Meaning only accepts an exact cached query; otherwise the UI returns a clear error rather than using MiniLM in the Titan space. The three intended query-cache inputs were not embedded before authentication failed.
+Titan Similar and Topics can read cached vectors without AWS. Cached-only production disables and removes Meaning/MiniLM controls. Unsupported direct URLs return explicit HTTP 400. The original 119 rows were entirely NIP-13 proof-of-work-tagged; deterministic event-ID order now removes that partial-run ordering bias, but do not use any partial cohort for a global quality claim.
 
 ## Reader latency and Social
 
@@ -55,12 +51,12 @@ Do not set `MEATYBROTH_EMBED_BACKEND` in the long-running cached deployment. The
 
 ## Remaining checks
 
-1. Build the latest release and restart the local reader on 8088.
-2. Verify root, Social, MiniLM Meaning, Similar, Topics, and partial cached Titan routes both sequentially and concurrently.
-3. Run format, Clippy with warnings denied, and the full tests; capture logs.
-4. Save a screenshot, ingest it, and obtain independent review.
-5. Commit only owned source/evidence, report the immutable SHA to the parent and deployment worker.
-6. Resume the full Titan run only after login refresh is fixed; keep the durable US$5 ledger and no automatic paid ingestion.
+1. Let Pueue task `1401` run through natural credential deadlines; do not interrupt paid windows for routine patches.
+2. After ordinary pending work reaches zero, recover only the four explicitly audited incomplete event IDs once, preserving prior rows and costs.
+3. Audit all intended eligible IDs: vector present or explicitly historical-incomplete; report tokens, succeeded cost, held uncertain/reserved cost, and the US$5 cap.
+4. Rebuild final Titan topics only after vector completion, then verify root, Social, Similar, Topics and status on the exact snapshot sequentially and concurrently.
+5. Make a consistent final database snapshot for deployment. The long-running deployment remains read-only with no AWS credentials or automatic Bedrock calls.
+6. TODO for a future live collector: batch-mark or hide Similar links whose selected-space vector is still pending; do not add one metadata query per card.
 
 ## Follow-up after live review
 
