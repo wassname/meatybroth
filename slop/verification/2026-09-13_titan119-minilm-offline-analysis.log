@@ -99,4 +99,11 @@ MiniLM matched space=bd46d8b3badab3de9e7c2747879e27e781c69e059bf0a19dedf7a39516d
 Root graph: root_p_tags=109 direct_with_stored_kind3=1 full_minilm_cluster_authors=934 direct_cluster_authors=2 observed_twohop_cluster_authors=0
 Moderation lists: spam_members=1979 nsfw_members=1590; common119 overlap=0; production explicit/linkfarm matches=0.
 Temporary analysis code stayed in /tmp and is not a repository/runtime dependency.
+
+COHORT AUDIT (read-only SQL after parent identified NIP-13 risk)
+cohort|notes|leading_four_zero_hex|nonce_tag
+non_titan|6381|262|267
+titan|119|119|119
+Selection mechanism: pending embedding uses ORDER BY event id. NIP-13 defines proof-of-work difficulty as the number of leading zero bits in the NIP-01 id and specifies updating a nonce before recalculating the id. Low-id ordering therefore selects mined events first; the 119-item comparison is severely PoW-biased, not a plausibly random content sample.
+Primary source: https://github.com/nostr-protocol/nips/blob/master/13.md
 -- Pi/gpt-5.6-sol

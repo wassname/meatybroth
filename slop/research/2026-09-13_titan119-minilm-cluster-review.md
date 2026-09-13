@@ -1,10 +1,12 @@
-# Partial Titan/MiniLM cluster review
+# Partial PoW-biased Titan/MiniLM cluster review
 
-Date: 2026-09-13. Status: bounded offline review of the 119 cached Titan posts, not a retained-corpus Titan result. No post was hidden or deleted, and clustering settings were not changed.
+Date: 2026-09-13. Status: bounded offline review of the 119 cached Titan posts, not a retained-corpus Titan result. The cohort is severely selected for NIP-13 proof-of-work notes and cannot support a corpus-level model comparison. No post was hidden or deleted, and clustering settings were not changed.
 
 ## What exists
 
-The interrupted one-off run saved 119 normalized Titan V2 512-dimensional post vectors in space `64c3c581…9703bbf5`: 7,247 billed input tokens and 144,940 nano-USD (**$0.00014494**). The same 119 event IDs have MiniLM 384-dimensional vectors in space `bd46d8b3…16db644e`. The Titan rows are the deterministic lowest-ID pending slice because production selects `ORDER BY e.id`; cryptographic IDs make content bias unlikely, but 119 posts are only 4.1% of the 2,874-post completed MiniLM set.
+The interrupted one-off run saved 119 normalized Titan V2 512-dimensional post vectors in space `64c3c581…9703bbf5`: 7,247 billed input tokens and 144,940 nano-USD (**$0.00014494**). The same 119 event IDs have MiniLM 384-dimensional vectors in space `bd46d8b3…16db644e`.
+
+The Titan rows are the deterministic lowest-ID pending slice because production selects `ORDER BY e.id`. This is not a random hash slice. All 119 Titan IDs begin with four zero hex digits and all 119 events have a `nonce` tag; among 6,381 eligible non-Titan notes, only 262 begin with four zero hex digits and 267 have a nonce tag. [NIP-13](https://github.com/nostr-protocol/nips/blob/master/13.md) states that proof-of-work difficulty is “the number of leading zero bits in the NIP-01 id” and miners update a nonce before recalculating the ID. Ordering by ID therefore selects mined notes first. The 119 posts are a specific PoW cohort and only 4.1% of the earlier 2,874-post MiniLM set.
 
 Titan topic rows do not exist because authentication failed before full backfill and final clustering. For diagnosis only, I applied the current deterministic cosine clustering procedure separately to the 119 Titan and matched MiniLM vectors: six clusters, farthest-first initialization, eight assignment/update passes and document-frequency labels. This did not write to SQLite.
 
@@ -22,7 +24,7 @@ Other groups are not yet useful feed topics:
 - `good · year · all` is largely short “GM” posts. It is coherent as a low-information style cluster, but not a useful subject label.
 - `them · because · don` is a heterogeneous remainder.
 
-MiniLM also isolates the supply-chain group, but its other groups are broad or style-driven. On the matched set, only 50/119 exact nearest neighbors agree. The median rank of Titan's nearest neighbor in MiniLM space is 3, but the mean is 17.5; adjusted Rand index between the two six-cluster assignments is 0.058. These mechanics show that the spaces differ. They do not say Titan is better.
+MiniLM also isolates the supply-chain group, but its other groups are broad or style-driven. Within this PoW cohort, only 50/119 exact nearest neighbors agree. The median rank of Titan's nearest neighbor in MiniLM space is 3, but the mean is 17.5; adjusted Rand index between the two six-cluster assignments is 0.058. These mechanics show that the spaces differ on mined notes. They do not say Titan is better and must not be extrapolated to ordinary notes.
 
 ## Disagreements worth retaining
 
@@ -43,7 +45,7 @@ Consequently, spam-list overlap, keyword rules and observed 1/2-hop membership c
 
 ## Epistemic status and next comparison
 
-Observed: exact cached IDs/vectors/tokens/cost, deterministic cluster assignments, primary post text, moderation-list sizes and stored graph coverage. Inference: supply-chain and zap groups are recognizable; several other groups are weak. Opinion: the 119-post result is not useful enough to publish as the production topic feed.
+Observed: exact cached IDs/vectors/tokens/cost, 119/119 PoW selection, deterministic cluster assignments, primary post text, moderation-list sizes and stored graph coverage. Inference: supply-chain and zap groups are recognizable within the mined cohort; several other groups are weak. Opinion: the 119-post result is not useful enough to publish as the production topic feed or compare model quality across the retained corpus.
 
 The full retained-corpus comparison should repeat this exact review without tuning: centroid representatives for every topic, deterministic neighbor disagreements, list/rule counts, observed graph coverage and benign same-topic counterexamples. Actual user review should judge useful versus garbage posts. Counts and agreement statistics are diagnostics only.
 
