@@ -123,7 +123,7 @@ impl Search {
         } else {
             None
         };
-        let parsed = if q.is_empty() || ["meaning", "similar"].contains(&mode) {
+        let parsed = if q.is_empty() || ["meaning", "similar", "topics"].contains(&mode) {
             Ok(None)
         } else {
             parse_fts(&q).map(Some)

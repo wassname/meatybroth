@@ -651,18 +651,29 @@ fn normalize(vector: &mut [f32]) -> Result<(), Error> {
 
 fn topic_label(texts: &[&str]) -> String {
     const STOP: &[&str] = &[
-        "about", "after", "also", "and", "are", "been", "but", "can", "for", "from", "has", "have",
-        "https", "into", "its", "just", "more", "not", "that", "the", "their", "then", "there",
-        "they", "this", "was", "were", "what", "when", "where", "which", "who", "will", "with",
-        "would", "you", "your",
+        "about", "after", "also", "and", "any", "are", "been", "but", "can", "for", "free", "from",
+        "has", "have", "here", "how", "into", "its", "just", "like", "more", "nostr", "not", "one",
+        "post", "same", "still", "that", "the", "their", "then", "there", "they", "this", "type",
+        "was", "were", "what", "when", "where", "which", "who", "will", "with", "would", "you",
+        "your",
     ];
+    let urls = regex::Regex::new(r"(?i)https?://\S+").unwrap();
     let words = regex::Regex::new(r"(?i)[\p{L}\p{N}][\p{L}\p{N}_-]{2,}").unwrap();
     let mut counts = std::collections::HashMap::<String, usize>::new();
     for text in texts {
+        let without_urls = urls.replace_all(text, " ");
         let unique: std::collections::HashSet<_> = words
-            .find_iter(text)
+            .find_iter(&without_urls)
             .map(|word| word.as_str().to_lowercase())
-            .filter(|word| !STOP.contains(&word.as_str()) && !word.starts_with("http"))
+            .filter(|word| {
+                word.is_ascii()
+                    && word
+                        .chars()
+                        .any(|character| character.is_ascii_alphabetic())
+                    && word.chars().count() <= 32
+                    && !STOP.contains(&word.as_str())
+                    && !word.starts_with("http")
+            })
             .collect();
         for word in unique {
             *counts.entry(word).or_default() += 1;
@@ -690,10 +701,18 @@ pub fn cluster_topics(path: &Path, space: &Space, now: i64) -> Result<usize, Err
         "SELECT embedding.event_id,embedding.vector,event.content
          FROM post_embeddings embedding
          JOIN events event ON event.id=embedding.event_id
-         WHERE embedding.space_id=?1 ORDER BY embedding.event_id",
+         JOIN reader_events reader ON reader.event_id=event.id
+         WHERE embedding.space_id=?1 AND event.created_at BETWEEN ?2 AND ?3
+           AND NOT EXISTS (
+             SELECT 1 FROM policy_exclusions exclusion
+             WHERE exclusion.event_id=lower(hex(event.id)))
+           AND lower(hex(event.pubkey)) NOT IN (
+             SELECT member.value FROM moderation_lists list,json_each(list.members_json) member
+             WHERE list.identifier='nsfw' AND member.type='text')
+         ORDER BY embedding.event_id",
     )?;
     let rows: Vec<(Vec<u8>, Vec<f32>, String)> = statement
-        .query_map([&space.id], |row| {
+        .query_map((&space.id, now - WINDOW, now), |row| {
             Ok((
                 row.get(0)?,
                 decode_vector(&row.get::<_, Vec<u8>>(1)?, space.dimensions)
@@ -774,11 +793,15 @@ pub fn cluster_topics(path: &Path, space: &Space, now: i64) -> Result<usize, Err
         "DELETE FROM embedding_topics WHERE space_id=?1",
         [&space.id],
     )?;
+    let mut stored_topics = 0;
     for (topic_id, (label, centroid)) in labels.iter().zip(&centroids).enumerate() {
         let post_count = assignments
             .iter()
             .filter(|value| **value == topic_id)
             .count();
+        if post_count == 0 {
+            continue;
+        }
         tx.execute(
             "INSERT INTO embedding_topics(space_id,topic_id,label,post_count,centroid,created_at)
              VALUES(?1,?2,?3,?4,?5,?6)",
@@ -791,6 +814,7 @@ pub fn cluster_topics(path: &Path, space: &Space, now: i64) -> Result<usize, Err
                 now,
             ),
         )?;
+        stored_topics += 1;
     }
     for ((event_id, _, _), topic_id) in rows.iter().zip(assignments) {
         tx.execute(
@@ -799,7 +823,7 @@ pub fn cluster_topics(path: &Path, space: &Space, now: i64) -> Result<usize, Err
         )?;
     }
     tx.commit()?;
-    Ok(cluster_count)
+    Ok(stored_topics)
 }
 
 /// Lists keyword-labelled topics largest first.
