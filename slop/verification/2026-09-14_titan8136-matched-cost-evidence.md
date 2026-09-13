@@ -1,9 +1,12 @@
 # Frozen Titan matched-cost evidence
 
-Observed 2026-09-14. Read-only SQLite CLI queries against `.local/deployment-handoff/events-8136.sqlite`, SHA-256 `cabe5372bd11729bd33468c311e9e980e5e20ddfa9bd47c973943be473cecd02`. No live/production database, model call, or retry was used. `reader_post_events` is the current eligibility boundary; `post_embeddings` records MiniLM aggregate embeddings.
+Observed 2026-09-14. Read-only SQLite CLI queries against `.local/deployment-handoff/events-8136.sqlite`, SHA-256 `cabe5372bd11729bd33468c311e9e980e5e20ddfa9bd47c973943be473cecd02`. No live/production database, model call, or retry was used. The reader's source predicate is `posts` plus `created_at BETWEEN fixed_snapshot_time - 30 days AND fixed_snapshot_time`; `post_embeddings` records aggregate completion for each space.
 
 ```sql
-WITH spaces AS (SELECT id, backend FROM embedding_spaces),
+WITH eligible AS (
+  SELECT source_id FROM posts
+  WHERE created_at BETWEEN 1786743846 AND 1789335846
+), spaces AS (SELECT id, backend FROM embedding_spaces),
 titan AS (
   SELECT r.event_id, SUM(r.actual_tokens) titan_tokens,
          SUM(r.actual_nusd) titan_nusd, COUNT(*) requests
@@ -16,9 +19,9 @@ titan AS (
   WHERE s.backend='minilm'
 )
 SELECT CASE
-  WHEN EXISTS(SELECT 1 FROM reader_post_events rp WHERE rp.event_id=t.event_id)
+  WHEN EXISTS(SELECT 1 FROM eligible e WHERE e.source_id=lower(hex(t.event_id)))
    AND m.minilm_tokens IS NOT NULL THEN 'matched_completed_eligible'
-  WHEN EXISTS(SELECT 1 FROM reader_post_events rp WHERE rp.event_id=t.event_id)
+  WHEN EXISTS(SELECT 1 FROM eligible e WHERE e.source_id=lower(hex(t.event_id)))
    THEN 'eligible_titan_no_minilm_match'
   ELSE 'not_currently_eligible'
  END cohort,
@@ -33,7 +36,7 @@ GROUP BY cohort;
 | matched completed eligible | 7,537 | 7,667 | 1,169,047 | $0.02338094 | 1,129,414 |
 | eligible Titan; no MiniLM match | 599 | 1,351 | 2,445,982 | $0.04891964 | — |
 
-The matched cohort has 155.107735 Titan tokens/event and Titan/MiniLM ratio 1.035092. At $0.02/million input tokens, multiplying 155.107735 by the illustrative 918,000-note monthly volume gives $2.847778. This is not a production forecast: its low-four-hex-zero rate is 930/7,537 (12.3%), versus 1,010/13,874 (7.3%) for all current eligible posts; it also excludes the 599 long/no-MiniLM-match events.
+The matched cohort has 155.107735 Titan tokens/event and Titan/MiniLM ratio 1.035092. At $0.02/million input tokens, multiplying 155.107735 by the illustrative 918,000-note monthly volume gives $2.847778. The all-8,136 charged-event ledger rate is $0.07230058 / 8,136 × 918,000 = $8.157809. This is not a production forecast: its low-four-hex-zero rate is 930/7,537 (12.3%), versus 1,010/13,874 (7.3%) for all reader-eligible posts; it also excludes the 599 long/no-MiniLM-match events.
 
 ```sql
 SELECT r.status, COUNT(*) request_rows, COUNT(DISTINCT hex(r.event_id)) events,
@@ -50,6 +53,6 @@ GROUP BY r.status;
 | uncertain | 1 | 1 | 3 | $0.00000006 | $0.00000004 |
 | reserved/held | 3 | 3 | — | — | $0.00049152 |
 
-For the dated first 119 succeeded request rows (`requested_at <= 1789306718`), the same frozen ledger returns 119 events, 7,247 actual tokens, and $0.00014494, reproducing the preserved 119-call evidence. The snapshot is application-ledger evidence, not an AWS invoice.
+The exact fixed-time predicate returns 13,874 reader-eligible posts and 8,136 completed Titan aggregate vectors, all joined to an eligible `posts` row. The dated handoff log instead reports 13,852 eligible / 8,124 vectors; this discrepancy is retained, not reconciled by assertion. For the dated first 119 succeeded request rows (`requested_at <= 1789306718`), the same frozen ledger returns 119 events, 7,247 actual tokens, and $0.00014494, reproducing the preserved 119-call evidence. The snapshot is application-ledger evidence, not an AWS invoice.
 
 -- Pi/gpt-5.6-terra
