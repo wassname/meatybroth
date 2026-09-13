@@ -12,7 +12,7 @@ Open http://localhost:8083. The default command creates a new SDK database, boot
 
 The repository selects nightly Cargo and enforces an eight-day minimum dependency publication age in `.cargo/config.toml`. `cargo update --dry-run` must report `as of 8 days ago`; build/test with `--locked`.
 
-New, Relevance, Conversations and Social preserve the original ranking rules. Meaning, Similar, and keyword-labelled Topics use one exact local MiniLM vector space. Search URLs, 100-post pages, dates, expansion, thread context, profiles/self-declared NIP-05 addresses and status are implemented. Markdown uses pulldown-cmark and ammonia; post bodies cannot load images/scripts. The reader hides stored policy exclusions and Primal NSFW members, and preserves other warning labels.
+New, Relevance, Conversations and Social preserve the original ranking rules. Meaning, Similar, and keyword-labelled Topics use one selected vector cache. MiniLM and Titan have separate provenance and are never mixed. Search URLs, 100-post pages, dates, expansion, thread context, profiles/self-declared NIP-05 addresses and status are implemented. Markdown uses pulldown-cmark and ammonia; post bodies cannot load images/scripts. The reader hides stored policy exclusions and Primal NSFW members, and preserves other warning labels.
 
 Set `MEATYBROTH_READ_ONLY=1` only to inspect an existing projection without collection. Public collection keeps durable five-minute forward/backfill cursors and records interrupted or unreconciled intervals as gaps. It tries NIP-77 inventory reconciliation before advancing; selected public relays currently report it unsupported, so their EOSE-backed fallback remains explicitly incomplete, including same-second caps. Signed moderation snapshots refresh hourly before further admission; an invalid refresh stops collection but not HTTP. Set the explicit MiniLM space before startup:
 
@@ -24,7 +24,21 @@ MEATYBROTH_EMBED_NORMALIZE=true \
 MEATYBROTH_DB="$PWD/.local/live/events.sqlite" cargo run --locked
 ```
 
-The resolved model revision plus model/tokenizer SHA-256 hashes define the space ID, so a changed snapshot cannot reuse or mix vectors. Local inference costs zero; the Bedrock backend remains disabled until paid-call approval.
+The resolved model revision plus model/tokenizer SHA-256 hashes define the space ID, so a changed snapshot cannot reuse or mix vectors. Local inference costs zero.
+
+A cached Titan deployment does not load MiniLM, invoke Bedrock, or require AWS credentials:
+
+```sh
+MEATYBROTH_READ_ONLY=1 \
+MEATYBROTH_DEFAULT_EMBEDDING=titan \
+MEATYBROTH_DB=/path/to/events.sqlite \
+MEATYBROTH_ADDR=127.0.0.1:8088 \
+./meatybroth
+```
+
+Do not set `MEATYBROTH_EMBED_BACKEND` in that long-running process. Titan Similar and Topics use cached vectors. Titan Meaning accepts only queries cached during the approved one-off run. `MEATYBROTH_RECLUSTER_ONLY=bedrock` rebuilds Titan topics offline without loading a model or calling AWS.
+
+<!-- Pi/gpt-5.6-sol -->
 
 ```sh
 cargo test --locked

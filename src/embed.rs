@@ -11,16 +11,18 @@ use std::{
     future::Future,
     path::{Path, PathBuf},
     pin::Pin,
-    sync::Mutex,
+    process::Command,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Mutex,
+    },
 };
 
 pub const TITAN_MODEL: &str = "amazon.titan-embed-text-v2:0";
 pub const TITAN_DIMENSIONS: usize = 512;
 pub const MINILM_MODEL: &str = "sentence-transformers/all-MiniLM-L6-v2";
 pub const MINILM_DIMENSIONS: usize = 384;
-#[cfg(test)]
 const TITAN_MAX_CHUNK_BYTES: usize = 8_000;
-#[cfg(test)]
 const TITAN_PRICE_NUSD_PER_TOKEN: i64 = 20;
 const MINILM_MAX_SEQUENCE_TOKENS: usize = 256;
 const MINILM_CONTENT_TOKENS: usize = MINILM_MAX_SEQUENCE_TOKENS - 2;
@@ -62,7 +64,6 @@ impl Space {
         self
     }
 
-    #[cfg(test)]
     pub fn titan_v2() -> Self {
         Self {
             id: String::new(),
@@ -101,6 +102,108 @@ pub trait SemanticModel: Send + Sync {
     fn embed_text(&self, text: &str) -> Result<Output, Error>;
 }
 
+/// Official AWS CLI transport for the explicitly approved one-off Titan backfill.
+pub struct BedrockCli {
+    region: String,
+    space: Space,
+    sequence: AtomicU64,
+}
+
+impl BedrockCli {
+    pub fn new(region: &str) -> Self {
+        Self {
+            region: region.to_owned(),
+            space: Space::titan_v2(),
+            sequence: AtomicU64::new(0),
+        }
+    }
+}
+
+impl Transport for BedrockCli {
+    fn space(&self) -> &Space {
+        &self.space
+    }
+
+    fn split(&self, text: &str) -> Result<Vec<String>, Error> {
+        Ok(titan_chunks(text))
+    }
+
+    fn embed<'a>(
+        &'a self,
+        text: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<Output, Error>> + Send + 'a>> {
+        Box::pin(async move {
+            let output_path = std::env::temp_dir().join(format!(
+                "meatybroth-titan-{}-{}.json",
+                std::process::id(),
+                self.sequence.fetch_add(1, Ordering::Relaxed),
+            ));
+            let body = serde_json::json!({
+                "inputText": text,
+                "dimensions": TITAN_DIMENSIONS,
+                "normalize": true,
+            })
+            .to_string();
+            let command = Command::new("/usr/local/bin/aws")
+                .env("AWS_MAX_ATTEMPTS", "1")
+                .env("AWS_RETRY_MODE", "standard")
+                .args([
+                    "bedrock-runtime",
+                    "invoke-model",
+                    "--region",
+                    &self.region,
+                    "--model-id",
+                    TITAN_MODEL,
+                    "--content-type",
+                    "application/json",
+                    "--accept",
+                    "application/json",
+                    "--cli-binary-format",
+                    "raw-in-base64-out",
+                    "--body",
+                    &body,
+                    "--cli-connect-timeout",
+                    "5",
+                    "--cli-read-timeout",
+                    "30",
+                ])
+                .arg(&output_path)
+                .output()?;
+            if !command.status.success() {
+                let _ = std::fs::remove_file(&output_path);
+                let stderr = String::from_utf8_lossy(&command.stderr);
+                let stage = if stderr.contains("CreateOAuth2Token") {
+                    "preflight"
+                } else {
+                    "uncertain"
+                };
+                return Err(format!("{stage}: Titan InvokeModel failed: {}", stderr.trim()).into());
+            }
+            let response: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&output_path)?)?;
+            std::fs::remove_file(output_path)?;
+            let vector = response["embedding"]
+                .as_array()
+                .ok_or("Titan response omitted embedding")?
+                .iter()
+                .map(|value| {
+                    value
+                        .as_f64()
+                        .map(|number| number as f32)
+                        .ok_or("Titan returned a non-number")
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let input_tokens = response["inputTextTokenCount"]
+                .as_i64()
+                .ok_or("Titan response omitted inputTextTokenCount")?;
+            Ok(Output {
+                vector,
+                input_tokens,
+            })
+        })
+    }
+}
+
 /// Native ONNX MiniLM inference with tokenizer-bound chunking.
 pub struct MiniLm {
     model: Mutex<TextEmbedding>,
@@ -112,11 +215,12 @@ impl MiniLm {
     ///
     /// A revision or hash change creates a new space ID, so old vectors are never reused or mixed.
     /// -- Pi/gpt-5.6-sol
-    pub fn open(cache_dir: &Path) -> Result<Self, Error> {
+    pub fn open(cache_dir: &Path, intra_threads: usize) -> Result<Self, Error> {
         let model = TextEmbedding::try_new(
             TextInitOptions::new(EmbeddingModel::AllMiniLML6V2)
                 .with_cache_dir(cache_dir.to_path_buf())
                 .with_max_length(MINILM_MAX_SEQUENCE_TOKENS)
+                .with_intra_threads(intra_threads)
                 .with_show_download_progress(true),
         )?;
         let (revision, model_sha256, tokenizer_sha256) = model_provenance(cache_dir)?;
@@ -290,7 +394,6 @@ fn model_provenance(cache_dir: &Path) -> Result<(String, String, String), Error>
 }
 
 /// Splits UTF-8 text without changing its bytes or exceeding Titan's input bound.
-#[cfg(test)]
 pub fn titan_chunks(text: &str) -> Vec<String> {
     assert!(!text.trim().is_empty());
     let mut chunks = Vec::new();
@@ -303,6 +406,37 @@ pub fn titan_chunks(text: &str) -> Vec<String> {
     }
     chunks.push(text[start..].to_owned());
     chunks
+}
+
+/// Loads the newest recorded space for one explicit backend.
+pub fn space_by_backend(path: &Path, backend: &str) -> Result<Option<Space>, Error> {
+    db(path)?
+        .query_row(
+            "SELECT id,backend,model,dimensions,normalize,revision,model_sha256,tokenizer_sha256
+             FROM embedding_spaces WHERE backend=?1 ORDER BY created_at DESC LIMIT 1",
+            [backend],
+            |row| {
+                let backend: String = row.get(1)?;
+                Ok(Space {
+                    id: row.get(0)?,
+                    model: row.get(2)?,
+                    dimensions: usize::try_from(row.get::<_, i64>(3)?)
+                        .expect("embedding dimensions must be nonnegative"),
+                    normalize: row.get(4)?,
+                    revision: row.get(5)?,
+                    model_sha256: row.get(6)?,
+                    tokenizer_sha256: row.get(7)?,
+                    price_nusd_per_token: if backend == "bedrock" {
+                        TITAN_PRICE_NUSD_PER_TOKEN
+                    } else {
+                        0
+                    },
+                    backend,
+                })
+            },
+        )
+        .optional()
+        .map_err(Into::into)
 }
 
 fn register_space(path: &Path, space: &Space, now: i64) -> Result<(), Error> {
@@ -344,7 +478,7 @@ fn pending(
              WHERE l.identifier='nsfw' AND m.type='text')
            AND NOT EXISTS (
              SELECT 1 FROM post_embeddings v WHERE v.event_id=e.id AND v.space_id=?3)
-         ORDER BY e.id LIMIT ?4",
+         ORDER BY e.created_at DESC,e.id LIMIT ?4",
     )?;
     let rows = statement.query_map(
         (now - WINDOW, now, &space.id, i64::try_from(limit)?),
@@ -514,6 +648,29 @@ fn complete_request(path: &Path, space: &Space, completion: Completion<'_>) -> R
     Ok(())
 }
 
+fn archive_preflight_failure(
+    path: &Path,
+    request_id: i64,
+    error: &str,
+    now: i64,
+) -> Result<(), Error> {
+    let mut conn = db(path)?;
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    tx.execute(
+        "INSERT INTO embedding_preflight_failures(
+           request_id,event_id,chunk_index,space_id,requested_at,reserved_nusd,error,archived_at)
+         SELECT id,event_id,chunk_index,space_id,requested_at,reserved_nusd,?1,?2
+         FROM embedding_requests WHERE id=?3 AND status='reserved'",
+        (error, now, request_id),
+    )?;
+    tx.execute(
+        "DELETE FROM embedding_requests WHERE id=?1 AND status='reserved'",
+        [request_id],
+    )?;
+    tx.commit()?;
+    Ok(())
+}
+
 fn mark_uncertain(path: &Path, request_id: i64, error: &str) -> Result<(), Error> {
     db(path)?.execute(
         "UPDATE embedding_requests SET status='uncertain',error=?1 WHERE id=?2",
@@ -596,7 +753,7 @@ fn finalize(
 /// -- Pi/gpt-5.6-sol
 pub async fn embed_pending(
     path: &Path,
-    transport: &impl Transport,
+    transport: &(impl Transport + ?Sized),
     budget: Budget,
     now: i64,
     limit: usize,
@@ -623,7 +780,12 @@ pub async fn embed_pending(
             let output = match transport.embed(text_chunk).await {
                 Ok(output) => output,
                 Err(error) => {
-                    mark_uncertain(path, request_id, &error.to_string())?;
+                    let message = error.to_string();
+                    if message.starts_with("preflight:") {
+                        archive_preflight_failure(path, request_id, &message, now)?;
+                    } else {
+                        mark_uncertain(path, request_id, &message)?;
+                    }
                     return Err(error);
                 }
             };
@@ -644,6 +806,89 @@ pub async fn embed_pending(
         finalize(path, event_id, text_chunks.len(), space, now)?;
     }
     Ok(posts.len())
+}
+
+/// Caches one exact text query under the same pre-call budget ledger.
+pub async fn cache_query(
+    path: &Path,
+    transport: &(impl Transport + ?Sized),
+    budget: Budget,
+    query: &str,
+    now: i64,
+) -> Result<bool, Error> {
+    let space = transport.space();
+    register_space(path, space, now)?;
+    if db(path)?
+        .query_row(
+            "SELECT 1 FROM embedding_queries WHERE space_id=?1 AND query=?2",
+            (&space.id, query),
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some()
+    {
+        return Ok(false);
+    }
+    let event_id = Sha256::digest(format!("query:{query}").as_bytes());
+    let request_id = reserve(path, &event_id, 0, query.len(), space, budget, now)?
+        .ok_or("Query request succeeded without a cached vector")?;
+    let output = match transport.embed(query).await {
+        Ok(output) => output,
+        Err(error) => {
+            let message = error.to_string();
+            if message.starts_with("preflight:") {
+                archive_preflight_failure(path, request_id, &message, now)?;
+            } else {
+                mark_uncertain(path, request_id, &message)?;
+            }
+            return Err(error);
+        }
+    };
+    validate(&output, space)?;
+    let actual_nusd = output.input_tokens * space.price_nusd_per_token;
+    let mut conn = db(path)?;
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let reserved: i64 = tx.query_row(
+        "SELECT reserved_nusd FROM embedding_requests WHERE id=?1 AND status='reserved'",
+        [request_id],
+        |row| row.get(0),
+    )?;
+    if actual_nusd > reserved {
+        return Err("Query token count exceeded conservative reservation".into());
+    }
+    tx.execute(
+        "INSERT INTO embedding_queries(space_id,query,vector,input_tokens,cost_nusd,embedded_at)
+         VALUES(?1,?2,?3,?4,?5,?6)",
+        (
+            &space.id,
+            query,
+            vector_bytes(&output.vector),
+            output.input_tokens,
+            actual_nusd,
+            now,
+        ),
+    )?;
+    tx.execute(
+        "UPDATE embedding_requests SET status='succeeded',actual_tokens=?1,actual_nusd=?2
+         WHERE id=?3",
+        (output.input_tokens, actual_nusd, request_id),
+    )?;
+    tx.commit()?;
+    Ok(true)
+}
+
+/// Loads a previously paid exact query without invoking a provider.
+pub fn cached_query(path: &Path, space: &Space, query: &str) -> Result<Option<Vec<f32>>, Error> {
+    let bytes: Option<Vec<u8>> = db(path)?
+        .query_row(
+            "SELECT vector FROM embedding_queries WHERE space_id=?1 AND query=?2",
+            (&space.id, query),
+            |row| row.get(0),
+        )
+        .optional()?;
+    bytes
+        .map(|value| decode_vector(&value, space.dimensions))
+        .transpose()
 }
 
 /// One keyword-labelled cluster in an exact embedding space.
@@ -955,8 +1200,15 @@ pub fn nearest(
         .into_iter()
         .filter(|(event_id, _)| exclude != Some(event_id))
         .map(|(event_id, bytes)| {
-            let vector = decode_vector(&bytes, space.dimensions)?;
-            let score: f32 = query.iter().zip(vector).map(|(a, b)| a * b).sum();
+            let (values, remainder) = bytes.as_chunks::<4>();
+            if !remainder.is_empty() || values.len() != space.dimensions {
+                return Err("Stored embedding has invalid dimensions".into());
+            }
+            let score: f32 = query
+                .iter()
+                .zip(values)
+                .map(|(a, raw)| a * f32::from_le_bytes(*raw))
+                .sum();
             Ok((event_id, score))
         })
         .collect::<Result<Vec<_>, Error>>()?;

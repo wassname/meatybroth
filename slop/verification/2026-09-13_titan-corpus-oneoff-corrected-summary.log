@@ -1,0 +1,24 @@
+Source database: /workspace/meatybroth-rust/.local/rust-live-8086/events.sqlite
+Source run: slop/verification/2026-09-13_titan-corpus-oneoff.log
+
+Correct non-Cartesian aggregate queries:
+
+SELECT count(*) FROM post_embeddings
+WHERE space_id=(SELECT id FROM embedding_spaces WHERE backend='bedrock' ORDER BY created_at DESC LIMIT 1);
+-- 119
+
+SELECT count(*),coalesce(sum(actual_tokens),0),coalesce(sum(actual_nusd),0)
+FROM embedding_requests
+WHERE space_id=(SELECT id FROM embedding_spaces WHERE backend='bedrock' ORDER BY created_at DESC LIMIT 1)
+  AND status='succeeded';
+-- requests=119, tokens=7247, actual_nusd=144940 (US$0.000144940)
+
+SELECT coalesce(sum(length(vector)),0) FROM post_embeddings
+WHERE space_id=(SELECT id FROM embedding_spaces WHERE backend='bedrock' ORDER BY created_at DESC LIMIT 1);
+-- 243712 bytes (119 * 512 * 4)
+
+The joined summary at the end of the source run multiplied post and request rows and is invalid. It is retained as failure evidence, not as a result.
+
+Cohort limitation: all 119 event IDs begin with 0000 and all 119 carry NIP-13 nonce tags. The former ORDER BY event ID selected proof-of-work-mined events. This partial cache is not representative. Pending selection now uses newest-first chronological order; no additional AWS requests were made after authentication refresh failed.
+
+— Pi/gpt-5.6-sol

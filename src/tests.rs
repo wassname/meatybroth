@@ -7,6 +7,13 @@ use tower::ServiceExt;
 
 const SCHEMA:&str="
 CREATE TABLE events(id BLOB PRIMARY KEY,pubkey BLOB,kind INTEGER,created_at INTEGER,content TEXT,tags TEXT,sig BLOB);
+CREATE TABLE event_tags(event_id BLOB,tag_name TEXT,tag_value TEXT,PRIMARY KEY(event_id,tag_name,tag_value));
+CREATE TABLE social_edges(event_id BLOB,follower TEXT,followee TEXT,PRIMARY KEY(event_id,followee));
+CREATE INDEX social_edges_follower ON social_edges(follower,followee);
+CREATE INDEX social_edges_followee ON social_edges(followee,follower);
+CREATE TRIGGER social_edge_insert AFTER INSERT ON event_tags WHEN new.tag_name='p' BEGIN
+ INSERT OR IGNORE INTO social_edges SELECT e.id,lower(hex(e.pubkey)),new.tag_value FROM events e WHERE e.id=new.event_id AND e.kind=3;
+END;
 CREATE TABLE posts(canonical_id TEXT PRIMARY KEY,source TEXT,source_id TEXT,author_id TEXT,author_name TEXT,text TEXT,created_at INTEGER,url TEXT,parent_id TEXT,root_id TEXT);
 CREATE INDEX posts_parent ON posts(parent_id);
 CREATE VIRTUAL TABLE posts_fts USING fts5(text,content='posts',content_rowid='rowid',tokenize='porter unicode61');
@@ -40,6 +47,7 @@ impl Fixture {
             root: key(1),
             templates: templates().unwrap(),
             embedding: None,
+            default_embedding: "minilm".into(),
         }
     }
     fn post(
@@ -69,8 +77,19 @@ impl Fixture {
             .unwrap();
     }
     fn event(&self, author: u32, kind: i64, content: &str, tags: Value) {
+        let event_id = key(author + kind as u32 + 10000);
         self.db.execute("INSERT OR REPLACE INTO events VALUES(unhex(?1),unhex(?2),?3,?4,?5,?6,zeroblob(64))",
-            rusqlite::params![key(author+kind as u32+10000),key(author),kind,self.now-600,content,tags.to_string()]).unwrap();
+            rusqlite::params![&event_id,key(author),kind,self.now-600,content,tags.to_string()]).unwrap();
+        for tag in tags.as_array().unwrap() {
+            if let (Some(name), Some(value)) = (tag[0].as_str(), tag[1].as_str()) {
+                self.db
+                    .execute(
+                        "INSERT OR REPLACE INTO event_tags VALUES(unhex(?1),?2,?3)",
+                        (&event_id, name, value),
+                    )
+                    .unwrap();
+            }
+        }
     }
     fn follows(&self, author: u32, followees: &[u32]) {
         self.event(
@@ -273,7 +292,7 @@ async fn social_uses_canonical_graph_shortest_independent_paths_and_reach() {
     assert!(ids(&f.request("/?mode=discovery&q=absent").await.1).is_empty());
     // Direct path to 21 replaces that endorser's longer path, not an extra vote. -- Pi/gpt-6-astra
     f.follows(2, &[20, 21, 2, 1]);
-    let search = Search::parse("mode=discovery&reach=3&order=connections", f.now);
+    let search = Search::parse("mode=discovery&reach=3&order=connections", f.now, "minilm");
     let rows = queries::feed(&f.db, &search, &key(1), f.now).unwrap();
     assert!(
         (rows.iter().find(|p| p.author_id == key(21)).unwrap().mass - (0.25 + 5.0 / 9.0)).abs()
@@ -432,6 +451,7 @@ fn matched_reference_reader_outputs() {
         root: expected["root"].as_str().unwrap().into(),
         templates: templates().unwrap(),
         embedding: None,
+        default_embedding: "minilm".into(),
     };
     let mut observed = Vec::new();
     for case in expected["cases"].as_array().unwrap() {

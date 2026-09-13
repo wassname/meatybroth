@@ -26,6 +26,16 @@ CREATE TABLE IF NOT EXISTS embedding_requests (
 );
 CREATE INDEX IF NOT EXISTS embedding_request_budget
 ON embedding_requests(requested_at, status);
+CREATE TABLE IF NOT EXISTS embedding_preflight_failures (
+    request_id INTEGER PRIMARY KEY,
+    event_id BLOB NOT NULL,
+    chunk_index INTEGER NOT NULL,
+    space_id TEXT NOT NULL,
+    requested_at INTEGER NOT NULL,
+    reserved_nusd INTEGER NOT NULL,
+    error TEXT NOT NULL,
+    archived_at INTEGER NOT NULL
+);
 -- Chunk and aggregate vectors follow SDK event deletion through foreign keys. -- Pi/gpt-5.6-sol
 CREATE TABLE IF NOT EXISTS embedding_chunks (
     event_id BLOB NOT NULL REFERENCES events(id) ON DELETE CASCADE,
@@ -38,6 +48,15 @@ CREATE TABLE IF NOT EXISTS embedding_chunks (
     vector BLOB NOT NULL CHECK(length(vector) = dimensions * 4),
     embedded_at INTEGER NOT NULL,
     PRIMARY KEY(event_id, chunk_index, space_id)
+);
+CREATE TABLE IF NOT EXISTS embedding_queries (
+    space_id TEXT NOT NULL REFERENCES embedding_spaces(id),
+    query TEXT NOT NULL,
+    vector BLOB NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    cost_nusd INTEGER NOT NULL,
+    embedded_at INTEGER NOT NULL,
+    PRIMARY KEY(space_id, query)
 );
 CREATE TABLE IF NOT EXISTS post_embeddings (
     event_id BLOB NOT NULL REFERENCES events(id) ON DELETE CASCADE,
@@ -66,4 +85,6 @@ CREATE TABLE IF NOT EXISTS post_topics (
     PRIMARY KEY(event_id, space_id),
     FOREIGN KEY(space_id, topic_id) REFERENCES embedding_topics(space_id, topic_id) ON DELETE CASCADE
 );
+CREATE INDEX IF NOT EXISTS post_topics_space_topic
+ON post_topics(space_id, topic_id, event_id);
 COMMIT;

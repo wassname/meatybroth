@@ -206,6 +206,9 @@ pub async fn open(path: &Path, primal_author: &str) -> Result<NostrSqlite, Error
     }
     conn.execute_batch(include_str!("coverage.sql"))?;
     conn.execute_batch(include_str!("embed.sql"))?;
+    conn.execute_batch(include_str!("social.sql"))?;
+    // Query-planner cardinality prevents multi-second feed joins after bulk SDK ingestion. -- Pi/gpt-5.6-sol
+    conn.execute_batch("ANALYZE events")?;
     drop(conn);
     recover_interrupted(path, i64::try_from(Timestamp::now().as_secs())?)?;
     Ok(sdk)

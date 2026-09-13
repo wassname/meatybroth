@@ -6,6 +6,7 @@
 use crate::{Error, Search};
 use rusqlite::{named_params, Connection, Row};
 use serde::Serialize;
+use std::collections::HashMap;
 
 /// Reader retention window in seconds.
 pub const WINDOW: i64 = 30 * 86400;
@@ -152,14 +153,8 @@ pub fn feed(db: &Connection, search: &Search, root: &str, now: i64) -> Result<Ve
         // Source: https://github.com/nostr-protocol/nips/blob/master/02.md
         "discovery" => format!(
             "{prefix}, edges AS MATERIALIZED (
-          SELECT DISTINCT
-            lower(hex(e.pubkey)) AS follower,
-            json_extract(t.value, '$[1]') AS followee
-          FROM events e, json_each(e.tags) t
-          WHERE e.kind = 3
-            AND json_extract(t.value, '$[0]') = 'p'
-            AND length(json_extract(t.value, '$[1]')) = 64
-            AND json_extract(t.value, '$[1]') NOT GLOB '*[^0-9a-f]*'
+          SELECT follower, followee
+          FROM social_edges
         ), direct AS MATERIALIZED (
           SELECT followee
           FROM edges
@@ -179,13 +174,16 @@ pub fn feed(db: &Connection, search: &Search, root: &str, now: i64) -> Result<Ve
           SELECT e.followee, d.followee, 2
           FROM direct d
           JOIN endpoint_edges e ON e.follower = d.followee
-          WHERE e.followee != :root AND e.followee != d.followee
+          WHERE :reach >= 2
+            AND e.followee != :root
+            AND e.followee != d.followee
           UNION ALL
           SELECT h.followee, d.followee, 3
           FROM direct d
           JOIN edges e ON e.follower = d.followee
           JOIN endpoint_edges h ON h.follower = e.followee
-          WHERE e.followee != :root
+          WHERE :reach >= 3
+            AND e.followee != :root
             AND e.followee != d.followee
             AND e.followee NOT IN (SELECT followee FROM direct)
             AND h.followee != :root
@@ -262,6 +260,23 @@ pub fn feed(db: &Connection, search: &Search, root: &str, now: i64) -> Result<Ve
     Ok(result)
 }
 
+/// Loads the current eligible card set once for semantic rank lookup.
+pub fn eligible_map(db: &Connection, now: i64) -> Result<HashMap<String, Post>, Error> {
+    let mut statement = db.prepare(&format!(
+        "{ELIGIBLE}
+         SELECT
+           *,
+           NULL AS bm25,
+           {CARD_DEFAULTS}
+         FROM eligible"
+    ))?;
+    let posts = statement
+        .query_map(named_params! {":since": now - WINDOW, ":until": now}, post)?
+        .map(|post| post.map(|post| (post.canonical_id.clone(), post)))
+        .collect::<Result<_, _>>()?;
+    Ok(posts)
+}
+
 /// Gets one eligible card by canonical ID.
 pub fn get(db: &Connection, id: &str, now: i64) -> Result<Option<Post>, Error> {
     let mut stmt = db.prepare(&format!(
@@ -275,6 +290,25 @@ pub fn get(db: &Connection, id: &str, now: i64) -> Result<Option<Post>, Error> {
     ))?;
     let mut rows = stmt.query(named_params! {":since": now - WINDOW, ":until": now, ":id": id})?;
     Ok(rows.next()?.map(post).transpose()?)
+}
+
+/// Counts eligible direct replies for every stored parent in one reader scan.
+pub fn reply_counts(db: &Connection, now: i64) -> Result<HashMap<String, i64>, Error> {
+    let mut statement = db.prepare(&format!(
+        "{ELIGIBLE}
+         SELECT parent_id, count(*)
+         FROM eligible
+         WHERE parent_id IS NOT NULL
+         GROUP BY parent_id"
+    ))?;
+    let counts = statement
+        .query_map(
+            named_params! {":since": now - WINDOW, ":until": now},
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?
+        .collect::<Result<_, _>>()
+        .map_err(Into::into);
+    counts
 }
 
 /// Counts eligible posts, or direct replies when `parent` is set.

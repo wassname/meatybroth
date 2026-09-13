@@ -1,0 +1,15 @@
+started_at=2026-09-13T22:57:12+08:00
+Built 6 keyword-labelled topics from cached bedrock vectors
+elapsed=3.56 max_rss_kb=28484
+finished_at=2026-09-13T22:57:15+08:00
+topics  assigned
+------  --------
+6       119
+topic_id  label                   post_count
+--------  ----------------------  ----------
+2         good · year · all       37
+0         them · because · don    30
+5         supply · chain · china  20
+1         most · now · acting     18
+3         all · numbers · people  10
+4         cards · cut · keep      4

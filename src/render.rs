@@ -143,7 +143,10 @@ pub fn age(timestamp: i64, now: i64) -> String {
     format!("{}{unit}", seconds / size)
 }
 
-fn identity(db: &Connection, p: &Post) -> Result<(String, String, bool, String), Error> {
+fn identity_from_profile(
+    p: &Post,
+    profile_content: Option<&str>,
+) -> Result<(String, String, bool, String), Error> {
     let placeholder = p.author_name.trim();
     let hexish = (8..=64).contains(&placeholder.len())
         && placeholder
@@ -151,15 +154,7 @@ fn identity(db: &Connection, p: &Post) -> Result<(String, String, bool, String),
             .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase());
     let mut name = if hexish { "" } else { placeholder }.to_string();
     let mut address = String::new();
-    let content: Option<String> = db
-        .query_row(
-            "SELECT content FROM events WHERE pubkey=unhex(?1) AND kind=0
-        ORDER BY created_at DESC,id ASC LIMIT 1",
-            [&p.author_id],
-            |r| r.get(0),
-        )
-        .optional()?;
-    if let Some(profile) = content.and_then(|s| serde_json::from_str::<Value>(&s).ok()) {
+    if let Some(profile) = profile_content.and_then(|s| serde_json::from_str::<Value>(s).ok()) {
         if let Some(display) = profile
             .get("display_name")
             .and_then(Value::as_str)
@@ -201,39 +196,145 @@ fn identity(db: &Connection, p: &Post) -> Result<(String, String, bool, String),
     Ok((name, address, named, format!("https://njump.me/{npub}")))
 }
 
-fn warnings(db: &Connection, p: &Post) -> Result<Vec<String>, Error> {
-    let mut stmt = db.prepare(
-        "SELECT reason FROM content_warnings WHERE event_id IN (?1,?2) ORDER BY category",
+fn identity(db: &Connection, p: &Post) -> Result<(String, String, bool, String), Error> {
+    let content: Option<String> = db
+        .query_row(
+            "SELECT content FROM events WHERE pubkey=unhex(?1) AND kind=0
+             ORDER BY created_at DESC,id ASC LIMIT 1",
+            [&p.author_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    identity_from_profile(p, content.as_deref())
+}
+
+/// Rendered profile identity fields in card-template order.
+pub type Identity = (String, String, bool, String);
+
+/// Resolves card identities from one profile scan rather than one query per card.
+pub fn identity_map<'a>(
+    db: &Connection,
+    posts: impl IntoIterator<Item = &'a Post>,
+) -> Result<HashMap<String, Identity>, Error> {
+    let posts: Vec<_> = posts.into_iter().collect();
+    let mut statement = db.prepare(
+        "SELECT lower(hex(pubkey)),content
+         FROM events
+         WHERE kind=0
+         ORDER BY created_at DESC,id ASC",
     )?;
-    let mut reasons = stmt
-        .query_map([&p.source_id, &p.canonical_id], |r| r.get(0))?
-        .collect::<Result<Vec<String>, _>>()?;
-    // NIP-36 remains effective even when the old projection omitted its warning row. -- Pi/gpt-6-astra
-    let mut stmt = db.prepare(
-        "SELECT coalesce(json_extract(t.value,'$[1]'),'') FROM events e,json_each(e.tags) t
-        WHERE e.id=unhex(?1) AND json_extract(t.value,'$[0]')='content-warning'",
+    let mut profiles = HashMap::<String, String>::new();
+    for row in statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get(1)?)))? {
+        let (author, content) = row?;
+        profiles.entry(author).or_insert(content);
+    }
+    posts
+        .into_iter()
+        .map(|post| {
+            Ok((
+                post.canonical_id.clone(),
+                identity_from_profile(post, profiles.get(&post.author_id).map(String::as_str))?,
+            ))
+        })
+        .collect()
+}
+
+pub fn warning_map<'a>(
+    db: &Connection,
+    posts: impl IntoIterator<Item = &'a Post>,
+) -> Result<HashMap<String, Vec<String>>, Error> {
+    let posts: Vec<_> = posts.into_iter().collect();
+    let object_type: String = db.query_row(
+        "SELECT type FROM sqlite_master WHERE name='content_warnings'",
+        [],
+        |row| row.get(0),
     )?;
-    for reason in stmt.query_map([&p.source_id], |r| r.get::<_, String>(0))? {
-        let label = format!("author: {}", reason?);
-        if !reasons.iter().any(|r| r.starts_with("author:")) {
-            reasons.push(label);
+    let mut warnings = HashMap::<String, Vec<String>>::new();
+    if object_type == "view" {
+        let members: Option<String> = db
+            .query_row(
+                "SELECT members_json FROM moderation_lists WHERE identifier='spam'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let members: HashSet<String> = members
+            .map(|members| serde_json::from_str(&members))
+            .transpose()?
+            .unwrap_or_default();
+        for post in &posts {
+            if members.contains(&post.author_id) {
+                warnings
+                    .entry(post.source_id.clone())
+                    .or_default()
+                    .push("auto-flagged: spam Primal snapshot".into());
+            }
+        }
+    } else {
+        let mut statement =
+            db.prepare("SELECT event_id,reason FROM content_warnings ORDER BY category")?;
+        for row in statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get(1)?)))? {
+            let (event_id, reason) = row?;
+            warnings.entry(event_id).or_default().push(reason);
         }
     }
-    for label in crate::policy::text_labels(&p.text) {
-        if !reasons.contains(&label) {
-            reasons.push(label);
+    // Batch NIP-36 and duplicate detection; per-card scans dominated HTTP latency. -- Pi/gpt-5.6-sol
+    let mut statement = db.prepare(
+        "SELECT lower(hex(event.id)),coalesce(json_extract(tag.value,'$[1]'),'')
+         FROM events event,json_each(event.tags) tag
+         WHERE event.kind=1 AND json_extract(tag.value,'$[0]')='content-warning'",
+    )?;
+    for row in statement.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })? {
+        let (event_id, reason) = row?;
+        warnings
+            .entry(event_id)
+            .or_default()
+            .push(format!("author: {reason}"));
+    }
+    let mut statement = db.prepare(
+        "SELECT lower(hex(pubkey)),content
+         FROM events
+         WHERE kind=1 AND created_at>=unixepoch()-?1
+         GROUP BY pubkey,content
+         HAVING count(*)>1",
+    )?;
+    let duplicates: HashSet<(String, String)> = statement
+        .query_map([queries::WINDOW], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<Result<_, _>>()?;
+    for post in posts {
+        let reasons = warnings.entry(post.source_id.clone()).or_default();
+        for label in crate::policy::text_labels(&post.text) {
+            if !reasons.contains(&label) {
+                reasons.push(label);
+            }
+        }
+        if duplicates.contains(&(post.author_id.clone(), post.text.clone()))
+            && !reasons
+                .iter()
+                .any(|reason| reason.contains("duplicate-content"))
+        {
+            reasons.push("auto-flagged: spam duplicate-content".into());
         }
     }
-    let duplicate: bool = db.query_row(
-        "SELECT EXISTS(SELECT 1 FROM events WHERE kind=1 AND pubkey=unhex(?1)
-        AND content=?2 AND id!=unhex(?3) AND created_at>=unixepoch()-?4)",
-        rusqlite::params![p.author_id, p.text, p.source_id, queries::WINDOW],
-        |r| r.get(0),
-    )?;
-    if duplicate && !reasons.iter().any(|r| r.contains("duplicate-content")) {
-        reasons.push("auto-flagged: spam duplicate-content".into());
+    Ok(warnings)
+}
+
+fn warnings(db: &Connection, p: &Post, initial: Option<&[String]>) -> Result<Vec<String>, Error> {
+    if let Some(reasons) = initial {
+        return Ok(reasons.to_vec());
     }
-    Ok(reasons)
+    let warnings = warning_map(db, std::iter::once(p))?;
+    Ok(warnings
+        .get(&p.source_id)
+        .into_iter()
+        .chain(warnings.get(&p.canonical_id))
+        .flatten()
+        .cloned()
+        .collect())
 }
 fn hides(reasons: &[String]) -> bool {
     reasons.iter().any(|r| {
@@ -243,15 +344,89 @@ fn hides(reasons: &[String]) -> bool {
     })
 }
 
+fn parent_excerpt(parent: &Post, author: &str, reasons: &[String]) -> Value {
+    let text = if hides(reasons) {
+        "content warning".to_string()
+    } else {
+        let html = body(&parent.text);
+        let stripped = regex::Regex::new("<[^>]+>")
+            .unwrap()
+            .replace_all(&html, " ");
+        html_escape::decode_html_entities(&stripped)
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let excerpt = if text.chars().count() > 160 {
+        format!("{}…", text.chars().take(159).collect::<String>().trim_end())
+    } else {
+        text
+    };
+    json!({"source":parent.source,"source_id":parent.source_id,"author":author,"text":excerpt})
+}
+
+/// Resolves feed parent excerpts with bounded batch scans instead of per-card queries.
+pub fn parent_excerpt_map<'a>(
+    db: &Connection,
+    posts: impl IntoIterator<Item = &'a Post>,
+    now: i64,
+) -> Result<HashMap<String, Value>, Error> {
+    let posts: Vec<_> = posts.into_iter().collect();
+    let eligible = queries::eligible_map(db, now)?;
+    let parents: Vec<_> = posts
+        .iter()
+        .filter_map(|post| post.parent_id.as_ref())
+        .filter_map(|id| eligible.get(id))
+        .collect();
+    let identities = identity_map(db, parents.iter().copied())?;
+    let parent_warnings = warning_map(db, parents.iter().copied())?;
+    let values = posts
+        .into_iter()
+        .map(|post| {
+            let value = post
+                .parent_id
+                .as_ref()
+                .and_then(|id| eligible.get(id))
+                .map(|parent| {
+                    let reasons = parent_warnings
+                        .get(&parent.source_id)
+                        .map(Vec::as_slice)
+                        .unwrap_or(&[]);
+                    parent_excerpt(parent, &identities[&parent.canonical_id].0, reasons)
+                })
+                .unwrap_or(Value::Null);
+            (post.canonical_id.clone(), value)
+        })
+        .collect();
+    Ok(values)
+}
+
+/// Optional batch results used by feed cards; context pages use the direct query path.
+#[derive(Default)]
+pub struct CardCache<'a> {
+    pub reply_count: Option<i64>,
+    pub warnings: Option<&'a [String]>,
+    pub identity: Option<&'a Identity>,
+    pub parent: Option<&'a Value>,
+}
+
 pub fn card(
     db: &Connection,
     p: &Post,
     now: i64,
     mode: &str,
     with_parent: bool,
+    cache: CardCache<'_>,
 ) -> Result<Value, Error> {
-    let (author, address, named, profile_url) = identity(db, p)?;
-    let reasons = warnings(db, p)?;
+    let started = std::time::Instant::now();
+    let (author, address, named, profile_url) = cache
+        .identity
+        .cloned()
+        .map(Ok)
+        .unwrap_or_else(|| identity(db, p))?;
+    let identity_at = started.elapsed();
+    let reasons = warnings(db, p, cache.warnings)?;
+    let warnings_at = started.elapsed();
     let mut score = match mode {
         "relevance" => format!("match {:.1} (lower=closer)", p.bm25.unwrap()),
         "conversations" => format!("{} repliers (24h)", p.n_reply_authors),
@@ -269,8 +444,8 @@ pub fn card(
             score.push_str(&format!(" · match {bm25:.1}"));
         }
     }
-    let mut parent_excerpt = Value::Null;
-    if with_parent {
+    let mut parent_excerpt_value = cache.parent.cloned().unwrap_or(Value::Null);
+    if with_parent && cache.parent.is_none() {
         if let Some(parent) = p
             .parent_id
             .as_deref()
@@ -278,40 +453,49 @@ pub fn card(
             .transpose()?
             .flatten()
         {
-            let text = if hides(&warnings(db, &parent)?) {
-                "content warning".to_string()
-            } else {
-                let html = body(&parent.text);
-                let stripped = regex::Regex::new("<[^>]+>")
-                    .unwrap()
-                    .replace_all(&html, " ");
-                html_escape::decode_html_entities(&stripped)
-                    .split_whitespace()
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            };
-            let excerpt = if text.chars().count() > 160 {
-                format!("{}…", text.chars().take(159).collect::<String>().trim_end())
-            } else {
-                text
-            };
-            parent_excerpt = json!({"source":parent.source,"source_id":parent.source_id,
-                "author":identity(db,&parent)?.0,"text":excerpt});
+            parent_excerpt_value = parent_excerpt(
+                &parent,
+                &identity(db, &parent)?.0,
+                &warnings(db, &parent, None)?,
+            );
         }
     }
+    let parent_at = started.elapsed();
     let original_url = url::Url::parse(&p.url)
         .ok()
         .filter(|u| ["http", "https"].contains(&u.scheme()))
         .map(|_| p.url.clone());
+    let reply_count = match cache.reply_count {
+        Some(count) => count,
+        None => queries::count(db, now, Some(&p.canonical_id))?,
+    };
     let length = p.text.chars().count();
     let collapsed = length.saturating_sub(PREVIEW_CHARACTERS) >= MIN_COLLAPSED_REMAINDER;
+    let full_html = body(&p.text);
+    let preview_html = if collapsed {
+        body(&p.text.chars().take(PREVIEW_CHARACTERS).collect::<String>())
+    } else {
+        String::new()
+    };
+    let body_at = started.elapsed();
+    if body_at.as_millis() >= 100 {
+        eprintln!(
+            "Slow card id={} chars={} identity_ms={} warnings_ms={} parent_ms={} body_ms={}",
+            p.source_id,
+            length,
+            identity_at.as_millis(),
+            (warnings_at - identity_at).as_millis(),
+            (parent_at - warnings_at).as_millis(),
+            (body_at - parent_at).as_millis(),
+        );
+    }
     Ok(
         json!({"canonical_id":p.canonical_id,"source":p.source,"source_id":p.source_id,
             "author_id":p.author_id,"author":author,"address":address,"named":named,"profile_url":profile_url,
             "original_url":original_url,"when":time(p.created_at),"age":age(p.created_at,now),
-            "full_html":body(&p.text),"preview_html":if collapsed {body(&p.text.chars().take(PREVIEW_CHARACTERS).collect::<String>())}else{String::new()},
+            "full_html":full_html,"preview_html":preview_html,
             "rest_chars":length.saturating_sub(PREVIEW_CHARACTERS),"warning":reasons.join(" · "),"warning_hides":hides(&reasons),
-            "reply_count":queries::count(db,now,Some(&p.canonical_id))?,"parent_excerpt":parent_excerpt,"score":score,
+            "reply_count":reply_count,"parent_excerpt":parent_excerpt_value,"score":score,
             "score_title":if mode=="discovery" {"distance score: 1/distance² over each distinct first-hop account that endorses this author; lower ranks first"}else{""},
             "conversation":if mode=="conversations" {json!({"n_reply_authors":p.n_reply_authors,"n_replies":p.n_replies,
                 "latest":age(p.latest_activity,now),"root_present":p.root_present,"root_id":p.root_id.as_ref().unwrap_or(&p.canonical_id)})}else{Value::Null}

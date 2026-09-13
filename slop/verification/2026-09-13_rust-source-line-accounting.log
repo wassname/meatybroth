@@ -1,0 +1,35 @@
+# Rust sibling line accounting
+command: wc -l src/{main,collect,embed,policy,queries,render}.rs
+   814 src/main.rs
+  1061 src/collect.rs
+  1223 src/embed.rs
+   144 src/policy.rs
+   347 src/queries.rs
+   504 src/render.rs
+  4093 total
+
+command: wc -l src/{tests,sdk_tests}.rs
+  478 src/tests.rs
+  705 src/sdk_tests.rs
+ 1183 total
+
+command: wc -l src/*.sql
+   43 src/coverage.sql
+   90 src/embed.sql
+  145 src/schema.sql
+   32 src/social.sql
+  310 total
+
+command: wc -l templates/*.html static/*.css README.md
+   10 templates/about.html
+   56 templates/base.html
+   26 templates/context.html
+   50 templates/feed.html
+   61 templates/_post.html
+   19 templates/status.html
+   59 templates/tos.html
+   91 static/style.css
+   49 README.md
+  421 total
+
+Tracked Python files in sibling:

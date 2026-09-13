@@ -1,0 +1,5 @@
+meaning rc=0 status=200 seconds=1.246451 bytes=262241 cards=100
+root rc=0 status=200 seconds=1.029020 bytes=237210 cards=100
+social rc=0 status=200 seconds=1.352842 bytes=34600 cards=12
+titan_similar rc=0 status=200 seconds=1.170672 bytes=236211 cards=100
+topic rc=0 status=200 seconds=1.051658 bytes=227822 cards=100

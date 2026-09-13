@@ -9,14 +9,14 @@
 {% endif %}
 {% if mode == 'topics' %}
 <nav class="topics" aria-label="semantic topics">
-  {% for topic in topics %}<a href="/?mode=topics&amp;topic={{ topic.id }}" {% if topic.id == selected_topic %}aria-current="page"{% endif %}>{{ topic.label }} <small>{{ topic.post_count }}</small></a>{% endfor %}
+  {% for topic in topics %}<a href="/?mode=topics&amp;topic={{ topic.id }}&amp;embedding={{ embedding }}" {% if topic.id == selected_topic %}aria-current="page"{% endif %}>{{ topic.label }} <small>{{ topic.post_count }}</small></a>{% endfor %}
 </nav>
 {% if not topics and not error %}<p class="hint">Topics are not built yet.</p>{% endif %}
 {% endif %}
 {% for p in results %}
 {{ post_card(p) }}
 {% else %}
-{% if not error %}<p class="empty">No results in the current window.</p>{% endif %}
+{% if not error and not (mode == 'topics' and selected_topic is none) %}<p class="empty">No results in the current window.</p>{% endif %}
 {% endfor %}
 <nav class="pagination" aria-label="pagination">
   {% if page > 0 %}<a href="?{{ qs_base }}page={{ page - 1 }}">&larr; newer</a>{% endif %}

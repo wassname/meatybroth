@@ -133,6 +133,7 @@ async fn html_with_embedding(
         root: ROOT.into(),
         templates: templates().unwrap(),
         embedding,
+        default_embedding: "minilm".into(),
     });
     let response = app
         .oneshot(
@@ -517,6 +518,7 @@ async fn incremental_embeddings_reuse_delete_and_budget_after_sdk_drain() {
     assert_eq!(status, StatusCode::OK);
     assert!(meaning.contains("<article"));
     assert!(meaning.contains(&long.id.to_hex()));
+    assert!(meaning.contains("embedding=minilm"));
     let similar_uri = format!("/?mode=similar&similar=nostr:{}", long.id.to_hex());
     let (status, similar) = html_with_embedding(&path, &similar_uri, Some(semantic.clone())).await;
     assert_eq!(status, StatusCode::OK);
@@ -527,6 +529,7 @@ async fn incremental_embeddings_reuse_delete_and_budget_after_sdk_drain() {
     let (status, topic) = html_with_embedding(&path, &topic_uri, Some(semantic)).await;
     assert_eq!(status, StatusCode::OK);
     assert!(topic.contains("<article"));
+    assert!(topic.contains("embedding=minilm"));
 
     sdk.delete(Filter::new().ids([long.id, second.id]))
         .await
@@ -682,6 +685,7 @@ async fn sdk_storage_failure_does_not_stop_http_reader() {
         root: ROOT.into(),
         templates: templates().unwrap(),
         embedding: None,
+        default_embedding: "minilm".into(),
     });
     let server = tokio::spawn(async move { axum::serve(listener, app).await });
     let error = collect::scan(

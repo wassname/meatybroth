@@ -1,0 +1,22 @@
+minilm_event=nostr:29ca541a22e387e2551030173fb512d0adc5f432b9a2f7c9deef6d67888bded7
+root status=200 seconds=1.316576 bytes=237210
+root cards=100 error=
+meaning status=200 seconds=1.602901 bytes=262241
+meaning cards=100 error=
+social status=200 seconds=2.824448 bytes=34600
+social cards=12 error=
+topic status=200 seconds=0.589020 bytes=227822
+topic cards=100 error=
+similar status=200 seconds=0.765667 bytes=236283
+similar cards=100 error=
+titan_topics status=200 seconds=0.465327 bytes=5231
+titan_topics cards=0 error=
+titan_topic status=200 seconds=0.619687 bytes=87301
+titan_topic cards=37 error=
+titan_similar status=200 seconds=0.744386 bytes=236211
+titan_similar cards=100 error=
+titan_meaning status=400 seconds=0.495531 bytes=4829
+titan_meaning cards=0 error=Search error: This Titan query was not cached during the approved one-off run; choose MiniLM
+titan_index_false_empty=no
+titan_partial_banner=present
+titan_links_preserve_space=yes

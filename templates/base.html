@@ -30,6 +30,11 @@
       <button type="button" class="tipbtn" aria-describedby="feed-tip" aria-label="How this feed works">?</button>
       <span id="feed-tip" role="tooltip" class="tip">{{ mode_explanations[mode] }}</span>
     </span>
+    <label for="embedding-select">Vectors:</label>
+    <select id="embedding-select" name="embedding" onchange="this.form.submit()">
+      <option value="minilm" {% if embedding != 'titan' %}selected{% endif %}>MiniLM local</option>
+      <option value="titan" {% if embedding == 'titan' %}selected{% endif %}>Titan cached</option>
+    </select>
     {% if mode == 'discovery' %}
     <label for="reach-select">Reach:</label>
     <select id="reach-select" name="reach" aria-label="Social graph distance in hops" onchange="this.form.submit()">
@@ -46,6 +51,6 @@
   </form>
 </header>
 <main>
-<p class="scope-note">Live SDK collection and reader. Recent coverage is incomplete; see status.</p>
+<p class="scope-note">Live SDK collection and reader. Recent coverage is incomplete; see status.{% if embedding == 'titan' %} Titan is an incomplete cached one-off corpus; browsing does not call AWS.{% endif %}</p>
 {% block body %}{% endblock %}
 </main>
