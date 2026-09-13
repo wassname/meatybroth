@@ -356,4 +356,15 @@ At 22:58:51Z, the current window held 19,657 eligible posts and 9,785 Titan vect
 
 `strace` caused the host incident and did not produce usable bottleneck evidence. The targeted application measurements distinguish the reader work: zero-card Topics 0.79 seconds, while the 100-card New response spent 4.21 seconds server-side and emitted 6.57 MB. This supports bounded-card-query and response-size work, not a claim that WAL size or RSS alone caused the stall.
 
+A second full-denominator sample at 23:05:46Z covered 518 seconds of `cb71d87` runtime:
+
+```text
+eligible admitted=1595 embedded=465 pending=1130
+completed latency p50=8s max=43s >300s=0
+pending age p50=278s max=509s >300s=495
+ledger succeeded=16132 uncertain=73 reserved=4 (active sample)
+```
+
+Completed-only latency is selection-biased. At this observation only 29.2% of newly admitted eligible posts had embeddings, and 31.0% of the full denominator remained pending past 300 seconds. New arrivals were about 3.08 posts/s while completed embeddings averaged about 0.90 posts/s. The production process is healthy and prioritizes some new posts quickly, but this sample does not support a universal five-minute freshness claim.
+
 -- Pi/gpt-5.6-sol
