@@ -58,7 +58,7 @@ def run(store, relay_events: dict[str, tuple[list[dict], bool] | Exception],
     relay = MockRelay()
     relay.responses = {url: ([], True) for url in BOOTSTRAP_RELAYS + CONFIGURED_RELAYS}
     relay.responses.update(relay_events)
-    return collect_once(store, root, max_requests=max_requests, relays=relay)
+    return collect_once(store, root, max_requests=max_requests, relays=relay, refresh_primal=False)
 
 
 class MockRelay:

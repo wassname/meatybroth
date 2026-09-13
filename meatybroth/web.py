@@ -178,7 +178,7 @@ def fmt_age(created_at: int, now: int) -> str:
 def _warning_hides(reasons: list[str]) -> bool:
     """Author CWs and auto-flagged explicit gate the body behind click-to-show;
     spam flags only get a small label (the card keeps its ordinary preview)."""
-    return any(r.startswith(("author:", "auto-flagged: explicit")) for r in reasons)
+    return any(r.startswith(("author:", "auto-flagged: explicit", "curated-nsfw:")) for r in reasons)
 
 
 def _post_view(row: dict, now: int, score: str, store: Store, score_title: str = "") -> dict:

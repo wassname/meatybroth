@@ -51,6 +51,11 @@ BACKFILL_PAGES_PER_RELAY = 2  # a fat relay must not starve follow-lists/discove
 MISSING_PROFILE_CAP = 25  # recent/context authors per bounded kind-0 refresh
 MISSING_PROFILE_RELAY_CAP = 2  # probes per pass; normal profile wave still covers follows
 
+PRIMAL_CACHE_URL = "wss://cache2.primal.net/v1"
+PRIMAL_LIST_AUTHOR = "5d8282fc89410f1c57681a2c3b8be57afd1566c262fd1deb543999d39d141cb4"
+PRIMAL_LISTS = ("spam_list", "nsfw_list")
+PRIMAL_LIST_REFRESH_SECONDS = 24 * 3600
+
 PUBKEY_HEX = re.compile(r"[0-9a-f]{64}")
 SIG_HEX = re.compile(r"[0-9a-f]{128}")
 
@@ -76,6 +81,70 @@ def verify_event(event: dict) -> bool:
         return PublicKeyXOnly(bytes.fromhex(event["pubkey"])).verify(bytes.fromhex(event["sig"]), digest)
     except (KeyError, TypeError, ValueError):
         return False
+
+
+def primal_list_members(event: dict, identifier: str, *, author: str = PRIMAL_LIST_AUTHOR) -> set[str]:
+    """Validate one Primal cached NIP-33 list before trusting its p tags."""
+    if not verify_event(event):
+        raise ValueError("Primal list has invalid Nostr signature")
+    if event["pubkey"] != author or event["kind"] != 30000:
+        raise ValueError("Primal list has unexpected author or kind")
+    if [tag[1] for tag in event["tags"] if len(tag) >= 2 and tag[0] == "d"] != [identifier]:
+        raise ValueError("Primal list has unexpected d tag")
+    return {tag[1] for tag in event["tags"] if len(tag) >= 2 and tag[0] == "p" and PUBKEY_HEX.fullmatch(tag[1])}
+
+
+def fetch_primal_list(identifier: str) -> dict:
+    """Read one public categorized list from Primal's cache, with a bounded
+    request. The cache is not counted as a content relay or a follows query."""
+    subscription = f"meatybroth-{identifier}"
+    ws = websocket.create_connection(PRIMAL_CACHE_URL, timeout=RELAY_TIMEOUT,
+                                     max_size=MAX_QUERY_BYTES)
+    try:
+        ws.send(json.dumps(["REQ", subscription, {"cache": ["parameterized_replaceable_list", {
+            "pubkey": PRIMAL_LIST_AUTHOR, "identifier": identifier}]}]))
+        deadline = time.monotonic() + RELAY_TIMEOUT
+        while time.monotonic() < deadline:
+            message = json.loads(ws.recv())
+            if message[:2] == ["EVENT", subscription]:
+                event = message[2]
+                # Validate before returning; cache auxiliary events are ignored.
+                primal_list_members(event, identifier)
+                return event
+            if message[:2] == ["EOSE", subscription]:
+                break
+    finally:
+        ws.close()
+    raise RuntimeError(f"Primal cache returned no {identifier} event")
+
+
+def refresh_primal_lists(store: Store, *, now: int) -> dict:
+    """At most daily, update verified cached lists. A failed refresh keeps an
+    earlier verified snapshot and reports its age; it never claims freshness."""
+    detail = {"cache": PRIMAL_CACHE_URL, "author": PRIMAL_LIST_AUTHOR, "lists": {}}
+    for identifier in PRIMAL_LISTS:
+        cached = store.moderation_list("primal", identifier)
+        if cached is not None and now - cached["checked_at"] < PRIMAL_LIST_REFRESH_SECONDS:
+            detail["lists"][identifier] = {"event_id": cached["event_id"],
+                "event_created_at": cached["event_created_at"], "checked_at": cached["checked_at"],
+                "members": len(cached["members"]), "refresh": "cached"}
+            continue
+        try:
+            event = fetch_primal_list(identifier)
+            members = primal_list_members(event, identifier)
+            store.set_moderation_list("primal", identifier, event_id=event["id"], author=event["pubkey"],
+                                      event_created_at=event["created_at"], members=members, checked_at=now)
+            detail["lists"][identifier] = {"event_id": event["id"],
+                "event_created_at": event["created_at"], "checked_at": now,
+                "members": len(members), "refresh": "verified"}
+        except Exception as error:
+            detail["lists"][identifier] = {"refresh": "error", "error": f"{type(error).__name__}: {error}"}
+            if cached is not None:
+                detail["lists"][identifier]["using_cached"] = {"event_id": cached["event_id"],
+                    "event_created_at": cached["event_created_at"], "checked_at": cached["checked_at"],
+                    "members": len(cached["members"])}
+    store.set_status("primal-moderation", detail, now=now)
+    return detail
 
 
 def thread_refs(event: dict) -> tuple[str | None, str | None]:
@@ -301,6 +370,8 @@ def collect_nostr(store: Store, root_pubkey: str, relays, budget: Budget, *, now
     }
     start_used = budget.used
     blocklist = load_blocklist(store)
+    primal_spam = (store.moderation_list("primal", "spam_list") or {"members": set()})["members"]
+    primal_nsfw = (store.moderation_list("primal", "nsfw_list") or {"members": set()})["members"]
 
     def fetch(relay: str, filters: list[dict]) -> QueryResult | None:
         if budget.used >= cap or not budget.spend():
@@ -359,6 +430,8 @@ def collect_nostr(store: Store, root_pubkey: str, relays, budget: Budget, *, now
             if event["kind"] == 1:
                 if posts:
                     spam = spam_reasons(event, store)
+                    if event["pubkey"] in primal_spam:
+                        spam.append("Primal spam snapshot")
                     seen_spam = report.setdefault("_spam_ids", set())
                     for reason in spam:
                         if event["id"] not in seen_spam:  # one relay copy counts once
@@ -371,6 +444,9 @@ def collect_nostr(store: Store, root_pubkey: str, relays, budget: Budget, *, now
                     # upsert: preexisting unchanged posts acquire tags too
                     if cw_reason is not None:
                         store.save_content_warning(event["id"], "author-cw", f"author: {cw_reason}", now=now)
+                    if event["pubkey"] in primal_nsfw:
+                        store.save_content_warning(event["id"], "primal-nsfw",
+                                                   "curated-nsfw: Primal snapshot", now=now)
                     if explicit:
                         store.save_content_warning(event["id"], "explicit", "auto-flagged: explicit", now=now)
                     for reason in spam:
@@ -667,13 +743,18 @@ def resolve_parents(store, content_relays, fetch, accept, report, collected, *, 
                filters=[{"ids": [parent_id]}])
 
 
-def collect_once(store: Store, root_pubkey: str, *, max_requests: int = 40, relays=None) -> dict:
-    """One bounded Nostr collection pass; returns the per-pass report."""
+def collect_once(store: Store, root_pubkey: str, *, max_requests: int = 40, relays=None,
+                 refresh_primal: bool = True) -> dict:
+    """One bounded Nostr collection pass; returns the per-pass report.
+    Tests with an injected relay transport can set refresh_primal=False to keep
+    synthetic tests independent of Primal's public cache."""
     relays = relays if relays is not None else RelayTransport()
     budget = Budget(max_requests)
     now = int(time.time())
+    primal = refresh_primal_lists(store, now=now) if refresh_primal else {"refresh": "disabled by caller"}
 
     nostr = collect_nostr(store, root_pubkey, relays, budget, now=now, cap=max_requests)
+    nostr["primal_moderation"] = primal
     # durable operator block action: remove stored content for blocked
     # ids/authors so it never renders again, not just block new ingress
     nostr["purged_blocklisted"] = store.purge_blocklisted(load_blocklist(store))

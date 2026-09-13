@@ -95,6 +95,13 @@ class Store:
                     reason TEXT NOT NULL, created_at INTEGER NOT NULL,
                     PRIMARY KEY(event_id, category)
                 );
+                CREATE TABLE IF NOT EXISTS moderation_lists (
+                    source TEXT NOT NULL, identifier TEXT NOT NULL,
+                    event_id TEXT NOT NULL, author TEXT NOT NULL,
+                    event_created_at INTEGER NOT NULL, checked_at INTEGER NOT NULL,
+                    members_json TEXT NOT NULL,
+                    PRIMARY KEY(source, identifier)
+                );
                 CREATE TABLE IF NOT EXISTS collection_cursors (
                     relay TEXT PRIMARY KEY, until INTEGER NOT NULL
                 );
@@ -279,6 +286,28 @@ class Store:
                          MAX(p.created_at) DESC
                 LIMIT ?
             """, (limit,))]
+
+    def set_moderation_list(self, source: str, identifier: str, *, event_id: str,
+                            author: str, event_created_at: int, members: set[str],
+                            checked_at: int) -> None:
+        with self.connect() as db:
+            db.execute("""INSERT INTO moderation_lists
+                (source, identifier, event_id, author, event_created_at, checked_at, members_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(source, identifier) DO UPDATE SET
+                  event_id=excluded.event_id, author=excluded.author,
+                  event_created_at=excluded.event_created_at, checked_at=excluded.checked_at,
+                  members_json=excluded.members_json""",
+                (source, identifier, event_id, author, event_created_at, checked_at,
+                 json.dumps(sorted(members))))
+
+    def moderation_list(self, source: str, identifier: str) -> dict | None:
+        with self.connect() as db:
+            row = db.execute("SELECT * FROM moderation_lists WHERE source=? AND identifier=?",
+                             (source, identifier)).fetchone()
+        if row is None:
+            return None
+        return {**dict(row), "members": set(json.loads(row["members_json"]))}
 
     def set_status(self, source: str, detail: dict, *, now: int | None = None):
         with self.connect() as db:
