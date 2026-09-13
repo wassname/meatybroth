@@ -3,12 +3,21 @@ set -euo pipefail
 set +x
 cd "$(dirname "$0")/../.."
 
-for segment in $(seq 1 20); do
+for segment in $(seq 1 100); do
   echo "segment=$segment start=$(date -Is)"
   credentials="$(AWS_REGION=us-east-2 aws configure export-credentials --profile cds-login --format env)"
   eval "$credentials"
   unset credentials AWS_PROFILE
   export AWS_REGION=us-west-2 AWS_EC2_METADATA_DISABLED=true
+  expiry_epoch="$(date -d "$AWS_CREDENTIAL_EXPIRATION" +%s)"
+  credential_ttl_seconds="$((expiry_epoch - $(date +%s)))"
+  segment_posts="$((credential_ttl_seconds - 120))"
+  if ((segment_posts > 1000)); then segment_posts=1000; fi
+  if ((segment_posts < 20)); then
+    echo "segment=$segment credential_ttl_seconds=$credential_ttl_seconds is too short; stopping"
+    exit 1
+  fi
+  echo "segment=$segment credential_ttl_seconds=$credential_ttl_seconds max_posts=$segment_posts"
 
   segment_log=".local/titan-segment-${segment}.log"
   succeeded=0
@@ -21,7 +30,7 @@ for segment in $(seq 1 20); do
       MEATYBROTH_EMBED_NORMALIZE=true \
       MEATYBROTH_EMBED_TOTAL_BUDGET_USD=5 \
       MEATYBROTH_EMBED_MONTHLY_BUDGET_USD=5 \
-      MEATYBROTH_EMBED_MAX_POSTS=1000 \
+      MEATYBROTH_EMBED_MAX_POSTS="$segment_posts" \
       target/release/meatybroth 2>&1 | tee "$segment_log"; then
       succeeded=1
       break
@@ -31,6 +40,14 @@ for segment in $(seq 1 20); do
     eval "$credentials"
     unset credentials AWS_PROFILE
     export AWS_REGION=us-west-2 AWS_EC2_METADATA_DISABLED=true
+    expiry_epoch="$(date -d "$AWS_CREDENTIAL_EXPIRATION" +%s)"
+    credential_ttl_seconds="$((expiry_epoch - $(date +%s)))"
+    segment_posts="$((credential_ttl_seconds - 120))"
+    if ((segment_posts > 1000)); then segment_posts=1000; fi
+    if ((segment_posts < 20)); then
+      echo "segment=$segment refreshed credential_ttl_seconds=$credential_ttl_seconds is too short; stopping"
+      exit 1
+    fi
   done
   unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_CREDENTIAL_EXPIRATION
   if [[ "$succeeded" != 1 ]]; then
@@ -48,9 +65,10 @@ for segment in $(seq 1 20); do
       exit 0
     fi
     echo "Titan stopped incomplete: missing=$missing uncertain=$uncertain"
+    echo "Do not declare completion: audit each uncertain row, preserve its actual/reserved cost, then explicitly archive it as failed before a bounded recovery call."
     exit 2
   fi
 done
 
-echo "Titan did not exhaust pending work within 20 bounded segments"
+echo "Titan did not exhaust pending work within 100 bounded credential-aware segments"
 exit 1
