@@ -108,4 +108,41 @@ titan_positive  1          1         2        2       2
 
 The JSON price control has only a MiniLM vector. Its Similar request returns the explicit `MiniLM cache is not configured` response because production intentionally configures cached Titan only. The separate eligible Titan source demonstrates that Similar is not blanket-blocked. The two telemetry fixtures remain canonical for provenance but are absent from reader eligibility, vectors, chunks and topics. No AWS call, transfer or production mutation occurred.
 
+## Final cached-only UI revision
+
+At 17:50Z, revision `1d367334fad3aec55a4a8331e926e2259d87a046` was built once from an isolated exact worktree with `cargo +stable build --locked --release`.
+
+- binary SHA-256: `2cd80dbef4915f7214ef6e344b7a8607a79c7c94d351d26ffcf43086d0901a61`
+- image: `meatybroth-rust:1d36733`
+- image ID: `sha256:14f1a88b1d8e95e3c8d790b466e2c2548890477f8b7ad91e531e3a9adaa3e7e3`
+- OCI revision label: exact full revision above
+- image size: 48,197,968 bytes
+- snapshot unchanged: 387,764,224 bytes; SHA-256 `4aabaecc632017f11d5dcb20de86b7b052f3e5226349c13637e76a2b7b55ec32`; integrity `ok`
+
+The first container command exited 125 before app execution because the older smoke container retained host port 18089. Removing that stopped container and retrying the same image fixed the test setup; there was no rebuild. After all assertions passed, explicit `docker stop` produced the recorded docker-client exit 137; this is test teardown, not an application crash.
+
+```text
+root                             http=200
+status                           http=200
+ui meaning_unavailable=yes minilm_option=absent titan=present
+zone-context                     http=404
+zone-context-titan-similar       http=400
+presence-context                 http=404
+presence-context-titan-similar   http=400
+price-context                    http=200
+price-minilm-similar             http=400
+titan-positive-context           http=200
+titan-positive-similar           http=200
+uncached-titan-meaning           http=400
+titan-topic                      http=200
+container_user=10001:10001 readonly_root=true
+no_new_privileges=["no-new-privileges"] capdrop=["ALL"]
+MEATYBROTH_DEFAULT_EMBEDDING=titan
+MEATYBROTH_READ_ONLY=1
+backend_aws_env=absent
+SMOKE_PASS
+```
+
+Database facts for the same four fixtures remain: telemetry zone and presence canonical=1, eligible=0, vectors/chunks/topics=0; JSON price canonical=1, eligible=1, vectors/chunks/topics=1; cached-Titan positive canonical=1, eligible=1, vectors/chunks/topics=2. No transfer, AWS call or production mutation occurred.
+
 -- Pi/gpt-5.6-sol

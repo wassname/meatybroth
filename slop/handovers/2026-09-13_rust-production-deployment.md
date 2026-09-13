@@ -1,10 +1,10 @@
 # Rust production deployment handover
 
-Status 2026-09-13T17:35Z: final deployable revision `bc08fc791f6833d75cafc6544f1e95cfd8e18910` and a moderation-clean SDK snapshot passed the hardened off-host smoke. Deployment remains paused for a human-attended AWS login issuer-region test. Old production is still serving. No CloudFormation, instance, volume, Caddy-upstream or application-service change occurred.
+Status 2026-09-13T17:50Z: final deployable revision `1d367334fad3aec55a4a8331e926e2259d87a046` and a moderation-clean SDK snapshot passed the hardened off-host smoke. Deployment remains paused for a human-attended AWS login issuer-region test. Old production is still serving. No CloudFormation, instance, volume, Caddy-upstream or application-service change occurred.
 
 ## User-visible limitations
 
-This is a cached-Titan deployment candidate, not complete embedding-search functionality. Meaning queries have no cached query vector and return HTTP 400. The MiniLM selector also returns HTTP 400 because production does not load or configure MiniLM. The smoke tests prove these failures are explicit and that cached-Titan Similar works; they do not prove functional Meaning search. Do not expose Meaning or MiniLM as available controls until the UI marks or disables them.
+This is a cached-Titan deployment candidate, not complete embedding-search functionality. The UI disables Meaning as `Meaning unavailable`, omits MiniLM and selects Titan. Direct Meaning and MiniLM URLs still return explicit HTTP 400. Cached-Titan Similar and Topic work; functional Meaning search does not.
 
 ## Evidence and retained production state
 
@@ -34,11 +34,11 @@ Expected identity: account `275713940406`, `arn:aws:iam::275713940406:user/wassn
 
 ## Final off-host artifacts
 
-Final local bundle: `/tmp/meatybroth-deploy-bc08fc7/`. It has not been transferred. Build and smoke evidence is in `slop/verification/2026-09-13_production-rust-deployment.log`.
+Final local bundle: `/tmp/meatybroth-deploy-1d36733/`. It has not been transferred. Build and smoke evidence is in `slop/verification/2026-09-13_production-rust-deployment.log`.
 
-- source: `bc08fc791f6833d75cafc6544f1e95cfd8e18910`, built from an isolated exact worktree with the committed lockfile
-- binary SHA-256: `a0f41dd23ed8f37320505e9c53bc22a285f662f288e6167d2075994c60938af6`
-- image: `meatybroth-rust:bc08fc7`, ID `sha256:d1b642c1a149fdded4d6b3ded8e53e0fdb6ac16f95c683ba723bcc00dde54b26`, 48,197,116 bytes
+- source: `1d367334fad3aec55a4a8331e926e2259d87a046`, built from an isolated exact worktree with the committed lockfile
+- binary SHA-256: `2cd80dbef4915f7214ef6e344b7a8607a79c7c94d351d26ffcf43086d0901a61`
+- image: `meatybroth-rust:1d36733`, ID `sha256:14f1a88b1d8e95e3c8d790b466e2c2548890477f8b7ad91e531e3a9adaa3e7e3`, 48,197,968 bytes
 - runtime base: `ubuntu:24.04@sha256:a61567bd31828687156d735ea8eb01ba4e37636e225dd6a48ba94136a70d9d61`
 - moderation-clean SDK snapshot: 387,764,224 bytes, SHA-256 `4aabaecc632017f11d5dcb20de86b7b052f3e5226349c13637e76a2b7b55ec32`, integrity OK; 16,403 canonical events, 12,510 reader posts, 289,884 social edges, 11,595 MiniLM vectors, 119 cached Titan vectors and six Titan topics assigning all 119
 - runtime env: `READ_ONLY=1`, `DEFAULT_EMBEDDING=titan`, DB and address only; no embed backend or AWS variables
@@ -46,7 +46,7 @@ Final local bundle: `/tmp/meatybroth-deploy-bc08fc7/`. It has not been transferr
 - eligible JSON control `84c9…dcb4`: Context 200 and one MiniLM vector/chunk/topic row; its MiniLM Similar is intentionally 400 because production does not configure MiniLM
 - eligible cached-Titan control `00000004…f710`: Context 200 and Titan Similar 200
 
-The older compatibility bundle `/tmp/meatybroth-deploy-3970a76/` is superseded and must not be deployed.
+The older `3970a76` and `bc08fc7` bundles are superseded and must not be deployed.
 
 AL2023 native linking is invalid: `ort-sys` rc13 requires glibc ≥2.38 `__isoc23_strto*` and newer libstdc++; AL2023 has glibc2.34/GCC11. Use the Ubuntu runtime container, not an AL-native binary or an app feature change. Stable Cargo ignores the age configuration, but `--locked` prevented resolution; the app owner's age-held lockfile was retained.
 
