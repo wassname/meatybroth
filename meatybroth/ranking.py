@@ -162,6 +162,53 @@ def conversations(store: Store, *, expression: str | None = None,
     return _page(cards, page)
 
 
+def _chunked(keys, size: int = 500) -> list:
+    """Sorted fixed-size chunks for batched IN queries (SQLite variable limit)."""
+    keys = sorted(keys)
+    return [keys[i:i + size] for i in range(0, len(keys), size)]
+
+
+def _load_social_graph(store: Store, root_pubkey: str):
+    """Batch-load the observed 3-hop follow subgraph in ONE SQLite connection.
+
+    Returns (direct, hop_lists, hub_lists) identical to the former per-author
+    store.followed()/store.metadata() sequence: hop_lists covers every direct
+    follow (even empty lists); hub_lists covers only hubs with a truthy stored
+    kind-3 row, matching the old `if store.metadata(h, 3)` gate. Scores,
+    formulas, and ordering downstream are untouched.
+    """
+    import json
+
+    with store.connect() as db:
+        direct = {row[0] for row in db.execute(
+            "SELECT followee FROM follows WHERE follower=?", (root_pubkey,))}
+        hop_lists = {e: set() for e in direct}
+        for chunk in _chunked(direct):
+            marks = ",".join("?" * len(chunk))
+            for follower, followee in db.execute(
+                    f"SELECT follower, followee FROM follows WHERE follower IN ({marks})", chunk):
+                hop_lists[follower].add(followee)
+        hubs = {x for lst in hop_lists.values() for x in lst} - direct - {root_pubkey}
+        hub_lists: dict[str, set] = {}
+        if hubs:
+            kind3: dict[str, bool] = {}
+            for chunk in _chunked(hubs):
+                marks = ",".join("?" * len(chunk))
+                for pubkey, event_json in db.execute(
+                        f"SELECT pubkey, event_json FROM nostr_state WHERE kind=3 AND pubkey IN ({marks})",
+                        chunk):
+                    kind3[pubkey] = bool(json.loads(event_json))
+            eligible = {h for h in hubs if kind3.get(h, False)}
+            for h in eligible:
+                hub_lists[h] = set()
+            for chunk in _chunked(eligible):
+                marks = ",".join("?" * len(chunk))
+                for follower, followee in db.execute(
+                        f"SELECT follower, followee FROM follows WHERE follower IN ({marks})", chunk):
+                    hub_lists[follower].add(followee)
+    return direct, hop_lists, hub_lists
+
+
 def social_discovery(store: Store, root_pubkey: str, *, expression: str | None = None,
                      now: int | None = None, page: int = 0, before: int | None = None,
                      order: str = "recent", reach: int = 2) -> list:
@@ -183,10 +230,7 @@ def social_discovery(store: Store, root_pubkey: str, *, expression: str | None =
 
     now = timestamp(now)
     upper = min(before, now) if before is not None else now
-    direct = store.followed(root_pubkey)
-    hop_lists = {e: store.followed(e) for e in direct}
-    hubs = {x for lst in hop_lists.values() for x in lst} - direct - {root_pubkey}
-    hub_lists = {h: store.followed(h) for h in hubs if store.metadata(h, 3)}
+    direct, hop_lists, hub_lists = _load_social_graph(store, root_pubkey)
 
     # connection mass per candidate, computed ONCE per request
     d2_endorsers: dict[str, set] = {}

@@ -2,7 +2,7 @@
 
 import pytest
 
-from meatybroth.ranking import (PAGE_SIZE, QueryError, conversations, new_posts,
+from meatybroth.ranking import (PAGE_SIZE, QueryError, _load_social_graph, conversations, new_posts,
                                 parse_fts, relevance, social_discovery, source_counts)
 from meatybroth.store import Post, Store
 
@@ -153,6 +153,46 @@ def test_social_duplicate_and_invalid_p_tags_count_once(store):
     rows = social_discovery(store, ROOT, now=NOW, order="connections")
     assert [r["source_id"] for r in rows] == ["twohop"]
     assert abs(rows[0]["graph_score"] - 2.0) < 1e-9  # one distinct endorser: 1/sqrt(1/4)
+
+
+def test_load_social_graph_matches_per_author_sequence(store):
+    """Batched graph load returns exactly what per-author calls would."""
+    hub_key, c_key = "3" * 64, "c" * 64
+    store.save_nostr_metadata(follow_event(ROOT, [DIRECT, OTHER_DIRECT], NOW - 500), "wss://relay")
+    store.save_nostr_metadata(follow_event(DIRECT, [TWO_HOP, hub_key], NOW - 500), "wss://relay")
+    store.save_nostr_metadata(follow_event(OTHER_DIRECT, [], NOW - 500), "wss://relay")
+    store.save_nostr_metadata(follow_event(TWO_HOP, [hub_key], NOW - 500), "wss://relay")
+    store.save_nostr_metadata(follow_event(hub_key, [c_key], NOW - 500), "wss://relay")
+    # reference: the old per-author sequence
+    direct = store.followed(ROOT)
+    hop_lists = {e: store.followed(e) for e in direct}
+    hubs = {x for lst in hop_lists.values() for x in lst} - direct - {ROOT}
+    hub_lists = {h: store.followed(h) for h in hubs if store.metadata(h, 3)}
+    assert _load_social_graph(store, ROOT) == (direct, hop_lists, hub_lists)
+    # empty root: no follows -> empty graph, no crash
+    assert _load_social_graph(store, "9" * 64) == (set(), {}, {})
+
+
+def test_social_discovery_uses_bounded_connections(store):
+    """One social page must not open a connection per followed author."""
+    store.save_nostr_metadata(follow_event(ROOT, [DIRECT, OTHER_DIRECT], NOW - 500), "wss://relay")
+    store.save_nostr_metadata(follow_event(DIRECT, [TWO_HOP], NOW - 500), "wss://relay")
+    store.upsert(make_post("nostr", "p1", DIRECT, "one hop", NOW - 100), now=NOW)
+    calls = []
+    raw_connect = store.connect
+
+    @__import__("contextlib").contextmanager
+    def counting():
+        calls.append(1)
+        with raw_connect() as db:
+            yield db
+    store.connect = counting
+    try:
+        social_discovery(store, ROOT, now=NOW, order="connections")
+    finally:
+        store.connect = raw_connect
+    # graph load (1) + posts read (1); the old code needed 1 + follows + hubs + 1
+    assert len(calls) == 2
 
 
 def test_nonnostr_source_rejected_and_social_scope(store):
