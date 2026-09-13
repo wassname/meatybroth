@@ -57,11 +57,7 @@ impl Search {
         if !q.is_empty() && args.contains_key("go") {
             mode = "relevance";
         } else if !MODES.contains(&mode) {
-            mode = if q.is_empty() {
-                "conversations"
-            } else {
-                "relevance"
-            };
+            mode = if q.is_empty() { "new" } else { "relevance" };
         }
         if q.is_empty() && mode == "relevance" {
             mode = "conversations";
