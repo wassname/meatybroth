@@ -4,16 +4,16 @@ Date: 2026-09-13. This updates the original Python-era estimate for the Rust SQL
 
 ## Answer
 
-At the observed base rate, one retained month is **918,000 text notes**. Titan V2 API input is about **$1.49/month** if Titan counts the same 81.2 tokens/note as the MiniLM length sample. That token equivalence is not measured; the first authorized backfill must replace it with Titan's returned `inputTextTokenCount`.
+At the observed base rate, one retained month is **918,000 text notes**. Titan V2 API input is provisionally **$1.49–$2.21/month** using two MiniLM token proxies. Neither is a Titan bill: the first authorized Titan backfill must replace them with Bedrock's returned token count.
 
 The current schema stores each chunk vector and one aggregate vector per post. SQLite allocation is therefore materially larger than `notes × dimensions × 4`:
 
 | space | retained DB↓ | +25% working room↓ | API/month↓ | use |
 |---|---:|---:|---:|---|
-| *MiniLM 384-fp32* | *5.62 GiB* | *7.02 GiB* | *$0* | local development only |
-| Titan V2 512-fp32 | 8.80 GiB | 11.00 GiB | ~$1.49 | production after approval |
+| *MiniLM 384-fp32* | *5.72 GiB* | *7.15 GiB* | *$0* | measured local schema |
+| Titan V2 512-fp32 | 8.80 GiB | 11.00 GiB | ~$1.49–$2.21 | production after approval |
 
-These totals include the measured Rust note/event/index/FTS density and synthetic allocation of the exact embedding tables. They exclude profiles, follows, collection history, backups, model cache and a future ANN index. The current 30 GiB volume is probably enough for one month. Bedrock runs inference outside EC2, so embeddings alone do not justify a larger instance. Production web/collection CPU and RAM are still unmeasured, so this does not establish that the whole service needs no upgrade.
+These totals include measured Rust note/event/index/FTS density, measured MiniLM-table allocation and synthetic Titan-table allocation. They exclude profiles, follows, collection history, backups, model cache and a future ANN index. The current 30 GiB volume is probably enough for one month. Bedrock runs inference outside EC2, so embeddings alone do not justify a larger instance. Production web/collection CPU and RAM are still unmeasured, so this does not establish that the whole service needs no upgrade.
 
 ## Inputs and arithmetic
 
@@ -22,50 +22,50 @@ The volume source is the NostrMash snapshot preserved in the original repository
 - Retained notes: $30{,}600\;\text{notes/day} \times 30\;\text{days} = 918{,}000\;\text{notes}$.
 - Sensitivity: 459,000 at ×0.5; 2,754,000 at ×3.
 - Length sample: 7,937 non-empty posts, mean 81.2 MiniLM tokens/post and 2,334,145 UTF-8 bytes total.
-- MiniLM chunking: 9,279 chunks / 7,939 posts = 1.169 chunks/post from the earlier measured run.
+- MiniLM chunking: the provider limit is 256 tokens. The completed Rust database has 3,430 chunks / 2,874 embedded posts = 1.193 chunks/post. The earlier corpus artifact measured 1.169.
 - Titan chunking: the current 8,000-byte Rust splitter produces 7,982 chunks / 7,937 non-empty sampled posts = 1.0057 chunks/post; 17 posts need more than one chunk.
 
 Raw float32 vector payload is:
 
 $$S_{raw} = N_{posts} \cdot (1 + c_{chunks/post}) \cdot d_{dimensions} \cdot 4\;\text{bytes}$$
 
-where the `1` is the aggregate post vector retained in addition to chunk vectors. This gives 2.85 GiB for MiniLM and 3.51 GiB for Titan. A 10,000-post synthetic fill of the exact SQLite schema measured 4.26 GiB and 7.44 GiB after scaling to 918,000 posts. Titan's 512-float rows cross a SQLite overflow-page boundary with the current 4 KiB page size, which explains why allocated storage grows by more than the 512/384 dimension ratio.
+where the `1` is the aggregate post vector retained in addition to chunk vectors. This gives 2.88 GiB for measured MiniLM chunking and 3.51 GiB for projected Titan chunking. The completed MiniLM database allocates 14,680,064 bytes across its embedding tables and indexes for 2,874 posts; scaling the visible ratio gives 4.37 GiB. A 10,000-post synthetic fill of the Titan schema gives 7.44 GiB. Titan's 512-float rows cross a SQLite overflow-page boundary with the current 4 KiB page size, which explains why allocated storage grows by more than the 512/384 dimension ratio.
 
 The non-embedding Rust note sample measured 1,586.9 bytes/note after subtracting the empty schema. Scaling this event, tag-index, reader-row and FTS footprint adds 1.36 GiB. The 25% column allows for WAL, fragmentation and ordinary growth; it is not a substitute for the excluded metadata measurements.
 
-The request ledger does not expire with posts. Its synthetic allocation grows by about 0.25 GiB/month for MiniLM or 0.22 GiB/month for Titan at base volume. For Titan that is about 2.6 GiB/year even though vectors retain only 30 days. This ledger must survive host replacement because it is also the evidence used by the cumulative spending limit.
+The request ledger does not expire with posts. Measured MiniLM allocation grows by about 0.28 GiB/month; synthetic Titan allocation grows by about 0.22 GiB/month at base volume. For Titan that is about 2.6 GiB/year even though vectors retain only 30 days. This ledger must survive host replacement because it is also the evidence used by the cumulative spending limit.
 
 ## What is observed today
 
-Observed 2026-09-13; [full SQLite output](../../slop/verification/2026-09-13_embedding-storage-observations.log).
+Observed 2026-09-13; [historical SQLite inputs](../../slop/verification/2026-09-13_embedding-storage-observations.log) and [completed MiniLM evidence](../../slop/verification/2026-09-13_rust-minilm-measured-estimate-evidence.log).
 
 | database | file state | rows | interpretation |
 |---|---:|---:|---|
 | Original reader | 27.18 MiB | 7,937 posts | Selected 30-day corpus; post/FTS density was previously measured at 1.36 KiB/post. |
-| Rust active reader | 32.39 MiB main + 3.49 MiB WAL | 3,192 events; 2,874 text notes | Read-only reader DB at 12:19 UTC. A separate MiniLM backfill was in progress: 76 aggregate and 77 chunk vectors, not a completed measurement. |
+| Rust active reader | 49.48 MiB main + 12.39 MiB WAL | 3,126 text notes at first completed read; 2,874 embedded | Read-only DB at 12:53 UTC: 3,430 chunk vectors, 345,272 MiniLM tokens and zero local cost. Collection continued after the timed backfill. |
 | Rust coverage fixture | 5.29 MiB logical; no WAL | 461 events; 382 text notes | The former `rust-coverage-8088` file is not active. Its 13,099 indexed tags include 12,167 from kind-3 follow events, so bytes/event is misleading. |
 | SDK parity snapshot | 233.43 MiB | 10,001 events; 7,543 projected posts | Follow tables/indexes and full event/tag indexes dominate. It is migration evidence, not a representative monthly storage rate. |
 | Rust note-only fixture copy | 0.58 MiB above empty schema | 382 text notes | 1.55 KiB/note for full signed events, event indexes, reader rows, tags and FTS. |
 
-At the active snapshot, the incomplete MiniLM backfill held 116,736 aggregate-vector bytes and 118,272 chunk-vector bytes. This verifies 384-float payloads but not final SQLite allocation or throughput. The app owner selected fastembed 6.0.2 with native ONNX Runtime and `AllMiniLML6V2`; completed hardware, corpus, wall time and persisted bytes remain **pending**.
+The completed set holds 4,414,464 aggregate-vector bytes and 5,268,480 chunk-vector bytes; every vector is 384 float32 values (1,536 bytes). Embedding tables and their indexes allocate 14,680,064 bytes, or 5,107.9 bytes/completed post. The space records fastembed 6.0.2's `AllMiniLML6V2` model revision plus model and tokenizer hashes. [Measured query and arithmetic](../../slop/verification/2026-09-13_rust-minilm-measured-estimate-evidence.log) preserve the exact values.
 
 ## Compute alternatives
 
 - **Bedrock production:** inference is remote, so the EC2 host only chunks, sends and stores results. The API price and storage are the relevant embedding increments; web and collection load still need a representative host measurement.
-- **MiniLM CPU development:** the earlier Python fastembed path measured 17.4 posts/s and 641 ms process CPU/post on a four-core slice of a Ryzen 9 5900X with production chunking. It exceeded the 0.354 notes/s base arrival rate on that desktop, but it is not a Rust or t3.small measurement. The current Rust result is pending.
+- **MiniLM CPU development:** the completed Rust command resumed 1,519 posts in 402.69 s: 3.77 posts/s wall time, 0.157 s CPU/post, 0.59 average cores and 571 MiB maximum RSS on an AMD Ryzen 9 5900X host with 12 cores/24 threads and 62 GiB RAM. This whole command also includes a 14.01 s development build and 11-topic clustering; clustering time is not isolated, and the resumed remainder is a biased subset. At the same desktop whole-command rate, 918,000 posts is 67.6 hours, but that arithmetic is not a t3.small forecast. The earlier Python fastembed path measured 17.4 posts/s on a different four-core setup and is not directly comparable.
 - **GPU backfill:** no current Rust/GPU throughput is measured. The original estimate's 5,000–18,000 posts/s range came from an unspecified sentence-transformers benchmark, so it is not adequate evidence to rent hardware. Titan's projected $1.49 backfill removes the economic reason to provision a GPU for production.
 
 ## Titan API cost
 
-The AWS us-west-2 metered-unit map reports Titan Text Embeddings V2 at $0.00002 per 1,000 input tokens, or **$0.02/million**. Under the provisional MiniLM-token assumption:
+The AWS us-west-2 metered-unit map reports Titan Text Embeddings V2 at $0.00002 per 1,000 input tokens, or **$0.02/million**. The old length sample averaged 81.2 MiniLM tokens/post. The completed Rust set records 345,272 MiniLM tokens / 2,874 posts = 120.14 tokens/post. These bound two local-tokenizer projections, not Titan billing:
 
-| volume | notes/month | assumed tokens/month | Titan input/month |
+| volume | notes/month | at 81.2 tokens/post | at 120.14 tokens/post |
 |---|---:|---:|---:|
-| ×0.5 | 459,000 | 37.27M | $0.75 |
-| base | 918,000 | 74.54M | $1.49 |
-| ×3 | 2,754,000 | 223.62M | $4.47 |
+| ×0.5 | 459,000 | $0.75 | $1.10 |
+| base | 918,000 | $1.49 | $2.21 |
+| ×3 | 2,754,000 | $4.47 | $6.62 |
 
-Initial backfill costs the same as one retained month. Queries, retries, uncertain requests and re-embedding after a model-space change are additional. The implementation currently treats $5 as a lifetime cumulative limit as well as a $5 monthly limit. At base volume, the initial $1.49 backfill leaves about $3.51: only 2.35 further steady months, or 3.35 ingestion-month equivalents in total. At ×3, the initial $4.47 backfill leaves about $0.53. Indefinite operation at up to $5/month is therefore not configured; it requires a reviewed change to the cumulative-limit policy or an explicit later budget increase. No Bedrock call has been made, and these figures are not an AWS bill.
+Initial backfill costs one ingestion-month equivalent under the matching token assumption. Queries, retries, uncertain requests and re-embedding after a model-space change are additional. The implementation currently treats $5 as a lifetime cumulative limit as well as a $5 monthly limit. At base volume, $5 permits 3.35 ingestion-month equivalents under the 81.2-token proxy or 2.27 under the 120.14-token proxy, including initial backfill. The ×3 high-token case exceeds both limits during its first month. Indefinite operation at up to $5/month is therefore not configured; it requires a reviewed change to the cumulative-limit policy or an explicit later budget increase. No Bedrock call has been made, and these figures are not an AWS bill.
 
 ## Model context
 

@@ -1,0 +1,91 @@
+Rust MiniLM measured estimate evidence
+
+Source command log:
+/workspace/meatybroth-rust/slop/verification/2026-09-13_rust-minilm-backfill-resume.log
+sha256=c7ece3a81c2186f757dc4dd56e466c145c3fba4a3abbdda845e72af72ab974ca
+
+Command reported:
+started_at=2026-09-13T20:42:01+08:00
+finished_at=2026-09-13T20:48:44+08:00
+resumed_posts=1519
+wall_seconds=402.69
+user_seconds=215.79
+system_seconds=22.80
+max_rss_kib=584864
+cargo_dev_compile_seconds=14.01
+topics_built_after_embedding=11
+exit_status=0
+host_reported_by_app_owner=AMD Ryzen 9 5900X, 12 cores/24 threads, 62 GiB RAM
+scope=whole command: dev compilation + biased resumed subset + topic clustering; not isolated inference and not t3 performance
+
+Derived whole-command arithmetic:
+posts_per_wall_second=1519/402.69=3.772132
+wall_seconds_per_post=402.69/1519=0.265102
+cpu_seconds_per_post=(215.79+22.80)/1519=0.157070
+average_cores=(215.79+22.80)/402.69=0.592491
+posts_per_second_after_subtracting_only_reported_compile=1519/(402.69-14.01)=3.908099
+max_rss_mib=584864/1024=571.156250
+base_arrival_rate_posts_per_second=30600/86400=0.354167
+whole_command_rate_over_base_arrival=3.772132/0.354167=10.6507
+month_at_same_desktop_whole_command_rate_hours=918000/3.772132/3600=67.6010
+The last two values are desktop arithmetic, not a t3 forecast. Clustering time is not separated, and the resumed remainder is not an unbiased corpus sample.
+
+First read-only completed-state query at 2026-09-13T12:53:22Z:
+database=/workspace/meatybroth-rust/.local/rust-live-8086/events.sqlite
+main_file_bytes=51879936
+wal_file_bytes=12990392
+logical_bytes=51924992
+kind1_events_at_later_live_collection_state=3126
+embedding_spaces=1
+embedding_requests=3430 succeeded, actual_tokens=345272, actual_nusd=0
+embedding_chunks=3430, vector_bytes=5268480, each_vector_bytes=1536, input_tokens=345272
+post_embeddings=2874, vector_bytes=4414464, each_vector_bytes=1536, input_tokens=345272, summed_chunks=3430
+space_id=bd46d8b3badab3de9e7c2747879e27e781c69e059bf0a19dedf7a39516db644e
+backend=minilm
+model=sentence-transformers/all-MiniLM-L6-v2
+dimensions=384
+normalize=1
+revision=5f1b8cd78bc4fb444dd171e59b18f3a3af89a079
+model_sha256=bbd7b466f6d58e646fdc2bd5fd67b2f5e93c0b687011bd4548c420f7bd46f0c5
+tokenizer_sha256=da0e79933b9ed51798a3ae27893d3c5fa4a201126cef75586296df9b4d2c62a0
+
+dbstat bytes at that read:
+embedding_chunks=7045120
+embedding_request_budget=90112
+embedding_requests=446464
+embedding_spaces=4096
+post_embeddings=5902336
+sqlite_autoindex_embedding_chunks_1=417792
+sqlite_autoindex_embedding_requests_1=417792
+sqlite_autoindex_embedding_spaces_1=4096
+sqlite_autoindex_post_embeddings_1=352256
+embedding_allocated_bytes=14680064
+raw_vector_payload_bytes=5268480+4414464=9682944
+embedding_sqlite_overhead_bytes=14680064-9682944=4997120
+embedding_allocated_bytes_per_completed_post=14680064/2874=5107.885873
+request_ledger_bytes=90112+446464+417792=954368
+request_ledger_bytes_per_completed_post=954368/2874=332.069589
+chunks_per_completed_post=3430/2874=1.193458594
+tokens_per_completed_post=345272/2874=120.136395
+
+Projection arithmetic for 918000 posts:
+minilm_raw_vectors_gib=9682944/2874*918000/2^30=2.880471
+minilm_embedding_schema_gib=14680064/2874*918000/2^30=4.367008
+minilm_request_ledger_gib_per_month=954368/2874*918000/2^30=0.283904
+base_note_event_fts_gib=1586.93*918000/2^30=1.356752
+minilm_total_gib=4.367008+1.356752=5.723760
+minilm_total_plus_25pct_gib=7.154701
+minilm_token_proxy_cost_usd=918000*120.136395/1000000*0.02=2.205704
+old_length_sample_proxy_cost_usd=918000*81.2/1000000*0.02=1.490832
+
+A second read at 2026-09-13T12:54:06Z observed continued collection and incremental embedding after the completed run: 3204 kind-1 events, 2875 post embeddings, 3431 completed chunks, one reserved request and 329 eligible unembedded notes. This moving state is not substituted for the completed 2874/3430/345272 measurement.
+
+-- Pi/gpt-5.6-sol
+
+Final document verification:
+PASS timing log hash and whole-command fields
+PASS live DB remains at or beyond completed baseline: posts=3174 chunks=3785 tokens=379497 vector_bytes=5813760
+PASS exact MiniLM space and 1536-byte vectors
+PASS document values, uncertainty statements and local evidence links
+-- Pi/gpt-5.6-sol
+PASS git diff --check
