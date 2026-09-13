@@ -64,7 +64,10 @@ Do not set `AWS_PROFILE` or static AWS credentials on EC2. `aws-config` uses the
 - Stop the verified duplicate legacy Python collector, preserving rollback configuration. Do not stop the Rust writer for routine checks.
 - Production resource sample before that stop: CPU 52.7% average/69% maximum with no T3 credit or cgroup throttle; Rust RSS about 1.293 GiB on a 1.865 GiB host, 157 MiB available, no swap, load 3.25; database 1.029 GB plus 401.5 MB WAL; Rust block I/O 15.8 GB read/5.04 GB write. The old Python collector used another 10.4% CPU. These are observations, not a single-cause diagnosis.
 - Reader connections currently allocate a 64 MiB SQLite page cache, 256 MiB mmap, and memory temp store; blocking HTTP tasks have no concurrency limit. Do not count mmap as RSS without measurement. Next inspect a two-request bound, smaller reader cache, disk-backed temp storage, and cached status aggregation. Preserve the canonical disk temp path.
-- DBSCAN/fixed-k Topics and `Similar replies:` are implemented as work in progress but are not yet the deployed checkpoint.
+- DBSCAN/fixed-k Topics and `Similar replies:` are implemented as uncommitted work in `/workspace/meatybroth-rust`; they are not deployed and remain lower priority than runtime responsiveness/freshness.
+- Isolated scheduling worktree: `/workspace/.worktrees/meatybroth-sla`. Commit `91568ab` persists live/history classification and FIFO across restart. Reviewer found its partial-EOSE path marked too late; WIP fix `ff2d8ec` moves marking before the EOSE error and adds a real no-EOSE retained-arrival/reopen regression. Do not deploy `ff2d8ec` until process `proc_a93a` finishes successfully and its full test/Clippy/release logs are inspected.
+- Next combined runtime work after `ff2d8ec` is green: cap blocking HTTP work at two, change read-only connections from 64 MiB cache/256 MiB mmap/memory temp toward smaller measured settings with `temp_store=FILE`, and make status accounting nonblocking/cached or index-backed without weakening dynamic moderation. Exact current logs: `slop/verification/2026-09-14_persistent-live-timeout-{test,full-tests,clippy,release}.log` inside the isolated worktree.
+- This worker has no callable same-session compaction operation. The parent should compact and resume this exact session rather than launch another writer.
 
 ## Follow-up after live review
 
