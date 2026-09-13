@@ -482,11 +482,11 @@ async fn machine_presence_envelopes_stay_auditable_but_not_reader_or_embedding_e
     );
     drop(conn);
 
-    let mock = MockEmbedder::default();
+    let mock = Arc::new(MockEmbedder::default());
     assert_eq!(
         embed::embed_pending(
             &path,
-            &mock,
+            mock.as_ref(),
             embed::Budget {
                 total_nusd: i64::MAX,
                 monthly_nusd: i64::MAX,
@@ -510,6 +510,28 @@ async fn machine_presence_envelopes_stay_auditable_but_not_reader_or_embedding_e
         ),
         0
     );
+
+    // Reproduce a vector written by a pre-migration process and prove both HTTP and schema cleanup reject it. -- Pi/gpt-5.6-sol
+    conn.execute(
+        "INSERT INTO post_embeddings(event_id,space_id,dimensions,chunk_count,input_tokens,cost_nusd,vector,embedded_at)
+         SELECT ?1,space_id,dimensions,chunk_count,input_tokens,cost_nusd,vector,embedded_at
+         FROM post_embeddings WHERE event_id=?2",
+        (presence.id.as_bytes(), price.id.as_bytes()),
+    )
+    .unwrap();
+    drop(conn);
+    let uri = format!(
+        "/?mode=similar&similar=nostr:{}&embedding=minilm",
+        presence.id.to_hex()
+    );
+    let (status, body) = html_with_embedding(&path, &uri, Some(mock.clone())).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(body.contains("source post is not eligible"));
+
+    let conn = Connection::open(&path).unwrap();
+    crate::collect::cleanup_ineligible_derived(&conn).unwrap();
+    assert_eq!(count(&conn, "SELECT count(*) FROM post_embeddings"), 2);
+    assert_eq!(count(&conn, "SELECT count(*) FROM events WHERE kind=1"), 4);
 }
 
 #[tokio::test]
@@ -628,7 +650,8 @@ async fn incremental_embeddings_reuse_delete_and_budget_after_sdk_drain() {
     assert_eq!(status, StatusCode::OK);
     assert!(cache_status.contains("Embedding caches"));
     assert!(cache_status.contains(embed::TITAN_MODEL));
-    assert!(cache_status.contains("eligible / 2 stored"));
+    assert!(cache_status.contains("2 eligible posts embedded"));
+    assert!(cache_status.contains("2 total stored vectors"));
     assert!(cache_status.contains("US$0.000180420 recorded cost"));
 
     sdk.delete(Filter::new().ids([long.id, second.id]))

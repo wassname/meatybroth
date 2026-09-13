@@ -3,6 +3,7 @@
 <h2>Collector status</h2>
 <p>As of {{ now }}. {{ eligible_posts }} eligible Nostr posts in the last {{ window_days }} days.</p>
 <p>The Rust SDK collector and reader share this SQLite file. Collection keeps durable five-minute forward/backfill attempts plus fetched profiles and referenced parents. Gap rows identify intervals without inventory proof; counts do not establish complete relay coverage.</p>
+<p>{{ direct_follows - missing_contact_lists }} of {{ direct_follows }} direct follows have a stored contact list; {{ missing_contact_lists }} remain missing or unavailable from the selected relays.</p>
 {% for s in status_rows %}
 <h3>{{ s.source }}</h3>
 <p>Last report {{ s.updated }}</p>
@@ -18,7 +19,7 @@
 {% else %}<p>No signed moderation lists stored.</p>{% endfor %}
 <h3>Embedding caches</h3>
 {% for e in embedding_spaces %}
-<p><strong>{{ e.backend }}</strong> · {{ e.model }} · {{ e.dimensions }} dimensions · {{ e.eligible_vectors }} eligible / {{ e.vectors }} stored · {{ e.pending }} eligible pending</p>
+<p><strong>{{ e.backend }}</strong> · {{ e.model }} · {{ e.dimensions }} dimensions · {{ e.eligible_vectors }} eligible posts embedded · {{ e.pending }} eligible posts pending · {{ e.vectors }} total stored vectors, including posts no longer eligible</p>
 <p>{{ e.requests }} completed requests · {{ e.tokens }} input tokens · US${{ e.cost_usd }} recorded cost · {{ e.uncertain }} uncertain requests</p>
 <p>Revision <code>{{ e.revision }}</code><br>Model SHA-256 <code>{{ e.model_sha256 }}</code><br>Tokenizer SHA-256 <code>{{ e.tokenizer_sha256 }}</code></p>
 {% else %}<p>No embedding cache stored.</p>{% endfor %}

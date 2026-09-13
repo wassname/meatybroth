@@ -1,0 +1,18 @@
+database:
+id                                                                eligible  stored_vectors  topic_memberships
+----------------------------------------------------------------  --------  --------------  -----------------
+3516c300b7111d26772b1e962d4bcf1c1855cb1ded526a300326572617b51995  0         0               0
+56e0a2a9140405925aee80c1fc7df3ae57e14170c08c3526f1d74a72f2afbf53  0         0               0
+http:
+context 3516c300b7111d26772b1e962d4bcf1c1855cb1ded526a300326572617b51995 status=404 seconds=0.023702
+similar 3516c300b7111d26772b1e962d4bcf1c1855cb1ded526a300326572617b51995 status=400 seconds=0.246277
+source post is not eligible in the current reader window
+context 56e0a2a9140405925aee80c1fc7df3ae57e14170c08c3526f1d74a72f2afbf53 status=404 seconds=0.028782
+similar 56e0a2a9140405925aee80c1fc7df3ae57e14170c08c3526f1d74a72f2afbf53 status=400 seconds=0.273111
+source post is not eligible in the current reader window
+topics status=200 seconds=0.238911
+mixed labels=Mixed #0 Mixed #1 Mixed #10 Mixed #11 Mixed #12 Mixed #2 Mixed #3 Mixed #6 Mixed #8 Mixed #9
+topic_index_pagination=absent
+status status=200 seconds=0.104073
+119 eligible posts embedded · 7481 eligible posts pending · 119 total stored vectors, including posts no longer eligible
+5010 eligible posts embedded · 2590 eligible posts pending · 5010 total stored vectors, including posts no longer eligible

@@ -349,6 +349,8 @@ impl Transport for MiniLm {
 fn db(path: &Path) -> Result<Connection, Error> {
     let conn = Connection::open(path)?;
     conn.busy_timeout(std::time::Duration::from_secs(10))?;
+    conn.pragma_update(None, "cache_size", -65_536)?;
+    conn.pragma_update(None, "mmap_size", 268_435_456)?;
     conn.execute_batch("PRAGMA foreign_keys=ON")?;
     Ok(conn)
 }
@@ -802,6 +804,7 @@ pub async fn embed_pending(
                     now,
                 },
             )?;
+            tokio::task::yield_now().await;
         }
         finalize(path, event_id, text_chunks.len(), space, now)?;
     }

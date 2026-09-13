@@ -1,0 +1,16 @@
+start_epoch=1789318137 counts=11078 7012 4066
+round=1 route=root status=200 seconds=1.358655 bytes=232352
+round=1 route=meaning status=200 seconds=0.867903 bytes=272401
+round=1 route=social status=200 seconds=1.201589 bytes=250930
+round=1 route=topics status=200 seconds=0.536241 bytes=4950
+round=1 route=status status=200 seconds=0.282529 bytes=24094
+round=1 epoch=1789318906 counts=11824 8363 3461
+round=2 route=root status=200 seconds=3.142565 bytes=239320
+round=2 route=meaning status=200 seconds=2.109696 bytes=268782
+round=2 route=social status=200 seconds=4.461323 bytes=250147
+round=2 route=topics status=200 seconds=0.559068 bytes=4950
+round=2 route=status status=200 seconds=0.280969 bytes=23894
+summary columns=eligible_posts,minilm_eligible_embedded,minilm_eligible_pending
+summary elapsed_seconds=769 eligible_delta=+746 embedded_delta=+1351 pending_delta=-605
+summary per_second eligible_arrival=0.970 embedding_completion=1.757 pending_change=-0.787
+# Calculated directly from the two timestamped count snapshots above. -- Pi/gpt-5.6-sol

@@ -24,15 +24,30 @@ use std::{collections::BTreeSet, path::Path, sync::Arc, time::Duration};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 pub const PRIMAL_AUTHOR: &str = "5d8282fc89410f1c57681a2c3b8be57afd1566c262fd1deb543999d39d141cb4";
+const DERIVED_ELIGIBILITY_CLEANUP: &str = "
+DELETE FROM post_topics WHERE NOT EXISTS (
+    SELECT 1 FROM reader_post_events reader WHERE reader.event_id=post_topics.event_id
+);
+DELETE FROM embedding_chunks WHERE NOT EXISTS (
+    SELECT 1 FROM reader_post_events reader WHERE reader.event_id=embedding_chunks.event_id
+);
+DELETE FROM post_embeddings WHERE NOT EXISTS (
+    SELECT 1 FROM reader_post_events reader WHERE reader.event_id=post_embeddings.event_id
+);";
 const PAGE_LIMIT: usize = 500;
 const COVERAGE_STEP: i64 = 300;
 const MODERATION_REFRESH: u64 = 3600;
-const LOCAL_EMBED_BATCH: usize = 10;
+const LOCAL_EMBED_BATCH: usize = 1;
 
 #[derive(Clone, Copy)]
 struct Cursor {
     forward_at: i64,
     backfill_before: i64,
+}
+
+pub(crate) fn cleanup_ineligible_derived(conn: &Connection) -> Result<(), Error> {
+    conn.execute_batch(DERIVED_ELIGIBILITY_CLEANUP)?;
+    Ok(())
 }
 
 fn admin(path: &Path) -> Result<Connection, Error> {
@@ -190,7 +205,12 @@ pub async fn open(path: &Path, primal_author: &str) -> Result<NostrSqlite, Error
         }
     }
     std::fs::create_dir_all(path.parent().unwrap())?;
+    let stage_started = std::time::Instant::now();
     let sdk = NostrSqlite::builder().in_file(path).build().await?;
+    eprintln!(
+        "Startup stage sdk_open_ms={}",
+        stage_started.elapsed().as_millis()
+    );
     let conn = Connection::open(path)?;
     let initialized: bool = conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='reader_events')",
@@ -205,12 +225,33 @@ pub async fn open(path: &Path, primal_author: &str) -> Result<NostrSqlite, Error
         PublicKey::from_hex(primal_author)?;
         conn.execute_batch(&include_str!("schema.sql").replace("{primal_author}", primal_author))?;
     }
-    conn.execute_batch(include_str!("posts.sql"))?;
-    conn.execute_batch(include_str!("coverage.sql"))?;
-    conn.execute_batch(include_str!("embed.sql"))?;
-    conn.execute_batch(include_str!("social.sql"))?;
+    for (name, sql) in [
+        ("posts_schema", include_str!("posts.sql")),
+        ("coverage_schema", include_str!("coverage.sql")),
+        ("embedding_schema", include_str!("embed.sql")),
+        ("social_schema", include_str!("social.sql")),
+    ] {
+        let stage_started = std::time::Instant::now();
+        conn.execute_batch(sql)?;
+        eprintln!(
+            "Startup stage {name}_ms={}",
+            stage_started.elapsed().as_millis()
+        );
+    }
+    // Remove derived rows excluded by a newer reader policy; canonical events and spend history remain. -- Pi/gpt-5.6-sol
+    let stage_started = std::time::Instant::now();
+    cleanup_ineligible_derived(&conn)?;
+    eprintln!(
+        "Startup stage derived_cleanup_ms={}",
+        stage_started.elapsed().as_millis()
+    );
     // Query-planner cardinality prevents multi-second feed joins after bulk SDK ingestion. -- Pi/gpt-5.6-sol
+    let stage_started = std::time::Instant::now();
     conn.execute_batch("ANALYZE events")?;
+    eprintln!(
+        "Startup stage analyze_events_ms={}",
+        stage_started.elapsed().as_millis()
+    );
     drop(conn);
     recover_interrupted(path, i64::try_from(Timestamp::now().as_secs())?)?;
     Ok(sdk)
@@ -593,6 +634,43 @@ async fn durable_window(
     })
 }
 
+async fn missing_direct_follow_contact_lists(
+    sdk: &NostrSqlite,
+    root: PublicKey,
+) -> Result<BTreeSet<PublicKey>, Error> {
+    let root_contacts = sdk
+        .query(Filter::new().author(root).kind(Kind::ContactList))
+        .await?;
+    let Some(latest) = root_contacts.iter().max_by_key(|event| event.created_at) else {
+        return Ok(BTreeSet::new());
+    };
+    let follows: BTreeSet<_> = latest
+        .tags
+        .iter()
+        .filter_map(|tag| {
+            let values = tag.as_slice();
+            (values.first().is_some_and(|value| value == "p"))
+                .then(|| values.get(1))
+                .flatten()
+                .and_then(|value| PublicKey::from_hex(value).ok())
+        })
+        .collect();
+    if follows.is_empty() {
+        return Ok(follows);
+    }
+    let owners: BTreeSet<_> = sdk
+        .query(
+            Filter::new()
+                .authors(follows.iter().copied())
+                .kind(Kind::ContactList),
+        )
+        .await?
+        .iter()
+        .map(|event| event.pubkey)
+        .collect();
+    Ok(follows.difference(&owners).copied().collect())
+}
+
 async fn hydrate_notes(
     client: &Client,
     policy: &Policy,
@@ -868,6 +946,42 @@ async fn collect_relay(
     Ok(())
 }
 
+async fn embed_until_next_scan(
+    path: &Path,
+    model: &MiniLm,
+    topics_dirty: &mut bool,
+    next_scan_at: tokio::time::Instant,
+) -> Result<(), Error> {
+    loop {
+        if tokio::time::Instant::now() >= next_scan_at {
+            return Ok(());
+        }
+        let now = i64::try_from(Timestamp::now().as_secs())?;
+        let count = embed::embed_pending(
+            path,
+            model,
+            Budget {
+                total_nusd: i64::MAX,
+                monthly_nusd: i64::MAX,
+            },
+            now,
+            LOCAL_EMBED_BATCH,
+        )
+        .await?;
+        if count == 0 {
+            if *topics_dirty {
+                let count = embed::cluster_topics(path, model.vector_space(), now)?;
+                *topics_dirty = false;
+                eprintln!("Built {count} keyword-labelled MiniLM topics");
+            }
+            return Ok(());
+        }
+        *topics_dirty = true;
+        eprintln!("Embedded {count} local posts between SDK scans");
+        tokio::task::yield_now().await;
+    }
+}
+
 /// Runs moderation refresh, bounded collection, hydration, and cleanup in one writer sequence.
 pub async fn run(
     path: &Path,
@@ -929,6 +1043,39 @@ pub async fn run(
             }
         }
     }
+    let mut missing_contacts = missing_direct_follow_contact_lists(&sdk, root).await?;
+    for relay in relays.iter().chain(&profile_relays) {
+        if missing_contacts.is_empty() {
+            break;
+        }
+        let requested = missing_contacts.len();
+        let result = scan(
+            &client,
+            &policy,
+            relay,
+            Filter::new()
+                .authors(missing_contacts.iter().copied())
+                .kind(Kind::ContactList)
+                .limit(requested),
+            Duration::from_secs(15),
+        )
+        .await;
+        match result {
+            Ok(observed) if observed.eose => {
+                missing_contacts = missing_direct_follow_contact_lists(&sdk, root).await?;
+                eprintln!(
+                    "Hydrated direct-follow contact lists; requested={requested} missing={}; relay={relay}",
+                    missing_contacts.len()
+                );
+            }
+            Ok(_) => eprintln!(
+                "Direct-follow contact-list hydration timed out; requested={requested}; relay={relay}; collector continues"
+            ),
+            Err(error) => eprintln!(
+                "Direct-follow contact-list hydration failed: {error}; requested={requested}; relay={relay}; collector continues"
+            ),
+        }
+    }
     let mut unsupported_reconciliation = BTreeSet::new();
     let mut topics_dirty = false;
     loop {
@@ -942,38 +1089,6 @@ pub async fn run(
             eprintln!("Verified Primal moderation snapshots refreshed before further admission");
         } else {
             prune(&sdk, &policy, now_u64).await?;
-        }
-        if let Some(model) = &embedding {
-            match embed::embed_pending(
-                path,
-                model.as_ref(),
-                Budget {
-                    total_nusd: i64::MAX,
-                    monthly_nusd: i64::MAX,
-                },
-                now,
-                LOCAL_EMBED_BATCH,
-            )
-            .await
-            {
-                Ok(count) if count > 0 => {
-                    topics_dirty = true;
-                    eprintln!("Embedded {count} local posts before relay collection");
-                }
-                Ok(_) if topics_dirty => {
-                    match embed::cluster_topics(path, model.vector_space(), now) {
-                        Ok(count) => {
-                            topics_dirty = false;
-                            eprintln!("Built {count} keyword-labelled MiniLM topics");
-                        }
-                        Err(error) => eprintln!("Topic clustering failed explicitly: {error}"),
-                    }
-                }
-                Ok(_) => {}
-                Err(error) => eprintln!(
-                    "Local embedding cycle failed explicitly: {error}; relay collection continues"
-                ),
-            }
         }
         for relay in &relays {
             if let Err(error) = collect_relay(
@@ -992,7 +1107,17 @@ pub async fn run(
                 eprintln!("{reason}; relay={relay}; HTTP reader remains available");
             }
         }
-        tokio::time::sleep(Duration::from_secs(30)).await;
+        let next_scan_at = tokio::time::Instant::now() + Duration::from_secs(30);
+        if let Some(model) = &embedding {
+            if let Err(error) =
+                embed_until_next_scan(path, model.as_ref(), &mut topics_dirty, next_scan_at).await
+            {
+                eprintln!(
+                    "Local embedding between completed SDK scans failed explicitly: {error}; collection continues"
+                );
+            }
+        }
+        tokio::time::sleep_until(next_scan_at).await;
     }
 }
 

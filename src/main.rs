@@ -305,6 +305,9 @@ fn semantic_feed(
             .as_deref()
             .ok_or("Similar search requires an event ID")?;
         let event_id = EventId::from_hex(id.strip_prefix("nostr:").unwrap_or(id))?;
+        if queries::get(db, &canonical_event_id(event_id.as_bytes()), now)?.is_none() {
+            return Err("The source post is not eligible in the current reader window".into());
+        }
         let vector = embed::event_vector(&app.path, &space, event_id.as_bytes())?
             .ok_or("This post is absent from the selected embedding cache")?;
         (vector, Some(event_id))
@@ -576,13 +579,25 @@ fn status(app: &App, db: &Connection, now: i64) -> Result<String, Error> {
     let mut statement=db.prepare("SELECT relay,since_at,until_at,reason,checked_at FROM collection_gaps ORDER BY checked_at DESC,relay LIMIT 100")?;
     let gaps=statement.query_map([],|r|Ok(json!({"relay":r.get::<_,String>(0)?,"since":render::time(r.get(1)?),
         "until":render::time(r.get(2)?),"reason":r.get::<_,String>(3)?,"checked":render::time(r.get(4)?)})))?.collect::<Result<Vec<_>,_>>()?;
-    let mut statement=db.prepare("SELECT coalesce(l.source,a.source),coalesce(l.identifier,a.identifier),l.event_id,l.event_created_at,l.checked_at,json_array_length(l.members_json),
-        a.attempted_at,a.error FROM moderation_lists l FULL OUTER JOIN moderation_refresh_attempts a USING(source,identifier) ORDER BY 1,2")?;
+    let mut statement=db.prepare("SELECT coalesce(l.source,a.source),coalesce(l.identifier,a.identifier),l.event_id,l.event_created_at,l.checked_at,
+        (SELECT count(DISTINCT value) FROM json_each(l.members_json)),a.attempted_at,a.error
+        FROM moderation_lists l FULL OUTER JOIN moderation_refresh_attempts a USING(source,identifier) ORDER BY 1,2")?;
     let lists=statement.query_map([],|r|Ok(json!({"source":r.get::<_,String>(0)?,"identifier":r.get::<_,String>(1)?,
         "event_id":r.get::<_,Option<String>>(2)?,"signed":r.get::<_,Option<i64>>(3)?.map(render::time),
         "checked":r.get::<_,Option<i64>>(4)?.map(render::time),"members":r.get::<_,Option<i64>>(5)?,
         "attempted":r.get::<_,Option<i64>>(6)?.map(render::time),"error":r.get::<_,Option<String>>(7)?})))?.collect::<Result<Vec<_>,_>>()?;
     let counts = queries::count(db, now, None)?;
+    let (direct_follows, missing_contact_lists): (i64, i64) = db.query_row(
+        "WITH direct AS (
+           SELECT DISTINCT followee FROM social_edges WHERE follower=?1
+         ), owners AS (
+           SELECT DISTINCT lower(hex(pubkey)) owner FROM events WHERE kind=3
+         )
+         SELECT count(*),coalesce(sum(owner IS NULL),0)
+         FROM direct LEFT JOIN owners ON owner=followee",
+        [&app.root],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
     let embedding_spaces: Vec<_> = embed::cache_status(db, now)?
         .into_iter()
         .map(|status| {
@@ -599,7 +614,8 @@ fn status(app: &App, db: &Connection, now: i64) -> Result<String, Error> {
         app,
         "status.html",
         json!({"now":render::time(now),"eligible_posts":counts,"status_rows":rows,"gap_count":gap_count,
-            "gaps":gaps,"lists":lists,"embedding_spaces":embedding_spaces}),
+            "gaps":gaps,"lists":lists,"embedding_spaces":embedding_spaces,
+            "direct_follows":direct_follows,"missing_contact_lists":missing_contact_lists}),
     )
 }
 
@@ -748,7 +764,12 @@ async fn main() -> Result<(), Error> {
         eprintln!("Built {topics} keyword-labelled topics from cached {backend} vectors");
         return Ok(());
     }
+    let stage_started = std::time::Instant::now();
     let embedding = local_embedding(&path, 8)?;
+    eprintln!(
+        "Startup stage embedding_setup_ms={}",
+        stage_started.elapsed().as_millis()
+    );
     if std::env::var("MEATYBROTH_EMBED_ONLY").as_deref() == Ok("1") {
         if std::env::var("MEATYBROTH_EMBED_BACKEND").as_deref() == Ok("bedrock") {
             let total_nusd = usd_nusd(&std::env::var("MEATYBROTH_EMBED_TOTAL_BUDGET_USD")?)?;
@@ -782,12 +803,7 @@ async fn main() -> Result<(), Error> {
         }
         return Ok(());
     }
-    // Keep HTTP queries independent from the lower-priority collection inference queue. -- Pi/gpt-5.6-sol
-    let collector_embedding = if embedding.is_some() {
-        local_embedding(&path, 2)?
-    } else {
-        None
-    };
+    let collector_embedding = embedding.clone();
     let default_embedding =
         std::env::var("MEATYBROTH_DEFAULT_EMBEDDING").unwrap_or_else(|_| "minilm".into());
     if !["minilm", "titan"].contains(&default_embedding.as_str()) {
