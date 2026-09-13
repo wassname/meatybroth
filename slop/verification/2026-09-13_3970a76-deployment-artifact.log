@@ -1,6 +1,7 @@
 Rust cached-Titan deployment artifact verification
 observed_utc=2026-09-13T15:42Z
 source_revision=3970a769ca5152bd5ddfd8ec1402e26b1d06eef5
+remote_ref=refs/heads/rust-rewrite at 3970a769ca5152bd5ddfd8ec1402e26b1d06eef5 (git ls-remote verified after artifact build)
 build_source=isolated exact git worktree
 build_command=cargo +stable build --locked --release
 lock_resolution=none (--locked); committed lock was resolved under repository age policy
