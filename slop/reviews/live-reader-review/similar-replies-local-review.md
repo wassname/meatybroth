@@ -12,7 +12,7 @@ The request has no semantic query text. It uses cached selected-space vectors an
 
 ## Retrieval quality: saved disappointment
 
-This supplied source does **not** show a useful independent recommendation. All five recommended replies quote the same source (`710eef236e7d9c24…`) and closely paraphrase cashless life in UAE cities: `59fac…` and `a56e…` repeat an Abu Dhabi wallet claim; `e58d…` says nearly the same thing; `f09f…` and `396b…` restate phone-pay convenience. `396b…` adds Al Ain/Apple Pay, but that is only a locality variation, not a meaningfully independent response.
+This supplied source does **not** show a useful independent recommendation. Correction after a frozen-DB check: `710eef236e7d9c24…` is the displayed **author public-key prefix**, not the canonical event ID. The supplied source event is `4e59eee5f2f214de…`, authored by that key; the database has zero event IDs with the `710eef…` prefix and eight events by that author. The five recommendations display that same author prefix and closely paraphrase cashless life in UAE cities: `59fac…` and `a56e…` repeat an Abu Dhabi wallet claim; `e58d…` says nearly the same thing; `f09f…` and `396b…` restate phone-pay convenience. `396b…` adds Al Ain/Apple Pay, but that is only a locality variation, not a meaningfully independent response.
 
 The source thread itself contains one more varied actual reply, `25324cd943605edc…`, which says tap-to-pay is useful but still keeps bills as a fallback. It is thread membership, not a recommendation, and is therefore not evidence that Similar replies found a useful contrast. I found no clear useful recommendation in this one supplied cached slice; this is negative evidence, not a claim about all cached Similar results.
 
