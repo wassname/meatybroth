@@ -38,4 +38,14 @@ Read-only raw-tag checks on the final recommendation IDs again show five distinc
 
 Final screenshots `43-local-final-similar-saved.png` and `44-local-final-similar-fresh.png` remain uncommitted image evidence for parent inspection.
 
+## Screenshot 44 visual-label audit
+
+The apparent `e77b84fba220ed4c…` collision in screenshot 44 is an **author-label** collision, not evidence that the same canonical event appears above and below the heading. In the rendered card template, the visible header is `p.author`; the actual canonical event ID is only the `<article id="{{ p.canonical_id }}">` DOM attribute and the `Post details` event value. The screenshot does not show the latter.
+
+Read-only current-database inspection finds 31 distinct events authored by `e77b84fba220ed4c…`. Their canonical IDs differ while many replies repeat finance/CPI language. For example, `f530cd9904d69ea…` and `140aaa5eca93f35…` reply directly to the supplied source `452f…`; `325c89fa5cf4c01…`, the final recommendation candidate, instead has direct parent `b4e6858cd0df5cdd…`. Thus an `e77…` header can occur on both sides with distinct canonical IDs and different parent keys.
+
+The earlier final browser DOM count was collected in a temporary CDP result file that is no longer present, so this later audit cannot enumerate its exact before/after DOM IDs from that response. It should not be treated as preserved raw-HTML proof. The retained screenshot plus source/template and database evidence resolve the visual-label interpretation, while the exact-ID mechanics evidence remains limited to the contemporaneous documented DOM check. The live listener was timing out when this audit was requested; I made no fresh browser request.
+
+The author’s dense repeated replies are a separate quality/moderation observation. Parent-key diversity prevents repeat *parent conversations* in recommendations; it does not limit repeated authors in the actual thread or prove useful retrieval.
+
 -- Pi/gpt-5.6-terra
