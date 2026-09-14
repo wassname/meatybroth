@@ -1,6 +1,6 @@
 # Rust production deployment handover
 
-Status 2026-09-14T08:33+08: Rust revision `088f0da6d6107ba9eeff4d7af4a8f19ddd2db6b9` is serving `https://meatybroth.com` and is the sole continuous SDK/Titan writer. Public Status, Topics, cached Meaning and Similar return HTTP 200. The instance role completed ledgered Titan calls with no profile or static credentials. The old Python web, collector and read-only Rust container remain available for rollback; they do not write to the continuous embedding ledger. CloudFormation, instance and volume were not replaced.
+Status 2026-09-14T08:59+08: Rust revision `5b8ddd4371a582f35733c3ef611486989eb44dfd` is serving `https://meatybroth.com` and is the sole continuous SDK/Titan writer. Public Status, Topics, cached Meaning and Similar return HTTP 200. The instance role completed ledgered Titan calls with no profile or static credentials. The old Python web, collector and read-only Rust container remain available for rollback; they do not write to the continuous embedding ledger. CloudFormation, instance and volume were not replaced.
 
 ## Production instance IAM
 
@@ -46,10 +46,10 @@ Expected identity: account `275713940406`, `arn:aws:iam::275713940406:user/wassn
 
 ## Current continuous artifact
 
-- source: `088f0da6d6107ba9eeff4d7af4a8f19ddd2db6b9`
-- release binary SHA-256: `0e37eb58ea8b45174729e30095950db4081f9057068a670c4a6520cd5accb1a7`
-- local image digest: `sha256:d6c9be7c0906e3a34604bb8fa09b592541b28e60b8c1206d0626509c13b898d4`
-- EC2 image config ID: `sha256:a9eb86cebeb39f4727415e8cf0c1639c52554a4ccfb98d5a82264732d4be550e`
+- source: `5b8ddd4371a582f35733c3ef611486989eb44dfd`
+- release binary SHA-256: `bf8af2b28b026f0a486ad8fdd46cd0a1994538742af5a4c350aa553f40fc9b5a`
+- local image digest: `sha256:15aaa17e581b90c102c78dfb07ef641a14268b17c72fdad9e90630194dac3cae`
+- EC2 image config ID: `sha256:c153b4b4ad079e10b73903a6bb477b80006838e5fa235f266ac48291029dc6cd`
 - CA bundle SHA-256: `ecd9dc38bc3efb7dbd6431f57e29d2f8d6a0f0d211e1464b3fef2cbfe266fcd2`
 - canonical data: `/opt/meatybroth-rust/continuous/events.sqlite` and sibling `blocklist.txt`
 - container: `meatybroth-rust-next`, user10001, read-only root, all capabilities dropped, no-new-privileges, restart `unless-stopped`, stop timeout 180 seconds

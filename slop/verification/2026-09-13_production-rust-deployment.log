@@ -424,4 +424,30 @@ reserved held=$0.000491520
 
 The one new uncertain row is attributed to the forced host recovery by temporal difference; billing status remains unknown, so it stays held.
 
+## Reviewed narrow campaign filter, 2026-09-14
+
+Revision `5b8ddd4371a582f35733c3ef611486989eb44dfd` superseded a rejected timing-flake candidate. It contains the previously deployed combined runtime plus an exact pubkey-and-marker exclusion and a deterministic provider-boundary deadline regression. Artifact evidence:
+
+```text
+release binary sha256=bf8af2b28b026f0a486ad8fdd46cd0a1994538742af5a4c350aa553f40fc9b5a
+local image=sha256:15aaa17e581b90c102c78dfb07ef641a14268b17c72fdad9e90630194dac3cae
+EC2 image config=sha256:c153b4b4ad079e10b73903a6bb477b80006838e5fa235f266ac48291029dc6cd
+```
+
+The prior `088f0da` process stopped cooperatively with exit zero and remains as `meatybroth-rust-088f0da-rollback`. Startup cleanup retained raw events and ledger history while removing only excluded derived data:
+
+```text
+                          before   after
+matching raw events         1670    1670
+matching reader rows        1670    1670
+matching vectors              551       0
+matching topic memberships     51       0
+matching ledger rows        13363   13402
+all raw events              31799   31799
+```
+
+The 39 added matching ledger rows settled during the old writer's graceful drain. After startup, Bedrock ledger state was 21,886 succeeded, 74 uncertain and three reserved. Public Status, root, New100 and Similar100 returned HTTP 200; New and Similar contained zero marker matches. Root took 0.78 seconds; New took 16.75 seconds for 230,680 compressed bytes; Similar took 23.86 seconds for 210,808 compressed bytes.
+
+At 333 seconds, the full live denominator was 571 eligible, 185 embedded and 386 pending. Pending age was p50 175 seconds and maximum 294 seconds, with zero yet above 300 seconds. Completed latency was p50 14 seconds and maximum 179 seconds. Rates were 1.715 live arrivals/s, 0.565 live completions/s and 0.616 historical completions/s. Combined completion remained below arrival, so this sample does not establish a five-minute freshness bound. Historical eligible state was 11,452 embedded and 11,742 pending, all pending beyond 300 seconds. Current-window state was 23,765 eligible, 11,649 vectors and 12,116 missing. The writer was running at 100.77% CPU, 394 MiB and restart count zero.
+
 -- Pi/gpt-5.6-sol
