@@ -4,7 +4,7 @@ Observed 2026-09-14 on the owner-provided local release at `http://127.0.0.1:808
 
 ## Identity
 
-- source worktree at inspection: `/workspace/.worktrees/meatybroth-sla`, clean `ff0554d99ec84b74608cdb47ffc561ba678237bb`
+- source worktree at inspection: `/workspace/.worktrees/meatybroth-sla`, `git status --short` had no output at `ff0554d99ec84b74608cdb47ffc561ba678237bb`
 - release database: `/tmp/meatybroth-dbscan-release.sqlite`, SHA-256 `811141c2c49457b3fc10e7828fd0c14559965ec8bbaf5922f451fb320406ae46`
 - local port 8088 served the reviewed pages during the checks. The short-lived local runtime had exited by this report, so this note does not claim a later runtime PID or executable hash.
 
