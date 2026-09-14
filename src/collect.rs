@@ -144,6 +144,7 @@ fn finish_run(
     id: i64,
     observed: &Observation,
     cursor_update: (&str, &str, i64),
+    gap_reason: Option<&str>,
 ) -> Result<(), Error> {
     let now = i64::try_from(Timestamp::now().as_secs())?;
     let mut conn = admin(path)?;
@@ -157,6 +158,13 @@ fn finish_run(
             id,
         ),
     )?;
+    if let Some(reason) = gap_reason {
+        tx.execute(
+            "INSERT INTO collection_gaps(relay,since_at,until_at,reason,checked_at)
+             SELECT relay,since_at,until_at,?1,?2 FROM collection_runs WHERE id=?3",
+            (reason, now, id),
+        )?;
+    }
     let (relay, column, value) = cursor_update;
     let sql = format!("UPDATE collection_cursors SET {column}=?1,updated_at=?2 WHERE relay=?3");
     tx.execute(&sql, (value, now, relay))?;
@@ -176,37 +184,6 @@ fn record_gap(path: &Path, relay: &str, since: i64, until: i64, reason: &str) ->
             i64::try_from(Timestamp::now().as_secs())?,
         ),
     )?;
-    Ok(())
-}
-
-fn finish_unreconciled(
-    path: &Path,
-    id: i64,
-    observed: &Observation,
-    cursor_update: (&str, &str, i64),
-) -> Result<(), Error> {
-    let now = i64::try_from(Timestamp::now().as_secs())?;
-    let mut conn = admin(path)?;
-    let tx = conn.transaction()?;
-    tx.execute(
-        "UPDATE collection_runs SET finished_at=?1,eose=1,accepted=?2,rejected=?3 WHERE id=?4",
-        (
-            now,
-            i64::try_from(observed.accepted_notes.len())?,
-            i64::try_from(observed.rejected)?,
-            id,
-        ),
-    )?;
-    tx.execute(
-        "INSERT INTO collection_gaps(relay,since_at,until_at,reason,checked_at)
-         SELECT relay,since_at,until_at,'EOSE received but relay inventory cannot be reconciled',?1
-         FROM collection_runs WHERE id=?2",
-        (now, id),
-    )?;
-    let (relay, column, value) = cursor_update;
-    let sql = format!("UPDATE collection_cursors SET {column}=?1,updated_at=?2 WHERE relay=?3");
-    tx.execute(&sql, (value, now, relay))?;
-    tx.commit()?;
     Ok(())
 }
 
@@ -635,7 +612,13 @@ async fn durable_window(
         if let Some(observed) =
             reconcile_window(client, policy, sdk, relay, filter.clone(), deadline).await?
         {
-            finish_run(path, id, &observed, (relay, cursor_column, cursor_value))?;
+            finish_run(
+                path,
+                id,
+                &observed,
+                (relay, cursor_column, cursor_value),
+                None,
+            )?;
             return Ok(DurableObservation {
                 observed,
                 reconciled: true,
@@ -659,7 +642,13 @@ async fn durable_window(
         )
         .into());
     }
-    finish_unreconciled(path, id, &observed, (relay, cursor_column, cursor_value))?;
+    finish_run(
+        path,
+        id,
+        &observed,
+        (relay, cursor_column, cursor_value),
+        Some("EOSE received but relay inventory cannot be reconciled"),
+    )?;
     Ok(DurableObservation {
         observed,
         reconciled: false,
@@ -676,17 +665,7 @@ async fn missing_direct_follow_contact_lists(
     let Some(latest) = root_contacts.iter().max_by_key(|event| event.created_at) else {
         return Ok(BTreeSet::new());
     };
-    let follows: BTreeSet<_> = latest
-        .tags
-        .iter()
-        .filter_map(|tag| {
-            let values = tag.as_slice();
-            (values.first().is_some_and(|value| value == "p"))
-                .then(|| values.get(1))
-                .flatten()
-                .and_then(|value| PublicKey::from_hex(value).ok())
-        })
-        .collect();
+    let follows: BTreeSet<_> = latest.tags.public_keys().collect();
     if follows.is_empty() {
         return Ok(follows);
     }
@@ -716,14 +695,7 @@ async fn hydrate_notes(
     let authors: BTreeSet<_> = notes.iter().map(|event| event.pubkey).collect();
     let parent_ids: BTreeSet<_> = notes
         .iter()
-        .flat_map(|event| event.tags.iter())
-        .filter_map(|tag| {
-            let values = tag.as_slice();
-            (values.first().is_some_and(|value| value == "e"))
-                .then(|| values.get(1))
-                .flatten()
-                .and_then(|value| EventId::from_hex(value).ok())
-        })
+        .flat_map(|event| event.tags.event_ids())
         .collect();
     let metadata = if authors.is_empty() {
         Observation {
@@ -1450,6 +1422,7 @@ mod tests {
                 "forward_at",
                 initial.forward_at + COVERAGE_STEP,
             ),
+            None,
         )
         .unwrap();
         let advanced = cursor(&path, "wss://relay.example", now + 1).unwrap();

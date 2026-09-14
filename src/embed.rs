@@ -1207,6 +1207,30 @@ fn topic_label(texts: &[&str]) -> String {
     }
 }
 
+type ClusterInput = (Vec<u8>, Vec<f32>, String);
+
+fn cluster_input(conn: &Connection, space: &Space, now: i64) -> Result<Vec<ClusterInput>, Error> {
+    let mut statement = conn.prepare(
+        "SELECT embedding.event_id,embedding.vector,event.content
+         FROM post_embeddings embedding
+         JOIN events event ON event.id=embedding.event_id
+         JOIN reader_post_events reader ON reader.event_id=event.id
+         WHERE embedding.space_id=?1 AND event.created_at BETWEEN ?2 AND ?3
+         ORDER BY embedding.event_id",
+    )?;
+    let rows = statement
+        .query_map((&space.id, now - WINDOW, now), |row| {
+            Ok((
+                row.get(0)?,
+                decode_vector(&row.get::<_, Vec<u8>>(1)?, space.dimensions)
+                    .map_err(rusqlite::Error::ToSqlConversionFailure)?,
+                row.get(2)?,
+            ))
+        })?
+        .collect::<Result<_, _>>()?;
+    Ok(rows)
+}
+
 fn current_topic_event_ids(
     conn: &Connection,
     space: &Space,
@@ -1230,25 +1254,7 @@ pub fn cluster_topics(path: &Path, space: &Space, now: i64) -> Result<usize, Err
         return Err("Cosine topic clustering requires normalized vectors".into());
     }
     let mut conn = db(path)?;
-    let mut statement = conn.prepare(
-        "SELECT embedding.event_id,embedding.vector,event.content
-         FROM post_embeddings embedding
-         JOIN events event ON event.id=embedding.event_id
-         JOIN reader_post_events reader ON reader.event_id=event.id
-         WHERE embedding.space_id=?1 AND event.created_at BETWEEN ?2 AND ?3
-         ORDER BY embedding.event_id",
-    )?;
-    let rows: Vec<(Vec<u8>, Vec<f32>, String)> = statement
-        .query_map((&space.id, now - WINDOW, now), |row| {
-            Ok((
-                row.get(0)?,
-                decode_vector(&row.get::<_, Vec<u8>>(1)?, space.dimensions)
-                    .map_err(rusqlite::Error::ToSqlConversionFailure)?,
-                row.get(2)?,
-            ))
-        })?
-        .collect::<Result<_, _>>()?;
-    drop(statement);
+    let rows = cluster_input(&conn, space, now)?;
     if rows.is_empty() {
         conn.execute(
             "DELETE FROM embedding_topics WHERE space_id=?1",
@@ -1413,25 +1419,7 @@ pub fn cluster_dbscan_topics(
         return Err("DBSCAN requires min_samples >= 2 and cosine epsilon in (0,2]".into());
     }
     let mut conn = db(path)?;
-    let mut statement = conn.prepare(
-        "SELECT embedding.event_id,embedding.vector,event.content
-         FROM post_embeddings embedding
-         JOIN events event ON event.id=embedding.event_id
-         JOIN reader_post_events reader ON reader.event_id=event.id
-         WHERE embedding.space_id=?1 AND event.created_at BETWEEN ?2 AND ?3
-         ORDER BY embedding.event_id",
-    )?;
-    let rows: Vec<(Vec<u8>, Vec<f32>, String)> = statement
-        .query_map((&space.id, now - WINDOW, now), |row| {
-            Ok((
-                row.get(0)?,
-                decode_vector(&row.get::<_, Vec<u8>>(1)?, space.dimensions)
-                    .map_err(rusqlite::Error::ToSqlConversionFailure)?,
-                row.get(2)?,
-            ))
-        })?
-        .collect::<Result<_, _>>()?;
-    drop(statement);
+    let rows = cluster_input(&conn, space, now)?;
     if rows.is_empty() {
         conn.execute(
             "DELETE FROM embedding_dbscan_topics WHERE space_id=?1",

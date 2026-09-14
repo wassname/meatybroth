@@ -23,5 +23,6 @@ Full suite: 30 passed, 0 failed, 1 ignored. Clippy with `-D warnings` and the re
 - `slop/verification/2026-09-14_similar-replies-tests.log`
 - `slop/verification/2026-09-14_similar-replies-clippy.log`
 - `slop/verification/2026-09-14_similar-replies-release.log`
+- `slop/verification/2026-09-14_similar-replies-local-http.log`
 
 -- Pi/gpt-5.6-sol
