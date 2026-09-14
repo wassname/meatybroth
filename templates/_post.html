@@ -4,8 +4,8 @@
    it, open hides the preview (CSS :has) and shows the full body in its place,
    so the first lines never move and the body is never rendered twice. #}
 <details class="rest"><summary aria-label="show full post or collapse back">
-  <span class="when-closed">⋯ full post ({{ p.rest_chars }} more characters)</span>
-  <span class="when-open">⋯ show less</span>
+  <span class="when-closed">Show full post ({{ p.rest_chars }} more characters)</span>
+  <span class="when-open">Show less</span>
 </summary>
   {{ p.full_html|safe }}
 </details>
@@ -24,22 +24,22 @@
     </span>
     <span class="meta-right">
       <time title="{{ p.when }}">{{ p.age }}</time>
-      {% if p.conversation %}<a class="score textlabel" href="/context/nostr/{{ p.source_id|urlencode }}" aria-label="reply context" title="reply context">{{ p.score }}</a>
+      {% if p.conversation %}<a class="score textlabel" href="/context/nostr/{{ p.source_id|urlencode }}" aria-label="reply context" title="Reply context">{{ p.score }}</a>
       {% elif p.score %}<span class="score" {% if p.score_title %}title="{{ p.score_title }}"{% endif %}>{{ p.score }}</span>{% endif %}
-      {% if not p.conversation %}<a class="textlabel" href="/context/nostr/{{ p.source_id|urlencode }}" aria-label="replies and thread context" title="available stored replies">{% if p.reply_count %}{{ p.reply_count }} {% if p.reply_count == 1 %}reply{% else %}replies{% endif %}{% else %}replies{% endif %}</a>{% endif %}
-      {% if p.similar_available is undefined or p.similar_available %}<a class="textlabel" href="/?mode=similar&amp;similar={{ p.canonical_id }}&amp;embedding={{ p.embedding }}" aria-label="similar posts">similar</a>{% else %}<span class="textlabel" title="This post is waiting for its {{ p.embedding }} vector">similar pending</span>{% endif %}
-      {% if p.original_url %}<a class="textlabel" href="{{ p.original_url }}" rel="noopener noreferrer" aria-label="original event" title="original event">event</a>{% endif %}
-      <details class="more"><summary aria-label="more details">⋯</summary>
+      {% if not p.conversation %}<a class="textlabel" href="/context/nostr/{{ p.source_id|urlencode }}" aria-label="replies and thread context" title="Stored replies">{% if p.reply_count == 1 %}1 Reply{% elif p.reply_count %}{{ p.reply_count }} Replies{% else %}Replies{% endif %}</a>{% endif %}
+      {% if p.similar_available is undefined or p.similar_available %}<a class="textlabel" href="/?mode=similar&amp;similar={{ p.canonical_id }}&amp;embedding={{ p.embedding }}" aria-label="similar posts">Similar</a>{% else %}<span class="textlabel" title="This post is not indexed for Similar posts.">Similar pending</span>{% endif %}
+      {% if p.original_url %}<a class="textlabel" href="{{ p.original_url }}" rel="noopener noreferrer" aria-label="original Nostr event" title="Original Nostr event">Nostr event</a>{% endif %}
+      <details class="more"><summary>Post details</summary>
         <dl>
-          <dt>account</dt><dd><a href="{{ p.profile_url }}" rel="noopener noreferrer">{{ p.profile_url|replace('https://njump.me/', '') }}</a></dd>
-          <dt>posted</dt><dd>{{ p.when }}</dd>
-          <dt>event</dt><dd><code>{{ p.canonical_id }}</code></dd>
+          <dt>Account</dt><dd><a href="{{ p.profile_url }}" rel="noopener noreferrer">{{ p.profile_url|replace('https://njump.me/', '') }}</a></dd>
+          <dt>Posted</dt><dd>{{ p.when }}</dd>
+          <dt>Event</dt><dd><code>{{ p.canonical_id }}</code></dd>
           {% if p.conversation %}
-          <dt>thread</dt><dd>{{ p.conversation.n_reply_authors }} distinct reply authors (24h) ·
+          <dt>Thread</dt><dd>{{ p.conversation.n_reply_authors }} distinct reply authors (24h) ·
               {{ p.conversation.n_replies }} replies · last activity {{ p.conversation.latest }} ago
-              {% if not p.conversation.root_present %}· <em>root post not stored — thread context incomplete</em>{% endif %}</dd>
+              {% if not p.conversation.root_present %}· <em>The first post in this thread is not stored here.</em>{% endif %}</dd>
           {% endif %}
-          {% if not p.named %}<dt>name</dt><dd>no profile event stored yet for this account</dd>{% endif %}
+          {% if not p.named %}<dt>Name</dt><dd>No profile is stored for this account.</dd>{% endif %}
         </dl>
       </details>
     </span>
@@ -49,13 +49,14 @@
   {% endif %}
   {% if p.warning and p.warning_hides %}
   {# author CW / auto-flagged explicit: content hidden until the reader expands #}
-  <details class="warning"><summary aria-label="show flagged post">⚠ {{ p.warning }}</summary>
+  <details class="warning"><summary aria-label="show flagged post">Content warning: {{ p.warning }}</summary>
     <div class="body">{{ body_block(p) }}</div>
   </details>
   {% else %}
   {# spam flags (or no warning): ordinary preview under a small label #}
-  {% if p.warning %}<p class="flag">⚠ {{ p.warning }}</p>{% endif %}
+  {% if p.warning %}<p class="flag">Note: {{ p.warning }}</p>{% endif %}
   <div class="body">{{ body_block(p) }}</div>
   {% endif %}
 </article>
 {% endmacro %}
+<!-- Pi/gpt-5.6-terra copy, integrated by Pi/gpt-5.6-sol -->

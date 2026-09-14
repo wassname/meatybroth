@@ -270,6 +270,7 @@ async fn html_with_models(
         embedding,
         embedding_queries,
         embedding_error: Arc::new(Mutex::new(None)),
+        cached_minilm: embed::space_by_backend(path, "minilm").unwrap(),
         default_embedding: "minilm".into(),
         collecting: false,
         reader_slots: Arc::new(tokio::sync::Semaphore::new(2)),
@@ -805,7 +806,7 @@ async fn machine_presence_envelopes_stay_auditable_but_not_reader_or_embedding_e
     );
     let (status, body) = html_with_embedding(&path, &uri, Some(mock.clone())).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(body.contains("source post is not eligible"));
+    assert!(body.contains("post is not available in this view"));
 
     let conn = Connection::open(&path).unwrap();
     crate::collect::cleanup_ineligible_derived(&conn).unwrap();
@@ -941,6 +942,8 @@ async fn transport_failure_disables_further_paid_calls_until_restart() {
         validated: false,
         preflight_only: false,
         shutdown: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        topic_rebuild: None,
+        topics_disabled: false,
     };
     let mut topics_dirty = false;
     collect::service_embeddings(
@@ -997,6 +1000,8 @@ async fn preflight_only_makes_exactly_one_successful_provider_call() {
         validated: false,
         preflight_only: true,
         shutdown: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        topic_rebuild: None,
+        topics_disabled: false,
     };
     let mut topics_dirty = false;
     collect::service_embeddings(
@@ -1056,6 +1061,8 @@ async fn shutdown_drains_eight_inflight_calls_before_returning() {
         validated: true,
         preflight_only: false,
         shutdown: shutdown.clone(),
+        topic_rebuild: None,
+        topics_disabled: false,
     };
     let path_for_task = path.clone();
     let task = tokio::spawn(async move {
@@ -1253,6 +1260,392 @@ async fn continuous_embedding_prioritizes_admission_time_not_event_time() {
 }
 
 #[tokio::test]
+async fn dbscan_preserves_noise_cores_and_assigns_new_vectors_to_core_points() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("events.sqlite");
+    let now = Utc::now().timestamp();
+    let sdk = collect::open(&path, collect::PRIMAL_AUTHOR).await.unwrap();
+    let keys = Keys::generate();
+    for index in 0..6 {
+        sdk.save_event(&signed(
+            &keys,
+            1,
+            &format!("DBSCAN fixture {index}"),
+            (now - index) as u64,
+            vec![],
+        ))
+        .await
+        .unwrap();
+    }
+    let mock = MockEmbedder::default();
+    let budget = embed::Budget {
+        total_nusd: 1_000_000,
+        monthly_nusd: 1_000_000,
+    };
+    assert_eq!(
+        embed::embed_pending(&path, &mock, budget, now, 10)
+            .await
+            .unwrap(),
+        6
+    );
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    let event_ids: Vec<Vec<u8>> = conn
+        .prepare("SELECT event_id FROM post_embeddings ORDER BY event_id")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    for (index, event_id) in event_ids.iter().enumerate() {
+        let mut vector = vec![0.0_f32; mock.space.dimensions];
+        vector[match index {
+            0..=3 => 0,
+            4 => 1,
+            _ => 2,
+        }] = 1.0;
+        let bytes: Vec<u8> = vector.into_iter().flat_map(f32::to_le_bytes).collect();
+        conn.execute(
+            "UPDATE post_embeddings SET vector=?1 WHERE event_id=?2",
+            rusqlite::params![bytes, event_id],
+        )
+        .unwrap();
+    }
+    assert!(embed::cluster_topics(&path, &mock.space, now).unwrap() > 0);
+    assert!(embed::cluster_dbscan_topics(&path, &mock.space, now, 0.0, 2).is_err());
+    assert_eq!(
+        embed::cluster_dbscan_topics(&path, &mock.space, now, 0.01, 2).unwrap(),
+        2
+    );
+    assert!(!embed::topics_due(&path, &mock.space, now + 6 * 3600 - 1).unwrap());
+    assert!(embed::topics_due(&path, &mock.space, now + 6 * 3600).unwrap());
+    let dbscan_topics = embed::topics(&path, &mock.space, "dbscan").unwrap();
+    assert!(dbscan_topics
+        .iter()
+        .any(|topic| topic.id == -1 && topic.label == "Noise / unmatched"));
+    assert!(dbscan_topics
+        .iter()
+        .any(|topic| topic.id >= 0 && topic.label.contains("dbscan")));
+    assert_eq!(
+        conn.query_row(
+            "SELECT epsilon_cosine,min_samples FROM embedding_dbscan_topics WHERE topic_id!=-1 LIMIT 1",
+            [],
+            |row| Ok((row.get::<_, f32>(0)?, row.get::<_, i64>(1)?)),
+        )
+        .unwrap(),
+        (0.01, 2)
+    );
+    assert_eq!(
+        conn.query_row(
+            "SELECT count(*) FROM post_dbscan_topics WHERE is_core=1",
+            [],
+            |row| row.get::<_, i64>(0)
+        )
+        .unwrap(),
+        4
+    );
+    assert_eq!(
+        conn.query_row(
+            "SELECT count(*) FROM post_dbscan_topics WHERE topic_id=-1",
+            [],
+            |row| row.get::<_, i64>(0)
+        )
+        .unwrap(),
+        2
+    );
+    let (core_event, core_topic): (Vec<u8>, i64) = conn
+        .query_row(
+            "SELECT event_id,topic_id FROM post_dbscan_topics WHERE is_core=1 LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    let new_event = signed(
+        &keys,
+        1,
+        "new vector near an existing core",
+        now as u64,
+        vec![],
+    );
+    let unmatched_event = signed(
+        &keys,
+        1,
+        "new vector outside every DBSCAN neighborhood",
+        now as u64,
+        vec![],
+    );
+    sdk.save_event(&new_event).await.unwrap();
+    sdk.save_event(&unmatched_event).await.unwrap();
+    conn.execute(
+        "INSERT INTO post_embeddings(event_id,space_id,dimensions,chunk_count,input_tokens,cost_nusd,vector,embedded_at)
+         SELECT ?1,space_id,dimensions,chunk_count,input_tokens,0,vector,?2
+         FROM post_embeddings WHERE event_id=?3",
+        rusqlite::params![new_event.id.as_bytes(), now, core_event],
+    )
+    .unwrap();
+    let mut unmatched_vector = vec![0.0_f32; mock.space.dimensions];
+    unmatched_vector[3] = 1.0;
+    conn.execute(
+        "INSERT INTO post_embeddings(event_id,space_id,dimensions,chunk_count,input_tokens,cost_nusd,vector,embedded_at)
+         VALUES(?1,?2,?3,1,1,0,?4,?5)",
+        rusqlite::params![
+            unmatched_event.id.as_bytes(),
+            mock.space.id,
+            i64::try_from(mock.space.dimensions).unwrap(),
+            unmatched_vector
+                .into_iter()
+                .flat_map(f32::to_le_bytes)
+                .collect::<Vec<_>>(),
+            now
+        ],
+    )
+    .unwrap();
+    assert_eq!(
+        embed::assign_new_topics(&path, &mock.space, now + 1).unwrap(),
+        2
+    );
+    assert_eq!(
+        conn.query_row(
+            "SELECT topic_id,is_core FROM post_dbscan_topics WHERE event_id=?1",
+            [new_event.id.as_bytes()],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+        )
+        .unwrap(),
+        (core_topic, 0)
+    );
+    assert_eq!(
+        conn.query_row(
+            "SELECT topic_id,is_core FROM post_dbscan_topics WHERE event_id=?1",
+            [unmatched_event.id.as_bytes()],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+        )
+        .unwrap(),
+        (-1, 0)
+    );
+    assert_eq!(
+        conn.query_row(
+            "SELECT count(*) FROM post_topics WHERE event_id IN (?1,?2)",
+            rusqlite::params![new_event.id.as_bytes(), unmatched_event.id.as_bytes()],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap(),
+        2
+    );
+    let selected = embed::topic_events(
+        &path,
+        &mock.space,
+        embed::TopicPage {
+            ids: &[core_topic],
+            include_unsorted: true,
+            algorithm: "dbscan",
+            now: now + 1,
+            limit: 100,
+            offset: 0,
+        },
+    )
+    .unwrap();
+    assert_eq!(selected.len(), 8);
+    assert_eq!(
+        embed::topic_events(
+            &path,
+            &mock.space,
+            embed::TopicPage {
+                ids: &[],
+                include_unsorted: true,
+                algorithm: "dbscan",
+                now: now + 1,
+                limit: 100,
+                offset: 0,
+            },
+        )
+        .unwrap()
+        .len(),
+        3
+    );
+    assert_eq!(
+        embed::topic_events(
+            &path,
+            &mock.space,
+            embed::TopicPage {
+                ids: &[],
+                include_unsorted: false,
+                algorithm: "dbscan",
+                now: now + 1,
+                limit: 100,
+                offset: 0,
+            },
+        )
+        .unwrap()
+        .len(),
+        5
+    );
+
+    conn.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let rebuild_path = path.clone();
+    let rebuild_space = mock.space.clone();
+    let kmeans_rebuild =
+        std::thread::spawn(move || embed::cluster_topics(&rebuild_path, &rebuild_space, now + 2));
+    std::thread::sleep(Duration::from_millis(50));
+    assert!(!kmeans_rebuild.is_finished());
+    conn.execute(
+        "DELETE FROM post_embeddings WHERE event_id=?1",
+        [unmatched_event.id.as_bytes()],
+    )
+    .unwrap();
+    conn.execute(
+        "DELETE FROM post_topics WHERE event_id=?1",
+        [unmatched_event.id.as_bytes()],
+    )
+    .unwrap();
+    conn.execute(
+        "DELETE FROM post_dbscan_topics WHERE event_id=?1",
+        [unmatched_event.id.as_bytes()],
+    )
+    .unwrap();
+    conn.execute_batch("COMMIT").unwrap();
+    kmeans_rebuild.join().unwrap().unwrap();
+    assert_eq!(
+        conn.query_row(
+            "SELECT count(*) FROM post_topics WHERE event_id=?1",
+            [unmatched_event.id.as_bytes()],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap(),
+        0
+    );
+    assert_eq!(
+        conn.query_row(
+            "SELECT coalesce(sum(post_count),0) FROM embedding_topics",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap(),
+        conn.query_row("SELECT count(*) FROM post_topics", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .unwrap()
+    );
+
+    conn.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let rebuild_path = path.clone();
+    let rebuild_space = mock.space.clone();
+    let dbscan_rebuild = std::thread::spawn(move || {
+        embed::cluster_dbscan_topics(&rebuild_path, &rebuild_space, now + 3, 0.01, 2)
+    });
+    std::thread::sleep(Duration::from_millis(50));
+    assert!(!dbscan_rebuild.is_finished());
+    conn.execute(
+        "DELETE FROM post_embeddings WHERE event_id=?1",
+        [new_event.id.as_bytes()],
+    )
+    .unwrap();
+    conn.execute(
+        "DELETE FROM post_topics WHERE event_id=?1",
+        [new_event.id.as_bytes()],
+    )
+    .unwrap();
+    conn.execute(
+        "DELETE FROM post_dbscan_topics WHERE event_id=?1",
+        [new_event.id.as_bytes()],
+    )
+    .unwrap();
+    conn.execute_batch("COMMIT").unwrap();
+    dbscan_rebuild.join().unwrap().unwrap();
+    assert_eq!(
+        conn.query_row(
+            "SELECT count(*) FROM post_dbscan_topics WHERE event_id=?1",
+            [new_event.id.as_bytes()],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap(),
+        0
+    );
+    assert_eq!(
+        conn.query_row(
+            "SELECT coalesce(sum(post_count),0) FROM embedding_dbscan_topics",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap(),
+        conn.query_row("SELECT count(*) FROM post_dbscan_topics", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .unwrap()
+    );
+    assert_eq!(
+        embed::cluster_dbscan_topics(&path, &mock.space, now + 4, 0.01, 100).unwrap(),
+        1
+    );
+    assert_eq!(
+        conn.query_row(
+            "SELECT count(*) FROM post_dbscan_topics WHERE is_core=1",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap(),
+        0
+    );
+
+    conn.execute("UPDATE embedding_topics SET created_at=0", [])
+        .unwrap();
+    conn.execute("UPDATE embedding_dbscan_topics SET created_at=0", [])
+        .unwrap();
+    let transport: Arc<dyn embed::Transport> = Arc::new(MockEmbedder {
+        calls: AtomicUsize::new(0),
+        space: mock.space.clone(),
+    });
+    let (_sender, queries) = tokio::sync::mpsc::channel(1);
+    let mut worker = collect::EmbeddingWorker {
+        transport,
+        budget,
+        queries,
+        error: Arc::new(Mutex::new(None)),
+        disabled: false,
+        validated: true,
+        preflight_only: false,
+        shutdown: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        topic_rebuild: None,
+        topics_disabled: false,
+    };
+    let mut topics_dirty = false;
+    collect::service_embeddings(&path, &mut worker, &mut topics_dirty, Duration::ZERO).await;
+    assert!(worker.topic_rebuild.is_some());
+    while !worker.topic_rebuild.as_ref().unwrap().is_finished() {
+        tokio::task::yield_now().await;
+    }
+    collect::service_embeddings(&path, &mut worker, &mut topics_dirty, Duration::ZERO).await;
+    assert!(worker.topic_rebuild.is_none());
+    assert!(!embed::topics_due(&path, &mock.space, Utc::now().timestamp()).unwrap());
+}
+
+#[test]
+fn shutdown_does_not_wait_for_topic_rebuild() {
+    let mock = MockEmbedder::default();
+    let (_sender, queries) = tokio::sync::mpsc::channel(1);
+    let mut worker = collect::EmbeddingWorker {
+        transport: Arc::new(mock),
+        budget: embed::Budget {
+            total_nusd: 1,
+            monthly_nusd: 1,
+        },
+        queries,
+        error: Arc::new(Mutex::new(None)),
+        disabled: false,
+        validated: true,
+        preflight_only: false,
+        shutdown: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+        topic_rebuild: Some(std::thread::spawn(|| {
+            std::thread::sleep(Duration::from_millis(250));
+            Ok((0, 0))
+        })),
+        topics_disabled: false,
+    };
+    let started = std::time::Instant::now();
+    collect::detach_topic_rebuild_at_shutdown(&mut worker);
+    assert!(worker.topic_rebuild.is_none());
+    assert!(started.elapsed() < Duration::from_millis(100));
+}
+
+#[tokio::test]
 async fn incremental_embeddings_reuse_delete_and_budget_after_sdk_drain() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("events.sqlite");
@@ -1312,11 +1705,23 @@ async fn incremental_embeddings_reuse_delete_and_budget_after_sdk_drain() {
     .unwrap()
     .is_some());
     assert_eq!(embed::cluster_topics(&path, &mock.space, now).unwrap(), 1);
-    let topics = embed::topics(&path, &mock.space).unwrap();
+    let topics = embed::topics(&path, &mock.space, "kmeans").unwrap();
     assert_eq!(topics.len(), 1);
     assert_eq!(topics[0].post_count, 1);
     assert_eq!(
-        embed::topic_events(&path, &mock.space, topics[0].id, now, 10, 0).unwrap(),
+        embed::topic_events(
+            &path,
+            &mock.space,
+            embed::TopicPage {
+                ids: &[topics[0].id],
+                include_unsorted: false,
+                algorithm: "kmeans",
+                now,
+                limit: 10,
+                offset: 0,
+            },
+        )
+        .unwrap(),
         vec![long.id.as_bytes().to_vec()]
     );
     assert_eq!(
@@ -1368,6 +1773,7 @@ async fn incremental_embeddings_reuse_delete_and_budget_after_sdk_drain() {
         embedding: None,
         embedding_queries: Some(sender),
         embedding_error: Arc::new(Mutex::new(None)),
+        cached_minilm: embed::space_by_backend(&path, "minilm").unwrap(),
         default_embedding: "minilm".into(),
         collecting: false,
         reader_slots: Arc::new(tokio::sync::Semaphore::new(2)),
@@ -1397,6 +1803,7 @@ async fn incremental_embeddings_reuse_delete_and_budget_after_sdk_drain() {
         embedding: None,
         embedding_queries: Some(sender),
         embedding_error: Arc::new(Mutex::new(None)),
+        cached_minilm: embed::space_by_backend(&path, "minilm").unwrap(),
         default_embedding: "minilm".into(),
         collecting: false,
         reader_slots: Arc::new(tokio::sync::Semaphore::new(2)),
@@ -1447,8 +1854,40 @@ async fn incremental_embeddings_reuse_delete_and_budget_after_sdk_drain() {
     let (status, provider_status) =
         html_with_models(&path, "/status", None, Some(provider), Some(budget)).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(!provider_status.contains("Semantic search unavailable"));
+    assert!(!provider_status.contains("Meaning unavailable"));
     assert!(provider_status.contains(">Titan</option>"));
+
+    let mut cached_minilm_space = mock.space.clone();
+    cached_minilm_space.id = "cached-minilm-fixture".into();
+    cached_minilm_space.backend = "minilm".into();
+    cached_minilm_space.model = embed::MINILM_MODEL.into();
+    let conn = Connection::open(&path).unwrap();
+    conn.execute(
+        "INSERT INTO embedding_spaces
+         (id,backend,model,dimensions,normalize,revision,model_sha256,tokenizer_sha256,created_at)
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+        rusqlite::params![
+            cached_minilm_space.id,
+            cached_minilm_space.backend,
+            cached_minilm_space.model,
+            i64::try_from(cached_minilm_space.dimensions).unwrap(),
+            cached_minilm_space.normalize,
+            cached_minilm_space.revision,
+            cached_minilm_space.model_sha256,
+            cached_minilm_space.tokenizer_sha256,
+            now
+        ],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO post_embeddings
+         (event_id,space_id,dimensions,chunk_count,input_tokens,cost_nusd,vector,embedded_at)
+         SELECT event_id,?1,dimensions,chunk_count,input_tokens,0,vector,embedded_at
+         FROM post_embeddings WHERE space_id=?2",
+        rusqlite::params![cached_minilm_space.id, mock.space.id],
+    )
+    .unwrap();
+    embed::cluster_topics(&path, &cached_minilm_space, now).unwrap();
 
     let semantic: Arc<dyn embed::SemanticModel> = mock.clone();
     let (status, meaning) =
@@ -1463,9 +1902,10 @@ async fn incremental_embeddings_reuse_delete_and_budget_after_sdk_drain() {
     assert!(similar.contains("<article"));
     assert!(similar.contains(&second.id.to_hex()));
     assert!(similar.contains("<h2>Similar posts</h2>"));
-    assert!(similar.contains("source post and thread context"));
-    assert!(similar.contains("value=\"similar\" selected"));
-    let topic_id = embed::topics(&path, &mock.space).unwrap()[0].id;
+    assert!(similar.contains("this post and its thread"));
+    assert!(similar.contains("Related posts"));
+    assert!(!similar.contains("<option value=\"similar\""));
+    let topic_id = embed::topics(&path, &mock.space, "kmeans").unwrap()[0].id;
     let topic_uri = format!("/?mode=topics&topic={topic_id}");
     let (status, topic) = html_with_embedding(&path, &topic_uri, Some(semantic)).await;
     assert_eq!(status, StatusCode::OK);
@@ -1475,19 +1915,22 @@ async fn incremental_embeddings_reuse_delete_and_budget_after_sdk_drain() {
     let (status, titan_topic) = html_with_embedding(&path, &titan_topic_uri, None).await;
     assert_eq!(status, StatusCode::OK);
     assert!(titan_topic.contains("<article"));
-    assert!(titan_topic.contains("Titan has 2 cached posts"));
-    assert!(titan_topic.contains("partial cohort is proof-of-work-biased"));
     assert!(titan_topic.contains("embedding=titan"));
-    assert!(titan_topic.contains("Semantic search unavailable"));
-    assert!(!titan_topic.contains(">MiniLM local</option>"));
+    assert!(titan_topic.contains("Meaning unavailable"));
+    assert!(!titan_topic.contains("cached posts"));
+    assert!(!titan_topic.contains("proof-of-work"));
+    assert!(titan_topic.contains(">MiniLM</option>"));
+    let cached_minilm_uri = format!("/?mode=topics&topic={topic_id}&embedding=minilm");
+    let (status, cached_minilm) = html_with_embedding(&path, &cached_minilm_uri, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(cached_minilm.contains("<article"));
+    assert!(cached_minilm.contains("value=\"minilm\" selected"));
     let (status, cache_status) = html_with_embedding(&path, "/status", None).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(cache_status.contains("Embedding caches"));
+    assert!(cache_status.contains("Related-post index"));
     assert!(cache_status.contains(embed::TITAN_MODEL));
-    assert!(cache_status.contains("2 eligible posts embedded"));
-    assert!(cache_status.contains("2 total stored vectors"));
-    assert!(cache_status.contains("US$0.000180720 recorded cost"));
-    assert!(cache_status.contains("US$0.000180720 this month"));
+    assert!(cache_status.contains("Titan: 2 posts ready, 0 waiting"));
+    assert!(cache_status.contains("US$0.000180720 recorded, US$0.000180720 this month"));
 
     sdk.delete(Filter::new().ids([long.id, second.id]))
         .await
@@ -1648,6 +2091,7 @@ async fn sdk_storage_failure_does_not_stop_http_reader() {
         embedding: None,
         embedding_queries: None,
         embedding_error: Arc::new(Mutex::new(None)),
+        cached_minilm: None,
         default_embedding: "minilm".into(),
         collecting: false,
         reader_slots: Arc::new(tokio::sync::Semaphore::new(2)),

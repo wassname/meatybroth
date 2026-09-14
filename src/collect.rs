@@ -34,6 +34,9 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 pub const PRIMAL_AUTHOR: &str = "5d8282fc89410f1c57681a2c3b8be57afd1566c262fd1deb543999d39d141cb4";
 const DERIVED_ELIGIBILITY_CLEANUP: &str = "
+DELETE FROM post_dbscan_topics WHERE NOT EXISTS (
+    SELECT 1 FROM reader_post_events reader WHERE reader.event_id=post_dbscan_topics.event_id
+);
 DELETE FROM post_topics WHERE NOT EXISTS (
     SELECT 1 FROM reader_post_events reader WHERE reader.event_id=post_topics.event_id
 );
@@ -42,6 +45,14 @@ DELETE FROM embedding_chunks WHERE NOT EXISTS (
 );
 DELETE FROM post_embeddings WHERE NOT EXISTS (
     SELECT 1 FROM reader_post_events reader WHERE reader.event_id=post_embeddings.event_id
+);
+UPDATE embedding_topics SET post_count=(
+    SELECT count(*) FROM post_topics post
+    WHERE post.space_id=embedding_topics.space_id AND post.topic_id=embedding_topics.topic_id
+);
+UPDATE embedding_dbscan_topics SET post_count=(
+    SELECT count(*) FROM post_dbscan_topics post
+    WHERE post.space_id=embedding_dbscan_topics.space_id AND post.topic_id=embedding_dbscan_topics.topic_id
 );";
 const PAGE_LIMIT: usize = 500;
 const COVERAGE_STEP: i64 = 300;
@@ -1050,15 +1061,10 @@ pub(crate) async fn embed_until_next_scan(
         let count =
             embed::embed_recent_pending(path, transport, budget, now, transport.concurrency())
                 .await?;
+        if count > 0 {
+            *topics_dirty = true;
+        }
         if count == 0 {
-            if *topics_dirty {
-                let count = embed::cluster_topics(path, transport.space(), now)?;
-                *topics_dirty = false;
-                eprintln!(
-                    "Built {count} keyword-labelled {} topics",
-                    transport.space().backend
-                );
-            }
             tokio::select! {
                 request = queries.recv() => {
                     if let Some(request) = request {
@@ -1070,7 +1076,6 @@ pub(crate) async fn embed_until_next_scan(
             }
             return Ok(());
         }
-        *topics_dirty = true;
         eprintln!(
             "Embedded {count} {} posts between SDK scans",
             transport.space().backend
@@ -1089,6 +1094,50 @@ pub struct EmbeddingWorker {
     pub validated: bool,
     pub preflight_only: bool,
     pub shutdown: Arc<AtomicBool>,
+    pub topic_rebuild: Option<std::thread::JoinHandle<Result<(usize, usize), String>>>,
+    pub topics_disabled: bool,
+}
+
+fn settle_topic_rebuild(worker: &mut EmbeddingWorker, topics_dirty: &mut bool) {
+    let Some(task) = worker.topic_rebuild.as_ref() else {
+        return;
+    };
+    if !task.is_finished() {
+        return;
+    }
+    let result = worker.topic_rebuild.take().unwrap().join();
+    match result {
+        Ok(Ok((kmeans, dbscan))) => {
+            eprintln!(
+                "Built {kmeans} fixed-k and {dbscan} DBSCAN {} topics",
+                worker.transport.space().backend
+            );
+            // Vectors may have arrived while the rebuild used its input snapshot. -- Pi/gpt-5.6-sol
+            *topics_dirty = true;
+        }
+        Ok(Err(error)) => {
+            let message = format!("Topic rebuild failed: {error}");
+            *worker.error.lock().unwrap() = Some(message.clone());
+            worker.topics_disabled = true;
+            eprintln!("{message}; topic refresh is disabled until process restart");
+        }
+        Err(_) => {
+            let message = "Topic rebuild task panicked".to_owned();
+            *worker.error.lock().unwrap() = Some(message.clone());
+            worker.topics_disabled = true;
+            eprintln!("{message}; topic refresh is disabled until process restart");
+        }
+    }
+}
+
+pub(crate) fn detach_topic_rebuild_at_shutdown(worker: &mut EmbeddingWorker) {
+    let mut ignored_dirty = false;
+    settle_topic_rebuild(worker, &mut ignored_dirty);
+    if worker.topic_rebuild.take().is_some() {
+        eprintln!(
+            "Detached an unfinished topic rebuild at shutdown; the last complete topics remain published"
+        );
+    }
 }
 
 pub(crate) async fn service_embeddings(
@@ -1097,6 +1146,7 @@ pub(crate) async fn service_embeddings(
     topics_dirty: &mut bool,
     duration: Duration,
 ) {
+    settle_topic_rebuild(worker, topics_dirty);
     if worker.disabled || worker.shutdown.load(Ordering::Acquire) {
         return;
     }
@@ -1146,7 +1196,45 @@ pub(crate) async fn service_embeddings(
     )
     .await
     {
-        Ok(()) => *worker.error.lock().unwrap() = None,
+        Ok(()) => {
+            let now = i64::try_from(Timestamp::now().as_secs()).unwrap();
+            let due = embed::topics_due(path, worker.transport.space(), now);
+            let topic_result = match due {
+                Ok(true) if worker.topic_rebuild.is_none() && !worker.topics_disabled => {
+                    let path = path.to_path_buf();
+                    let space = worker.transport.space().clone();
+                    worker.topic_rebuild = Some(std::thread::spawn(move || {
+                        embed::rebuild_topics(&path, &space, now).map_err(|error| error.to_string())
+                    }));
+                    eprintln!("Topic rebuild started in the background");
+                    Ok(())
+                }
+                Ok(true) => Ok(()),
+                Ok(false)
+                    if *topics_dirty
+                        && worker.topic_rebuild.is_none()
+                        && !worker.topics_disabled =>
+                {
+                    embed::assign_new_topics(path, worker.transport.space(), now).map(|_| {
+                        *topics_dirty = false;
+                    })
+                }
+                Ok(false) => Ok(()),
+                Err(error) => Err(error),
+            };
+            match topic_result {
+                Ok(()) if !worker.topics_disabled => {
+                    *worker.error.lock().unwrap() = None;
+                }
+                Ok(()) => {}
+                Err(error) => {
+                    let message = format!("Topic refresh failed: {error}");
+                    *worker.error.lock().unwrap() = Some(message.clone());
+                    worker.topics_disabled = true;
+                    eprintln!("{message}; topic refresh is disabled until process restart");
+                }
+            }
+        }
         Err(error) => {
             let message = format!(
                 "{} embedding between completed SDK work failed: {error}",
@@ -1322,6 +1410,9 @@ pub async fn run(
             _ = tokio::time::sleep_until(next_scan_at) => {}
             _ = shutdown.changed() => {}
         }
+    }
+    if let Some(worker) = &mut embedding {
+        detach_topic_rebuild_at_shutdown(worker);
     }
     Ok(())
 }

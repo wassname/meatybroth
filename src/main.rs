@@ -52,6 +52,7 @@ struct App {
     embedding: Option<Arc<dyn embed::SemanticModel>>,
     embedding_queries: Option<tokio::sync::mpsc::Sender<collect::EmbeddingQuery>>,
     embedding_error: Arc<Mutex<Option<String>>>,
+    cached_minilm: Option<embed::Space>,
     default_embedding: String,
     collecting: bool,
     reader_slots: Arc<tokio::sync::Semaphore>,
@@ -107,15 +108,18 @@ struct Search {
     order: String,
     expression: Option<String>,
     similar: Option<String>,
-    topic: Option<i64>,
+    topics: Vec<i64>,
+    include_unsorted: bool,
     embedding: String,
+    clustering: String,
     error: Option<String>,
 }
 impl Search {
     fn parse(raw: &str, now: i64, default_embedding: &str) -> Self {
-        let args: HashMap<String, String> = url::form_urlencoded::parse(raw.as_bytes())
+        let pairs: Vec<(String, String)> = url::form_urlencoded::parse(raw.as_bytes())
             .into_owned()
             .collect();
+        let args: HashMap<String, String> = pairs.iter().cloned().collect();
         let arg = |key: &str| args.get(key).map(String::as_str).unwrap_or("");
         let number =
             |key: &str, default: i64| arg(key).parse::<i64>().map(|n| n.max(0)).unwrap_or(default);
@@ -153,11 +157,24 @@ impl Search {
             Ok(e) => (e, None),
             Err(e) => (None, Some(e)),
         };
+        let clustering = match arg("clustering") {
+            "dbscan" => "dbscan",
+            _ => "kmeans",
+        };
         let embedding = match arg("embedding") {
             "titan" => "titan",
             "minilm" => "minilm",
             _ => default_embedding,
         };
+        let mut topics = pairs
+            .iter()
+            .filter(|(key, _)| key == "topic" || key == "topics")
+            .filter_map(|(_, value)| value.parse().ok())
+            .collect::<Vec<_>>();
+        topics.sort_unstable();
+        topics.dedup();
+        let include_unsorted = arg("unsorted") == "true" || topics.contains(&-1);
+        topics.retain(|topic| *topic != -1);
         Self {
             q,
             mode: mode.into(),
@@ -177,19 +194,29 @@ impl Search {
             .into(),
             expression,
             similar: args.get("similar").cloned(),
-            topic: args.get("topic").and_then(|value| value.parse().ok()),
+            topics,
+            include_unsorted,
             embedding: embedding.into(),
+            clustering: clustering.into(),
             error,
         }
     }
     fn query_string(&self) -> String {
+        self.query_string_with_before(true)
+    }
+    fn latest_query_string(&self) -> String {
+        self.query_string_with_before(false)
+    }
+    fn query_string_with_before(&self, include_before: bool) -> String {
         let mut qs = url::form_urlencoded::Serializer::new(String::new());
         if !self.q.is_empty() {
             qs.append_pair("q", &self.q);
         }
         qs.append_pair("mode", &self.mode);
-        if let Some(before) = self.before {
-            qs.append_pair("before", &before.to_string());
+        if include_before {
+            if let Some(before) = self.before {
+                qs.append_pair("before", &before.to_string());
+            }
         }
         if self.mode == "discovery" {
             qs.append_pair("reach", &self.reach.to_string())
@@ -200,8 +227,14 @@ impl Search {
         if let Some(similar) = &self.similar {
             qs.append_pair("similar", similar);
         }
-        if let Some(topic) = self.topic {
-            qs.append_pair("topic", &topic.to_string());
+        if self.mode == "topics" {
+            qs.append_pair("clustering", &self.clustering);
+        }
+        for topic in &self.topics {
+            qs.append_pair("topics", &topic.to_string());
+        }
+        if self.include_unsorted {
+            qs.append_pair("unsorted", "true");
         }
         if self.embedding != "minilm" {
             qs.append_pair("embedding", &self.embedding);
@@ -233,7 +266,7 @@ fn parse_fts(q: &str) -> Result<String, String> {
         clauses.extend(words.find_iter(part).map(|m| format!("\"{}\"", m.as_str())));
     }
     if clauses.is_empty() {
-        return Err("Search query has no searchable terms.".into());
+        return Err("Enter a word or phrase to search.".into());
     }
     Ok(clauses.join(" AND "))
 }
@@ -256,16 +289,16 @@ fn templates() -> Result<Environment<'static>, Error> {
 fn page(app: &App, name: &str, data: Value) -> Result<String, Error> {
     let mut shared = json!({"modes":MODES,"feed_modes":FEED_MODES,"window_days":30,"mode":"topics","collecting":app.collecting,
     "meaning_available":app.embedding.is_some() || app.embedding_queries.is_some(),
-    "minilm_available":app.embedding.is_some(),"embedding":app.default_embedding,
-    "mode_labels":{"new":"Latest","relevance":"Keyword search","meaning":"Semantic search","topics":"Topics","conversations":"With replies","discovery":"Network","similar":"Similar posts"},
+    "minilm_available":app.embedding.is_some() || app.cached_minilm.is_some(),"embedding":app.default_embedding,
+    "mode_labels":{"new":"Latest","relevance":"Words","meaning":"Meaning","topics":"Topics","conversations":"With replies","discovery":"Network","similar":"Similar posts"},
     "mode_explanations":{
-        "new":"Every post from the last 30 days, newest first.",
-        "relevance":"Posts matching your words; sort by relevance or newest.",
-        "meaning":"Posts about related concepts in the selected vector space, not only exact-word matches.",
-        "similar":"Posts nearest to the selected post in the selected vector space.",
-        "topics":"Clusters from the selected vector space.",
-        "conversations":"Threads with the most distinct recent repliers first; with a query, only matching threads.",
-        "discovery":"Recent posts within the selected 1–3 hop reach. Connections favours authors supported by more independent accounts you follow; lower distance score ranks first. Based on the collected, incomplete follow graph."
+        "new":"Recent posts, newest first.",
+        "relevance":"Posts containing these words. Sort by relevance or newest.",
+        "meaning":"Posts related to your query. It can find posts without the same words.",
+        "similar":"Posts related to this post.",
+        "topics":"Groups of related posts. Choose one or more topics, or browse all topic posts.",
+        "conversations":"Threads with recent replies. A search limits this view to matching threads.",
+        "discovery":"Posts within the selected number of follow hops. Stored follow lists are incomplete."
     }});
     shared
         .as_object_mut()
@@ -287,12 +320,13 @@ fn canonical_event_id(bytes: &[u8]) -> String {
 fn selected_space(app: &App, search: &Search) -> Result<embed::Space, Error> {
     if search.embedding == "titan" {
         embed::space_by_backend(&app.path, "bedrock")?
-            .ok_or_else(|| "Titan cache is not available yet".into())
+            .ok_or_else(|| "Titan search is not ready yet.".into())
     } else {
         app.embedding
             .as_ref()
             .map(|model| model.vector_space().clone())
-            .ok_or_else(|| "MiniLM cache is not configured".into())
+            .or_else(|| app.cached_minilm.clone())
+            .ok_or_else(|| "MiniLM search is not available.".into())
     }
 }
 
@@ -306,30 +340,28 @@ fn semantic_feed(
     let started = std::time::Instant::now();
     let (query, exclude) = if search.mode == "meaning" {
         if search.q.is_empty() {
-            return Err("Meaning search requires text".into());
+            return Err("Enter text for Meaning search.".into());
         }
         let query = if search.embedding == "titan" {
             embed::cached_query(&app.path, space, &search.q)?
-                .ok_or("This Titan query is not cached and no provider is available")?
+                .ok_or("This Meaning search is not available yet.")?
         } else {
             app.embedding
                 .as_ref()
-                .ok_or("MiniLM is not configured")?
+                .ok_or("MiniLM search is not available.")?
                 .embed_text(&search.q)?
                 .vector
         };
         (query, None)
     } else {
-        let id = search
-            .similar
-            .as_deref()
-            .ok_or("Similar search requires an event ID")?;
-        let event_id = EventId::from_hex(id.strip_prefix("nostr:").unwrap_or(id))?;
+        let id = search.similar.as_deref().ok_or("Choose a post first.")?;
+        let event_id = EventId::from_hex(id.strip_prefix("nostr:").unwrap_or(id))
+            .map_err(|_| "Choose a post first.")?;
         if queries::get(db, &canonical_event_id(event_id.as_bytes()), now)?.is_none() {
-            return Err("The source post is not eligible in the current reader window".into());
+            return Err("This post is not available in this view.".into());
         }
         let vector = embed::event_vector(&app.path, space, event_id.as_bytes())?
-            .ok_or("This post is absent from the selected embedding cache")?;
+            .ok_or("Similar posts are not available for this post.")?;
         (vector, Some(event_id))
     };
     let query_at = started.elapsed();
@@ -377,17 +409,18 @@ fn topic_feed(
     space: &embed::Space,
     now: i64,
 ) -> Result<Vec<(queries::Post, f32)>, Error> {
-    let Some(topic_id) = search.topic else {
-        return Ok(Vec::new());
-    };
     let offset = usize::try_from(search.page)? * queries::PAGE_SIZE;
     let event_ids = embed::topic_events(
         &app.path,
         space,
-        topic_id,
-        now,
-        queries::PAGE_SIZE + 1,
-        offset,
+        embed::TopicPage {
+            ids: &search.topics,
+            include_unsorted: search.include_unsorted,
+            algorithm: &search.clustering,
+            now,
+            limit: queries::PAGE_SIZE + 1,
+            offset,
+        },
     )?;
     let canonical_ids = event_ids
         .iter()
@@ -420,23 +453,34 @@ fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, 
         }
         Err(_) => None,
     };
-    let titan_vectors = if search.embedding == "titan" {
+    let topic_settings = topic_mode
+        .then(embed::TopicSettings::from_env)
+        .transpose()?;
+    let topic_epsilon = topic_settings
+        .as_ref()
+        .map(|settings| format!("{:.2}", settings.dbscan_epsilon_cosine));
+    let mut topics = if topic_mode {
         selected_space
             .as_ref()
-            .map(|space| embed::vector_count(&app.path, space))
-            .transpose()?
-    } else {
-        None
-    };
-    let topics = if topic_mode {
-        selected_space
-            .as_ref()
-            .map(|space| embed::topics(&app.path, space))
+            .map(|space| embed::topics(&app.path, space, &search.clustering))
             .transpose()?
             .unwrap_or_default()
     } else {
         Vec::new()
     };
+    let unsorted_count = topics
+        .iter()
+        .find(|topic| topic.id == -1)
+        .map_or(0, |topic| topic.post_count);
+    topics.retain(|topic| topic.id != -1);
+    if topic_mode
+        && search
+            .topics
+            .iter()
+            .any(|selected| !topics.iter().any(|topic| topic.id == *selected))
+    {
+        search.error = Some("One or more selected topics are not available here.".into());
+    }
     let mut scored = if search.error.is_none() && semantic {
         match semantic_feed(
             app,
@@ -545,13 +589,14 @@ fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, 
         app,
         "feed.html",
         json!({"q":search.q,"mode":search.mode,"page":search.page,"error":search.error,
-        "embedding":search.embedding,"titan_vectors":titan_vectors,"results":results,"has_next":has_next,
-        "qs_base":search.query_string(),"now":now,"before":search.before,"similar":search.similar,
-        "similar_context":similar_context,"topics":topics,"selected_topic":search.topic,
-        "meaning_available":app.embedding.is_some() || app.embedding_queries.is_some(),"minilm_available":app.embedding.is_some(),
+        "embedding":search.embedding,"clustering":search.clustering,"results":results,"has_next":has_next,
+        "qs_base":search.query_string(),"qs_latest":search.latest_query_string(),"now":now,"before":search.before,"similar":search.similar,
+        "similar_context":similar_context,"topics":topics,"selected_topics":search.topics,
+        "include_unsorted":search.include_unsorted,"unsorted_count":unsorted_count,"topic_settings":topic_settings,"topic_epsilon":topic_epsilon,
+        "meaning_available":app.embedding.is_some() || app.embedding_queries.is_some(),"minilm_available":app.embedding.is_some() || app.cached_minilm.is_some(),
         "reach":if search.mode=="discovery"{Some(search.reach)}else{None},
         "order":&search.order,
-        "state_fields":[["embedding",search.embedding.as_str()]]}),
+        "state_fields":[["embedding",search.embedding.as_str()],["clustering",search.clustering.as_str()]]}),
     )?;
     Ok((
         if search.error.is_some() {
@@ -567,7 +612,7 @@ fn thread(app: &App, db: &Connection, id: &str, now: i64) -> Result<(StatusCode,
     let Some(post) = queries::get(db, id, now)? else {
         return Ok((
             StatusCode::NOT_FOUND,
-            "Post not stored in the current window.".into(),
+            "This post is not stored here.".into(),
         ));
     };
     let mut seen = HashSet::from([id.to_string()]);
@@ -717,14 +762,13 @@ fn cached_status_html(app: &App, now: i64) -> Option<String> {
     let generated =
         chrono::DateTime::from_timestamp(snapshot.generated_at, 0)?.format("%Y-%m-%d %H:%M:%S UTC");
     let age = now.saturating_sub(snapshot.generated_at);
-    let warning = if snapshot.refresh_error {
-        " The latest refresh failed; values may be stale."
+    let warning = if snapshot.refresh_error || age > 300 {
+        " It may be out of date."
     } else {
         ""
     };
-    let notice = format!(
-        "<p class=\"status-line\">Status snapshot generated {generated} ({age}s ago).{warning}</p>"
-    );
+    let notice =
+        format!("<p class=\"status-line\">Status updated {generated} ({age}s ago).{warning}</p>");
     Some(
         snapshot
             .html
@@ -809,7 +853,7 @@ async fn request(State(app): State<Arc<App>>, OriginalUri(uri): OriginalUri) -> 
                 eprintln!("Titan query cache lookup failed: {error:?}");
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    "Titan query cache lookup failed; see server log.",
+                    "Meaning search is temporarily unavailable.",
                 )
                     .into_response();
             }
@@ -818,7 +862,7 @@ async fn request(State(app): State<Arc<App>>, OriginalUri(uri): OriginalUri) -> 
             let Some(sender) = &app.embedding_queries else {
                 return (
                     StatusCode::BAD_REQUEST,
-                    "Titan semantic search is not configured.",
+                    "Meaning search is unavailable right now.",
                 )
                     .into_response();
             };
@@ -833,7 +877,7 @@ async fn request(State(app): State<Arc<App>>, OriginalUri(uri): OriginalUri) -> 
             {
                 return (
                     StatusCode::SERVICE_UNAVAILABLE,
-                    "Titan embedding worker stopped.",
+                    "Meaning search is temporarily unavailable.",
                 )
                     .into_response();
             }
@@ -843,19 +887,24 @@ async fn request(State(app): State<Arc<App>>, OriginalUri(uri): OriginalUri) -> 
                 Ok(Ok(Err(error))) => {
                     let message = format!("Titan semantic search failed: {error}");
                     *app.embedding_error.lock().unwrap() = Some(message.clone());
-                    return (StatusCode::SERVICE_UNAVAILABLE, message).into_response();
+                    eprintln!("{message}");
+                    return (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "Meaning search is temporarily unavailable.",
+                    )
+                        .into_response();
                 }
                 Ok(Err(_)) => {
                     return (
                         StatusCode::SERVICE_UNAVAILABLE,
-                        "Titan embedding worker stopped.",
+                        "Meaning search is temporarily unavailable.",
                     )
                         .into_response();
                 }
                 Err(_) => {
                     return (
                         StatusCode::GATEWAY_TIMEOUT,
-                        "Titan semantic search timed out.",
+                        "Meaning search took too long. Try again later.",
                     )
                         .into_response();
                 }
@@ -865,7 +914,11 @@ async fn request(State(app): State<Arc<App>>, OriginalUri(uri): OriginalUri) -> 
     let permit = match app.reader_slots.clone().acquire_owned().await {
         Ok(permit) => permit,
         Err(_) => {
-            return (StatusCode::SERVICE_UNAVAILABLE, "Reader is shutting down.").into_response();
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "The reader cannot accept this request right now.",
+            )
+                .into_response();
         }
     };
     let result = tokio::task::spawn_blocking(move || {
@@ -879,7 +932,7 @@ async fn request(State(app): State<Arc<App>>, OriginalUri(uri): OriginalUri) -> 
             eprintln!("Reader request failed: {error:?}");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Reader request failed; see server log.",
+                "The reader could not load this page. Try again shortly.",
             )
                 .into_response()
         }
@@ -969,8 +1022,8 @@ async fn backfill_embeddings(
             eprintln!("Cached query added={added}: {query}");
         }
     }
-    let topics = embed::cluster_topics(path, transport.space(), Utc::now().timestamp())?;
-    eprintln!("Built {topics} keyword-labelled topics");
+    let (kmeans, dbscan) = embed::rebuild_topics(path, transport.space(), Utc::now().timestamp())?;
+    eprintln!("Built {kmeans} fixed-k and {dbscan} DBSCAN topics");
     Ok(())
 }
 
@@ -1007,8 +1060,10 @@ async fn main() -> Result<(), Error> {
         }
         let space = embed::space_by_backend(&path, &backend)?
             .ok_or("Selected embedding cache is not available")?;
-        let topics = embed::cluster_topics(&path, &space, Utc::now().timestamp())?;
-        eprintln!("Built {topics} keyword-labelled topics from cached {backend} vectors");
+        let (kmeans, dbscan) = embed::rebuild_topics(&path, &space, Utc::now().timestamp())?;
+        eprintln!(
+            "Built {kmeans} fixed-k and {dbscan} DBSCAN topics from cached {backend} vectors"
+        );
         return Ok(());
     }
     let stage_started = std::time::Instant::now();
@@ -1073,12 +1128,15 @@ async fn main() -> Result<(), Error> {
                 preflight_only: std::env::var("MEATYBROTH_EMBED_PREFLIGHT_ONLY").as_deref()
                     == Ok("1"),
                 shutdown: shutdown_requested.clone(),
+                topic_rebuild: None,
+                topics_disabled: false,
             }),
             query_sender,
         )
     } else {
         (None, None)
     };
+    let cached_minilm = embed::space_by_backend(&path, "minilm")?;
     let app_state = App {
         path: path.clone(),
         root,
@@ -1088,6 +1146,7 @@ async fn main() -> Result<(), Error> {
             .map(|model| model as Arc<dyn embed::SemanticModel>),
         embedding_queries,
         embedding_error: embedding_error.clone(),
+        cached_minilm,
         default_embedding,
         collecting: !read_only,
         reader_slots: Arc::new(tokio::sync::Semaphore::new(2)),

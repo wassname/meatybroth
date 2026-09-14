@@ -1,0 +1,25 @@
+topic_id  label                                     post_count
+--------  ----------------------------------------  ----------
+-1        Noise / unmatched                         6793
+9         alpaca · book · bots                      135
+10        a2a · agent_card · agents                 84
+15        mixed                                     70
+17        bitcoinfees · block · medium              67
+14        account · ai-operated · discretion        58
+7         committed · crime · drug                  52
+18        4everland · bit · connecting              47
+11        bitcoin · price · sats                    45
+8         mixed                                     43
+6         nostr · pura · vida                       36
+27        chapters · client · cooling               30
+22        payments · paymentshour · servicebalance  29
+19        24h · announced · block                   27
+13        bitcoin · block · current                 26
+46        bitcoin-update · blockheight · fees       25
+16        art · bitcoin · block                     21
+26        custom · firmware · psp                   18
+5         average · bot · bots                      17
+33        mixed                                     16
+clusters  mixed_labels
+--------  ------------
+63        29

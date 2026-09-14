@@ -1,30 +1,39 @@
 {% extends "base.html" %}
 {% block body %}
-<h2>Collector status</h2>
-<p>As of {{ now }}. {{ eligible_posts }} eligible Nostr posts in the last {{ window_days }} days.</p>
+<h2>Status</h2>
+<p>{{ eligible_posts }} {% if eligible_posts == 1 %}post is{% else %}posts are{% endif %} available from the last {{ window_days }} days.</p>
 <div id="status-snapshot-notice"></div>
-<p>The Rust SDK collector and reader share this SQLite file. Collection keeps durable five-minute forward/backfill attempts plus fetched profiles and referenced parents. Gap rows identify intervals without inventory proof; counts do not establish complete relay coverage.</p>
-<p>{{ direct_follows - missing_contact_lists }} of {{ direct_follows }} direct follows have a stored contact list; {{ missing_contact_lists }} remain missing or unavailable from the selected relays.</p>
+<p>Collection checks selected relays. Gaps and missing profiles are listed below.</p>
+<h3>Collection</h3>
+<p>{{ direct_follows - missing_contact_lists }} of {{ direct_follows }} followed accounts have a stored follow list.</p>
+<details><summary>Relay reports</summary>
 {% for s in status_rows %}
-<h3>{{ s.source }}</h3>
+<h4>{{ s.source }}</h4>
 <p>Last report {{ s.updated }}</p>
 <pre>{{ s.detail|tojson(indent=2) }}</pre>
-{% else %}<p>No collector has reported status yet.</p>{% endfor %}
-<h3>Unresolved collection gaps ({{ gap_count }} total; latest 100 shown)</h3>
+{% else %}<p>No relay reports are stored.</p>{% endfor %}
+</details>
+<details><summary>{{ gap_count }} collection gaps</summary>
 {% for g in gaps %}<p>{{ g.relay }} · {{ g.since }} to {{ g.until }} · {{ g.reason }} · checked {{ g.checked }}</p>
-{% else %}<p>No gaps recorded. This does not establish complete relay coverage.</p>{% endfor %}
-<h3>Moderation lists</h3>
+{% else %}<p>No gaps are recorded.</p>{% endfor %}
+</details>
+<h3>Content filters</h3>
+<details><summary>List details</summary>
 {% for l in lists %}
 <p>{{ l.source }} / {{ l.identifier }}{% if l.signed %} · {{ l.members }} members · signed {{ l.signed }} · checked {{ l.checked }}{% else %} · no signed list stored{% endif %}{% if l.attempted %} · last attempt {{ l.attempted }}{% endif %}{% if l.error %} · error: {{ l.error }}{% endif %}</p>
 {% if l.event_id %}<p>Event <code>{{ l.event_id }}</code></p>{% endif %}
-{% else %}<p>No signed moderation lists stored.</p>{% endfor %}
-<h3>Embedding caches</h3>
-{% if embedding_error %}<p>Latest embedding error: {{ embedding_error }}</p>{% endif %}
+{% else %}<p>No signed moderation lists are stored.</p>{% endfor %}
+</details>
+<h3>Related-post index</h3>
+{% if embedding_error %}<p class="error">Latest indexing problem: {{ embedding_error }}</p>{% endif %}
 {% for e in embedding_spaces %}
-<p><strong>{{ e.backend }}</strong> · {{ e.model }} · {{ e.dimensions }} dimensions · {{ e.eligible_vectors }} eligible posts embedded · {{ e.pending }} eligible posts pending · {{ e.vectors }} total stored vectors, including posts no longer eligible</p>
-<p>{{ e.requests }} completed requests · {{ e.tokens }} input tokens · US${{ e.cost_usd }} recorded cost · US${{ e.monthly_cost_usd }} this month · {{ e.uncertain }} uncertain and {{ e.reserved }} reserved requests</p>
-<p>Newest eligible vector {% if e.newest_embedded %}{{ e.newest_embedded }}{% else %}none{% endif %} · oldest eligible pending post {% if e.oldest_pending %}{{ e.oldest_pending }}{% else %}none{% endif %}</p>
+<p>{% if e.backend == 'bedrock' %}Titan{% elif e.backend == 'minilm' %}MiniLM{% else %}{{ e.backend }}{% endif %}: {{ e.eligible_vectors }} posts ready, {{ e.pending }} waiting.</p>
+<p>Newest ready post {% if e.newest_embedded %}{{ e.newest_embedded }}{% else %}none{% endif %}. Oldest waiting post {% if e.oldest_pending %}{{ e.oldest_pending }}{% else %}none{% endif %}.</p>
+<details><summary>Model and usage details</summary>
+<p>{{ e.model }}, {{ e.dimensions }} dimensions. {{ e.requests }} completed requests, {{ e.tokens }} input tokens, US${{ e.cost_usd }} recorded, US${{ e.monthly_cost_usd }} this month. {{ e.uncertain }} uncertain and {{ e.reserved }} reserved requests.</p>
+<p>Topic groups rebuild every six hours. New indexed posts join the current groups between rebuilds.</p>
 <p>Revision <code>{{ e.revision }}</code><br>Model SHA-256 <code>{{ e.model_sha256 }}</code><br>Tokenizer SHA-256 <code>{{ e.tokenizer_sha256 }}</code></p>
-{% else %}<p>No embedding cache stored.</p>{% endfor %}
-<!-- Pi/gpt-5.6-sol -->
+</details>
+{% else %}<p>No related-post index has been stored.</p>{% endfor %}
+<!-- Pi/gpt-5.6-terra copy, integrated by Pi/gpt-5.6-sol -->
 {% endblock %}

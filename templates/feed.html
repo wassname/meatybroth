@@ -2,32 +2,35 @@
 {% from "_post.html" import post_card %}
 {% block body %}
 {% if error %}
-<p class="error">Search error: {{ error }}</p>
+<p class="error">Search: {{ error }}</p>
 {% endif %}
 {% if mode == 'similar' and similar_context %}
 <h2>Similar posts</h2>
-<p>Compared with the <a href="{{ similar_context }}">source post and thread context</a> in the {{ embedding }} cache.</p>
+<p>Based on <a href="{{ similar_context }}">this post and its thread</a>.</p>
 {% endif %}
 {% if mode == 'discovery' and q and not results and not error %}
-<p class="hint">No Social matches for this query. <a href="/?q={{ q|urlencode }}&mode=relevance">Search everything instead</a>.</p>
+<p class="hint">No Network matches. <a href="/?q={{ q|urlencode }}&mode=relevance">Search all stored posts</a>.</p>
 {% endif %}
 {% if mode == 'topics' %}
-<nav class="topics" aria-label="semantic topics">
-  {% for topic in topics %}<a href="/?mode=topics&amp;topic={{ topic.id }}&amp;embedding={{ embedding }}" {% if topic.id == selected_topic %}aria-current="page"{% endif %}>{% if topic.label == 'mixed' %}Mixed #{{ topic.id }}{% else %}{{ topic.label }}{% endif %} <small>{{ topic.post_count }}</small></a>{% endfor %}
-</nav>
-{% if not topics and not error %}<p class="hint">Topics are not built yet.</p>{% endif %}
+<details class="topic-method"><summary>How topics are grouped</summary>
+<p class="hint">{% if clustering == 'dbscan' %}DBSCAN uses distance {{ topic_epsilon }} and at least {{ topic_settings.dbscan_min_samples }} posts. Posts outside a group appear as Unsorted.{% else %}K-means uses {{ topic_settings.kmeans_k }} clusters.{% endif %}</p>
+</details>
+{% if not topics and not error %}<p class="hint">No topic groups are available.</p>{% endif %}
 {% endif %}
 {% for p in results %}
 {{ post_card(p) }}
 {% else %}
-{% if not error and not (mode == 'topics' and selected_topic is none) %}<p class="empty">No results in the current window.</p>{% endif %}
+{% if not error %}
+{% if mode == 'topics' and include_unsorted and not selected_topics %}<p class="empty">No unsorted posts.</p>
+{% elif mode == 'topics' and selected_topics %}<p class="empty">No posts in the selected topics.</p>
+{% elif mode != 'topics' or topics %}<p class="empty">No posts found.</p>{% endif %}
+{% endif %}
 {% endfor %}
-{% if not (mode == 'topics' and selected_topic is none) %}
-<nav class="pagination" aria-label="pagination">
-  {% if page > 0 %}<a href="?{{ qs_base }}page={{ page - 1 }}">&larr; newer</a>{% endif %}
+{% if results and not error %}<nav class="pagination" aria-label="pagination">
+  {% if page > 0 %}<a href="?{{ qs_base }}page={{ page - 1 }}">&larr; Newer</a>{% endif %}
   {% if page > 0 %}<a href="?{{ qs_base }}page={{ [page - 10, 0] | max }}">&minus;10</a>{% endif %}
   {% if has_next %}<a href="?{{ qs_base }}page={{ page + 10 }}">+10</a>{% endif %}
-  {% if has_next %}<a href="?{{ qs_base }}page={{ page + 1 }}">older &rarr;</a>{% endif %}
+  {% if has_next %}<a href="?{{ qs_base }}page={{ page + 1 }}">Older &rarr;</a>{% endif %}
   <form method="get" action="/" class="pagejump">
     {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
     <input type="hidden" name="mode" value="{{ mode }}">
@@ -35,22 +38,26 @@
     {% if reach %}<input type="hidden" name="reach" value="{{ reach }}">{% endif %}
     {% if order %}<input type="hidden" name="order" value="{{ order }}">{% endif %}
     {% for k, v in state_fields %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
-    <label>page <input type="number" name="page" min="0" value="{{ page }}"></label>
-    <button type="submit">jump</button>
+    {% for topic in selected_topics %}<input type="hidden" name="topics" value="{{ topic }}">{% endfor %}
+    {% if include_unsorted %}<input type="hidden" name="unsorted" value="true">{% endif %}
+    <label>Page <input type="number" name="page" min="0" value="{{ page }}"></label>
+    <button type="submit">Go</button>
   </form>
-  <form method="get" action="/" class="datejump" title="Posts before this date, limited to the last 30 days; ages are relative to today">
+  <form method="get" action="/" class="datejump" title="Show stored posts before this date.">
     {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
     <input type="hidden" name="mode" value="{{ mode }}">
     {% if reach %}<input type="hidden" name="reach" value="{{ reach }}">{% endif %}
     {% if order %}<input type="hidden" name="order" value="{{ order }}">{% endif %}
     {% for k, v in state_fields %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
-    <label>jump to</label>
-    <button type="submit" name="before" value="{{ now - 86400 }}">1d ago</button>
-    <button type="submit" name="before" value="{{ now - 5 * 86400 }}">5d ago</button>
+    {% for topic in selected_topics %}<input type="hidden" name="topics" value="{{ topic }}">{% endfor %}
+    {% if include_unsorted %}<input type="hidden" name="unsorted" value="true">{% endif %}
+    <label>Before</label>
+    <button type="submit" name="before" value="{{ now - 86400 }}">1 day</button>
+    <button type="submit" name="before" value="{{ now - 5 * 86400 }}">5 days</button>
     <input type="date" name="date" aria-label="jump to date">
-    <button type="submit">go</button>
+    <button type="submit">Go</button>
   </form>
-  {% if before %}<a href="?{% if q %}q={{ q|urlencode }}&{% endif %}mode={{ mode }}&page=0">latest</a>{% endif %}
-</nav>
-{% endif %}
+  {% if before %}<a href="?{{ qs_latest }}page=0">Latest</a>{% endif %}
+</nav>{% endif %}
 {% endblock %}
+<!-- Pi/gpt-5.6-terra copy, integrated by Pi/gpt-5.6-sol -->

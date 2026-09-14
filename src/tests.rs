@@ -52,6 +52,7 @@ impl Fixture {
             embedding: None,
             embedding_queries: None,
             embedding_error: Arc::new(Mutex::new(None)),
+            cached_minilm: None,
             default_embedding: "minilm".into(),
             collecting: false,
             reader_slots: Arc::new(tokio::sync::Semaphore::new(2)),
@@ -163,6 +164,36 @@ fn bounded_card_queries_match_full_window_results() {
     assert!(excerpts[&cid(2)].to_string().contains("root excerpt text"));
 }
 
+#[test]
+fn topic_selection_preserves_repeated_and_noise_ids() {
+    let search = Search::parse(
+        "mode=topics&clustering=dbscan&topic=2&topic=-1&topic=2",
+        1_000,
+        "minilm",
+    );
+    assert_eq!(search.topics, vec![2]);
+    assert!(search.include_unsorted);
+    let query = search.query_string();
+    assert!(query.contains("clustering=dbscan"));
+    assert!(query.contains("unsorted=true"));
+    assert!(query.contains("topics=2"));
+
+    let repeated = Search::parse(
+        "mode=topics&embedding=titan&clustering=dbscan&topics=3&topics=1&topics=3&unsorted=true&page=2",
+        1_000,
+        "minilm",
+    );
+    assert_eq!(repeated.topics, vec![1, 3]);
+    assert!(repeated.include_unsorted);
+    assert_eq!(repeated.page, 2);
+    let query = repeated.query_string();
+    assert!(query.contains("embedding=titan"));
+    assert!(query.contains("clustering=dbscan"));
+    assert_eq!(query.matches("topics=").count(), 2);
+    assert!(query.contains("topics=1") && query.contains("topics=3"));
+    assert!(query.contains("unsorted=true"));
+}
+
 #[tokio::test]
 async fn pages_query_state_and_invalid_requests_use_real_handlers() {
     let f = Fixture::new();
@@ -193,8 +224,9 @@ async fn pages_query_state_and_invalid_requests_use_real_handlers() {
     for q in ["%22unclosed", "!!!", "%22%22"] {
         let (code, html) = f.request(&format!("/?q={q}")).await;
         assert_eq!(code, StatusCode::BAD_REQUEST);
-        assert!(html.contains("Search error"));
+        assert!(html.contains("Search:"));
         assert!(ids(&html).is_empty());
+        assert!(!html.contains("aria-label=\"pagination\""));
     }
     assert_eq!(ids(&f.request("/?q=NOT").await.1).len(), 100);
     for mode in ["new", "relevance", "conversations", "discovery"] {
@@ -267,18 +299,18 @@ async fn conversation_context_counts_cycles_and_warning_excerpts() {
     let (_, html) = f.request("/?mode=conversations").await;
     assert_eq!(ids(&html)[0], cid(104));
     assert!(html.contains("2 repliers (24h)"));
-    assert!(html.contains("root post not stored"));
+    assert!(html.contains("first post in this thread is not stored"));
     let (_, provisional) = f.request("/?mode=conversations&q=provisional").await;
     assert!(provisional.contains("1 repliers (24h)"));
-    assert!(provisional.contains("root post not stored"));
+    assert!(provisional.contains("first post in this thread is not stored"));
     let (_, html) = f.request("/?mode=conversations&q=alpha").await;
     assert_eq!(ids(&html), vec![cid(101)]);
     assert!(html.contains("2 repliers (24h)"));
     let (_, html) = f.request(&format!("/context/nostr/{}", key(101))).await;
     assert_eq!(ids(&html), [100, 101, 102, 103].map(cid));
-    assert!(html.contains("2 available replies"));
+    assert!(html.contains("2 stored replies"));
     let (_, html) = f.request(&format!("/context/nostr/{}", key(200))).await;
-    assert!(html.contains("Parent post not stored"));
+    assert!(html.contains("parent post is not stored"));
     f.db.execute(
         "INSERT INTO content_warnings VALUES(?1,'cw','author: sensitive')",
         [key(100)],
@@ -289,7 +321,7 @@ async fn conversation_context_counts_cycles_and_warning_excerpts() {
     f.post(500, 2, "cycle one", 100, Some(501), None);
     f.post(501, 3, "cycle two", 90, Some(500), None);
     let (_, html) = f.request(&format!("/context/nostr/{}", key(500))).await;
-    assert!(html.contains("stored reply cycle was omitted"));
+    assert!(html.contains("reply loop was left out"));
     assert_eq!(ids(&html).len(), 2);
 }
 
@@ -456,12 +488,11 @@ async fn status_exposes_gaps_signed_list_age_and_reader_scope() {
     assert!(html.contains("first refresh failed"));
     assert!(html.contains("no signed list stored"));
     assert_eq!(code, StatusCode::OK);
-    assert!(html.contains("1 eligible Nostr posts"));
+    assert!(html.contains("1 post is available"));
     for text in [
         "same-second cap",
         "signed-id",
         "timeout",
-        "share this SQLite file",
         &render::time(f.now - 86400),
     ] {
         assert!(html.contains(text), "{text}");
@@ -503,9 +534,9 @@ async fn status_snapshot_avoids_recomputing_on_request() {
             .to_vec(),
     )
     .unwrap();
-    assert!(html.contains("1 eligible Nostr posts"));
-    assert!(html.contains("Status snapshot generated"));
-    assert!(html.contains("latest refresh failed; values may be stale"));
+    assert!(html.contains("1 post is available"));
+    assert!(html.contains("Status updated"));
+    assert!(html.contains("It may be out of date"));
     assert!(!html.contains("after-snapshot"));
 }
 
@@ -561,6 +592,7 @@ fn matched_reference_reader_outputs() {
         embedding: None,
         embedding_queries: None,
         embedding_error: Arc::new(Mutex::new(None)),
+        cached_minilm: None,
         default_embedding: "minilm".into(),
         collecting: false,
         reader_slots: Arc::new(tokio::sync::Semaphore::new(2)),

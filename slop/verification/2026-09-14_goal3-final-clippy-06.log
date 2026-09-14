@@ -1,0 +1,7 @@
+warning: unused config key `unstable.min-publish-age` in `/home/code/.cargo/config.toml`
+warning: unused config key `unstable.min-publish-age` in `/home/code/.cargo/config.toml`
+    Checking order-stat v0.1.3
+    Checking linfa-nn v0.8.1
+    Checking linfa-clustering v0.8.1
+    Checking meatybroth v0.1.0 (/workspace/.worktrees/meatybroth-sla)
+    Finished `dev` profile [unoptimized] target(s) in 2.73s
