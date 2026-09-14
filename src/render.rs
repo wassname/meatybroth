@@ -374,6 +374,22 @@ fn warnings(db: &Connection, p: &Post, initial: Option<&[String]>) -> Result<Vec
         .cloned()
         .collect())
 }
+pub fn mapped_warnings(warnings: &HashMap<String, Vec<String>>, post: &Post) -> Vec<String> {
+    warnings
+        .get(&post.source_id)
+        .into_iter()
+        .chain(warnings.get(&post.canonical_id))
+        .flatten()
+        .cloned()
+        .collect()
+}
+
+pub fn has_flagged_spam(reasons: &[String]) -> bool {
+    reasons
+        .iter()
+        .any(|reason| reason.starts_with("auto-flagged: spam "))
+}
+
 fn hides(reasons: &[String]) -> bool {
     reasons.iter().any(|r| {
         ["author:", "auto-flagged: explicit", "curated-nsfw:"]
@@ -535,12 +551,25 @@ pub fn card(
             (body_at - parent_at).as_millis(),
         );
     }
+    let spam_warning = reasons
+        .iter()
+        .filter_map(|reason| reason.strip_prefix("auto-flagged: spam "))
+        .map(|label| label.replace('-', " "))
+        .collect::<Vec<_>>()
+        .join(" · ");
+    let content_warning = reasons
+        .iter()
+        .filter(|reason| !reason.starts_with("auto-flagged: spam "))
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(" · ");
     Ok(
         json!({"canonical_id":p.canonical_id,"source_id":p.source_id,
             "author_id":p.author_id,"author":author,"address":address,"named":named,"profile_url":profile_url,
             "original_url":original_url,"when":time(p.created_at),"age":age(p.created_at,now),
             "full_html":full_html,"preview_html":preview_html,
-            "rest_chars":length.saturating_sub(PREVIEW_CHARACTERS),"warning":reasons.join(" · "),"warning_hides":hides(&reasons),
+            "rest_chars":length.saturating_sub(PREVIEW_CHARACTERS),"warning":content_warning,
+            "spam_warning":spam_warning,"flagged_spam":has_flagged_spam(&reasons),"warning_hides":hides(&reasons),
             "reply_count":reply_count,"parent_excerpt":parent_excerpt_value,"score":score,
             "score_title":if mode=="discovery" {"distance score: 1/distance² over each distinct first-hop account that endorses this author; lower ranks first"}else{""},
             "conversation":if mode=="conversations" {json!({"n_reply_authors":p.n_reply_authors,"n_replies":p.n_replies,

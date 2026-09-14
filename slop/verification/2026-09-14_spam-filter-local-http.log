@@ -1,0 +1,9 @@
+shown_cards 100 hidden_cards 81
+target_shown True target_hidden False
+unflagged_survivors 80
+label Flagged spam: link farm · duplicate content
+label_before_body True
+raw_reason_visible False
+visible_state True
+hidden_state True
+hidden_flagged_asides 0

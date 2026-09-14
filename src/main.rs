@@ -110,6 +110,7 @@ struct Search {
     similar: Option<String>,
     topics: Vec<i64>,
     include_unsorted: bool,
+    hide_flagged_spam: bool,
     embedding: String,
     clustering: String,
     error: Option<String>,
@@ -196,18 +197,34 @@ impl Search {
             similar: args.get("similar").cloned(),
             topics,
             include_unsorted,
+            hide_flagged_spam: arg("hide_spam") == "true",
             embedding: embedding.into(),
             clustering: clustering.into(),
             error,
         }
     }
     fn query_string(&self) -> String {
-        self.query_string_with_before(true)
+        self.query_string_with_before(true, true)
     }
     fn latest_query_string(&self) -> String {
-        self.query_string_with_before(false)
+        self.query_string_with_before(false, true)
     }
-    fn query_string_with_before(&self, include_before: bool) -> String {
+    fn hide_flagged_query_string(&self) -> String {
+        let mut query = self.query_string_with_before(true, false);
+        if self.page > 0 {
+            query.push_str(&format!("page={}&", self.page));
+        }
+        query.push_str("hide_spam=true&");
+        query
+    }
+    fn show_flagged_query_string(&self) -> String {
+        let mut query = self.query_string_with_before(true, false);
+        if self.page > 0 {
+            query.push_str(&format!("page={}&", self.page));
+        }
+        query
+    }
+    fn query_string_with_before(&self, include_before: bool, include_hide_spam: bool) -> String {
         let mut qs = url::form_urlencoded::Serializer::new(String::new());
         if !self.q.is_empty() {
             qs.append_pair("q", &self.q);
@@ -235,6 +252,9 @@ impl Search {
         }
         if self.include_unsorted {
             qs.append_pair("unsorted", "true");
+        }
+        if include_hide_spam && self.hide_flagged_spam {
+            qs.append_pair("hide_spam", "true");
         }
         if self.embedding != "minilm" {
             qs.append_pair("embedding", &self.embedding);
@@ -511,6 +531,14 @@ fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, 
     } else {
         Vec::new()
     };
+    let mut feed_warnings = None;
+    if search.hide_flagged_spam && !scored.is_empty() {
+        let warnings = render::warning_map(db, scored.iter().map(|(post, _)| post))?;
+        scored.retain(|(post, _)| {
+            !render::has_flagged_spam(&render::mapped_warnings(&warnings, post))
+        });
+        feed_warnings = Some(warnings);
+    }
     let ranked_at = started.elapsed();
     let has_next = scored.len() > queries::PAGE_SIZE;
     scored.truncate(queries::PAGE_SIZE);
@@ -531,7 +559,10 @@ fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, 
             .map(|(post, _)| post.canonical_id.clone())
             .collect::<Vec<_>>();
         let reply_counts = queries::reply_counts_for(db, now, Some(&card_ids))?;
-        let warning_map = render::warning_map(db, scored.iter().map(|(post, _)| post))?;
+        let warning_map = match feed_warnings {
+            Some(warnings) => warnings,
+            None => render::warning_map(db, scored.iter().map(|(post, _)| post))?,
+        };
         let identity_map = render::identity_map(db, scored.iter().map(|(post, _)| post))?;
         let parent_excerpt_map =
             render::parent_excerpt_map(db, scored.iter().map(|(post, _)| post), now)?;
@@ -559,6 +590,7 @@ fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, 
                     },
                 )?;
                 card["embedding"] = json!(&search.embedding);
+                card["hide_flagged_spam"] = json!(search.hide_flagged_spam);
                 card["similar_available"] = json!(EventId::from_hex(&post.source_id)
                     .map(|id| similar_available.contains(id.as_bytes().as_slice()))?);
                 if semantic {
@@ -590,7 +622,11 @@ fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, 
         "feed.html",
         json!({"q":search.q,"mode":search.mode,"page":search.page,"error":search.error,
         "embedding":search.embedding,"clustering":search.clustering,"results":results,"has_next":has_next,
-        "qs_base":search.query_string(),"qs_latest":search.latest_query_string(),"now":now,"before":search.before,"similar":search.similar,
+        "qs_base":search.query_string(),"qs_latest":search.latest_query_string(),
+        "hide_flagged_url":format!("/?{}",search.hide_flagged_query_string()),
+        "show_flagged_url":format!("/?{}",search.show_flagged_query_string()),
+        "spam_filter_available":true,"hide_flagged_spam":search.hide_flagged_spam,
+        "now":now,"before":search.before,"similar":search.similar,
         "similar_context":similar_context,"topics":topics,"selected_topics":search.topics,
         "include_unsorted":search.include_unsorted,"unsorted_count":unsorted_count,"topic_settings":topic_settings,"topic_epsilon":topic_epsilon,
         "meaning_available":app.embedding.is_some() || app.embedding_queries.is_some(),"minilm_available":app.embedding.is_some() || app.cached_minilm.is_some(),
@@ -649,6 +685,7 @@ fn thread(
         parent = p.parent_id.clone();
         let mut view = render::card(db, &p, now, "", false, render::CardCache::default())?;
         view["embedding"] = json!(&search.embedding);
+        view["hide_flagged_spam"] = json!(search.hide_flagged_spam);
         ancestors.push(view);
     }
     ancestors.reverse();
@@ -670,8 +707,11 @@ fn thread(
         );
         let mut view = render::card(db, &p, now, "", false, render::CardCache::default())?;
         view["embedding"] = json!(&search.embedding);
+        view["hide_flagged_spam"] = json!(search.hide_flagged_spam);
         view["tree_depth"] = json!(depth.min(6));
-        replies.push(view);
+        if !search.hide_flagged_spam || !view["flagged_spam"].as_bool().unwrap() {
+            replies.push(view);
+        }
     }
     let mut similar_replies = Vec::new();
     if let Some(space) = space {
@@ -692,9 +732,15 @@ fn thread(
                 .take(64)
                 .collect::<Vec<_>>();
             let eligible = queries::eligible_map_for(db, now, Some(&ranked_ids))?;
+            let candidate_warnings = render::warning_map(db, eligible.values())?;
             let candidates = ranked_ids
                 .into_iter()
-                .filter_map(|id| eligible.get(&id).map(|post| (id, post.parent_id.clone())))
+                .filter_map(|id| {
+                    let post = eligible.get(&id)?;
+                    let reasons = render::mapped_warnings(&candidate_warnings, post);
+                    (!search.hide_flagged_spam || !render::has_flagged_spam(&reasons))
+                        .then(|| (id, post.parent_id.clone()))
+                })
                 .collect();
             for id in diverse_related_ids(candidates, 5) {
                 let Some(related) = eligible.get(&id) else {
@@ -703,6 +749,7 @@ fn thread(
                 let mut view =
                     render::card(db, related, now, "", true, render::CardCache::default())?;
                 view["embedding"] = json!(&search.embedding);
+                view["hide_flagged_spam"] = json!(search.hide_flagged_spam);
                 view["similar_available"] = json!(true);
                 similar_replies.push(view);
             }
@@ -710,6 +757,11 @@ fn thread(
     }
     let mut current = render::card(db, &post, now, "", false, render::CardCache::default())?;
     current["embedding"] = json!(&search.embedding);
+    current["hide_flagged_spam"] = json!(search.hide_flagged_spam);
+    let context_url = format!(
+        "/context/nostr/{}?embedding={}",
+        post.source_id, search.embedding
+    );
     Ok((
         StatusCode::OK,
         page(
@@ -717,7 +769,9 @@ fn thread(
             "context.html",
             json!({"post":current,"ancestors":ancestors,"available_reply_count":replies.len(),
         "replies":replies,"similar_replies":similar_replies,"embedding":search.embedding,
-        "missing_parent_id":missing,"cycle_cut":cycle}),
+        "spam_filter_available":true,"hide_flagged_spam":search.hide_flagged_spam,
+        "hide_flagged_url":format!("{context_url}&hide_spam=true"),
+        "show_flagged_url":context_url,"missing_parent_id":missing,"cycle_cut":cycle}),
         )?,
     ))
 }

@@ -9,7 +9,7 @@
 <p>Based on <a href="{{ similar_context }}">this post and its thread</a>.</p>
 {% endif %}
 {% if mode == 'discovery' and q and not results and not error %}
-<p class="hint">No Network matches. <a href="/?q={{ q|urlencode }}&mode=relevance">Search all stored posts</a>.</p>
+<p class="hint">No Network matches. <a href="/?q={{ q|urlencode }}&mode=relevance{% if hide_flagged_spam %}&hide_spam=true{% endif %}">Search all posts</a>.</p>
 {% endif %}
 {% if mode == 'topics' %}
 <details class="topic-method"><summary>How topics are grouped</summary>
@@ -40,6 +40,7 @@
     {% for k, v in state_fields %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
     {% for topic in selected_topics %}<input type="hidden" name="topics" value="{{ topic }}">{% endfor %}
     {% if include_unsorted %}<input type="hidden" name="unsorted" value="true">{% endif %}
+    {% if hide_flagged_spam %}<input type="hidden" name="hide_spam" value="true">{% endif %}
     <label>Page <input type="number" name="page" min="0" value="{{ page }}"></label>
     <button type="submit">Go</button>
   </form>
@@ -51,6 +52,7 @@
     {% for k, v in state_fields %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
     {% for topic in selected_topics %}<input type="hidden" name="topics" value="{{ topic }}">{% endfor %}
     {% if include_unsorted %}<input type="hidden" name="unsorted" value="true">{% endif %}
+    {% if hide_flagged_spam %}<input type="hidden" name="hide_spam" value="true">{% endif %}
     <label>Before</label>
     <button type="submit" name="before" value="{{ now - 86400 }}">1 day</button>
     <button type="submit" name="before" value="{{ now - 5 * 86400 }}">5 days</button>

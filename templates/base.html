@@ -13,6 +13,7 @@
   </div>
   <p class="tagline"><em>AI slop or human broth? Who cares as long as it’s meaty</em></p>
   <form method="get" action="/" class="controls">
+    {% if hide_flagged_spam %}<input type="hidden" name="hide_spam" value="true">{% endif %}
     {% if mode == 'similar' %}<span class="control-group"><span class="control-label">View:</span> Related posts</span>
     {% else %}<span class="control-group"><label for="feed-select">View:</label>
     <select id="feed-select" name="mode" aria-label="View"
@@ -36,7 +37,7 @@
         {% if clustering == 'dbscan' %}<label><input type="checkbox" name="unsorted" value="true" {% if include_unsorted %}checked{% endif %}> Unsorted <small>({{ unsorted_count }})</small></label>{% endif %}
         <div class="topic-actions">
           <button type="submit">Apply topics</button>
-          <a href="/?mode=topics&amp;clustering={{ clustering }}&amp;embedding={{ embedding }}">Clear selection</a>
+          <a href="/?mode=topics&amp;clustering={{ clustering }}&amp;embedding={{ embedding }}{% if hide_flagged_spam %}&amp;hide_spam=true{% endif %}">Clear selection</a>
         </div>
       </fieldset>
     </details>
@@ -63,6 +64,7 @@
       <option value="titan" {% if embedding == 'titan' or not minilm_available %}selected{% endif %}>Titan</option>
     </select></span>
     {% endif %}
+    {% if spam_filter_available %}<a class="spam-toggle" href="{% if hide_flagged_spam %}{{ show_flagged_url }}{% else %}{{ hide_flagged_url }}{% endif %}">{% if hide_flagged_spam %}Show flagged spam{% else %}Hide flagged spam{% endif %}</a>{% endif %}
     {% if mode == 'discovery' %}
     <span class="control-group"><label for="reach-select">Through follows:</label>
     <select id="reach-select" name="reach" aria-label="Social graph distance in hops" onchange="this.form.submit()">

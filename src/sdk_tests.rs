@@ -546,7 +546,11 @@ async fn sdk_relay_to_atomic_fts_http_policy_and_expiry() {
     );
     let (code, body) = html(&path, "/?q=bridgeword").await;
     assert_eq!(code, StatusCode::OK);
-    for value in ["Bridge Name", "@bridge.example", "duplicate-content"] {
+    for value in [
+        "Bridge Name",
+        "@bridge.example",
+        "Flagged spam: duplicate content",
+    ] {
         assert!(body.contains(value), "{value}");
     }
     let (_, body) = html(&path, &format!("/context/nostr/{}", note.id)).await;

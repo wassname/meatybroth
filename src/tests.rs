@@ -179,12 +179,13 @@ fn topic_selection_preserves_repeated_and_noise_ids() {
     assert!(query.contains("topics=2"));
 
     let repeated = Search::parse(
-        "mode=topics&embedding=titan&clustering=dbscan&topics=3&topics=1&topics=3&unsorted=true&page=2",
+        "mode=topics&embedding=titan&clustering=dbscan&topics=3&topics=1&topics=3&unsorted=true&page=2&hide_spam=true",
         1_000,
         "minilm",
     );
     assert_eq!(repeated.topics, vec![1, 3]);
     assert!(repeated.include_unsorted);
+    assert!(repeated.hide_flagged_spam);
     assert_eq!(repeated.page, 2);
     let query = repeated.query_string();
     assert!(query.contains("embedding=titan"));
@@ -192,6 +193,9 @@ fn topic_selection_preserves_repeated_and_noise_ids() {
     assert_eq!(query.matches("topics=").count(), 2);
     assert!(query.contains("topics=1") && query.contains("topics=3"));
     assert!(query.contains("unsorted=true"));
+    assert!(query.contains("hide_spam=true"));
+    assert!(repeated.show_flagged_query_string().contains("page=2"));
+    assert!(!repeated.show_flagged_query_string().contains("hide_spam"));
 }
 
 #[test]
@@ -329,6 +333,20 @@ async fn conversation_context_counts_cycles_and_warning_excerpts() {
     let (_, html) = f.request(&format!("/context/nostr/{}", key(101))).await;
     assert_eq!(ids(&html), [100, 101, 102, 103].map(cid));
     assert!(html.contains("2 replies"));
+    f.db.execute(
+        "INSERT INTO content_warnings VALUES(?1,'spam','auto-flagged: spam duplicate-content')",
+        [key(103)],
+    )
+    .unwrap();
+    let (_, filtered) = f
+        .request(&format!(
+            "/context/nostr/{}?embedding=minilm&hide_spam=true",
+            key(101)
+        ))
+        .await;
+    assert_eq!(ids(&filtered), [100, 101, 102].map(cid));
+    assert!(filtered.contains("Show flagged spam"));
+    assert!(filtered.contains("hide_spam=true"));
     let (_, html) = f.request(&format!("/context/nostr/{}", key(200))).await;
     assert!(html.contains("parent post is not available"));
     f.db.execute(
@@ -432,14 +450,79 @@ async fn rendering_preserves_safe_text_profiles_warnings_and_exclusions() {
     assert!(collapsed_html.contains("class=\"rest\""));
     assert!(collapsed_html.contains("150 more characters"));
 
+    f.post(105, 3, "tailneedle ordinary post", 50, None, None);
     f.db.execute(
-        "INSERT INTO content_warnings VALUES(?1,'spam','auto-flagged: link-farm')",
+        "INSERT INTO content_warnings VALUES(?1,'spam','auto-flagged: spam link-farm')",
         [key(100)],
     )
     .unwrap();
     let (_, html) = f.request("/?q=tailneedle").await;
-    assert!(html.contains("class=\"flag\""));
+    let flagged_start = html.find(&format!("id=\"{}\"", cid(100))).unwrap();
+    let flagged =
+        &html[flagged_start..html[flagged_start..].find("</article>").unwrap() + flagged_start];
+    assert!(flagged.contains("<aside class=\"spam-flag\">Flagged spam: link farm</aside>"));
+    assert!(
+        flagged.find("Flagged spam:").unwrap() < flagged.find("<strong>strong</strong>").unwrap()
+    );
+    assert!(!flagged.contains("auto-flagged"));
     assert!(!html.contains("class=\"warning\""));
+    let flagged_post_before =
+        f.db.query_row(
+            "SELECT canonical_id,source_id,text FROM post_store WHERE canonical_id=?1",
+            [cid(100)],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
+        )
+        .unwrap();
+    let stored_before =
+        f.db.query_row("SELECT count(*) FROM post_store", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .unwrap();
+    let events_before =
+        f.db.query_row("SELECT count(*) FROM events", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .unwrap();
+    let (_, filtered) = f.request("/?q=tailneedle&hide_spam=true").await;
+    assert!(!filtered.contains(&format!("id=\"{}\"", cid(100))));
+    assert!(filtered.contains(&format!("id=\"{}\"", cid(105))));
+    assert!(filtered.contains("Show flagged spam"));
+    let (_, paged) = f
+        .request("/?q=tailneedle&mode=new&page=2&hide_spam=true")
+        .await;
+    assert!(paged.contains("q=tailneedle&amp;mode=new&amp;page=2&amp;"));
+    assert!(paged.contains("Show flagged spam"));
+    assert_eq!(
+        f.db.query_row("SELECT count(*) FROM post_store", [], |row| row
+            .get::<_, i64>(0))
+            .unwrap(),
+        stored_before
+    );
+    assert_eq!(
+        f.db.query_row("SELECT count(*) FROM events", [], |row| row
+            .get::<_, i64>(0))
+            .unwrap(),
+        events_before
+    );
+    assert_eq!(
+        f.db.query_row(
+            "SELECT canonical_id,source_id,text FROM post_store WHERE canonical_id=?1",
+            [cid(100)],
+            |row| Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?
+            )),
+        )
+        .unwrap(),
+        flagged_post_before
+    );
     f.db.execute(
         "INSERT INTO events VALUES(unhex(?1),unhex(?2),1,?3,'',?4,zeroblob(64))",
         rusqlite::params![
@@ -461,7 +544,10 @@ async fn rendering_preserves_safe_text_profiles_warnings_and_exclusions() {
     )
     .unwrap();
     f.post(102, 3, "benign same-topic tailneedle", 100, None, None);
-    assert_eq!(ids(&f.request("/?q=tailneedle").await.1), vec![cid(102)]);
+    assert_eq!(
+        ids(&f.request("/?q=tailneedle").await.1),
+        [105, 102].map(cid)
+    );
     assert_eq!(
         f.request(&format!("/context/nostr/{}", key(100))).await.0,
         StatusCode::NOT_FOUND
@@ -501,7 +587,7 @@ async fn bounded_card_hydration_preserves_off_page_duplicates_and_parent_warning
     assert_eq!(ids(&html).len(), 100);
     assert!(ids(&html).contains(&cid(100)));
     assert!(!ids(&html).contains(&cid(300)));
-    assert!(html.contains("duplicate-content"));
+    assert!(html.contains("Flagged spam: duplicate content"));
 
     f.post(400, 4, "parent body", 100, None, None);
     f.db.execute(
