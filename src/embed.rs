@@ -1766,8 +1766,8 @@ pub fn topic_events(
         _ => return Err(format!("Unknown topic algorithm: {}", page.algorithm).into()),
     };
     let sql = format!(
-        "SELECT DISTINCT topic.event_id FROM {table} topic
-         JOIN events event ON event.id=topic.event_id
+        "SELECT topic.event_id FROM events event INDEXED BY idx_events_created_at
+         JOIN {table} topic ON topic.event_id=event.id
          JOIN reader_post_events reader ON reader.event_id=event.id
          WHERE topic.space_id=?1
            AND ((?2='[]' AND NOT ?3 AND topic.topic_id!=-1)

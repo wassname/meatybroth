@@ -1949,6 +1949,21 @@ async fn incremental_embeddings_reuse_delete_and_budget_after_sdk_drain() {
     )
     .unwrap();
     drop(conn);
+    let root_vector = embed::event_vector(&path, &mock.space, long.id.as_bytes())
+        .unwrap()
+        .unwrap();
+    let ranked = embed::nearest(
+        &path,
+        &mock.space,
+        &root_vector,
+        Some(long.id.as_bytes()),
+        now,
+        10,
+    )
+    .unwrap();
+    assert!(ranked
+        .iter()
+        .any(|(event_id, _)| event_id == second.id.as_bytes()));
     let calls_before_context = mock.calls.load(Ordering::SeqCst);
     let context_uri = format!("/context/nostr/{}?embedding=titan", long.id.to_hex());
     let (status, context) = html_with_embedding(&path, &context_uri, None).await;

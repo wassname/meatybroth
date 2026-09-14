@@ -1,0 +1,5 @@
+topic_events run=1 elapsed=1.45 user=0.45 sys=0.90
+topic_events run=2 elapsed=1.38 user=0.48 sys=0.88
+topic_events run=3 elapsed=1.38 user=0.45 sys=0.91
+topic_events run=4 elapsed=1.37 user=0.44 sys=0.88
+topic_events run=5 elapsed=1.55 user=0.56 sys=0.91

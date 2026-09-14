@@ -1,0 +1,6 @@
+2026-09-14T16:32:17+08:00
+    PID %CPU   RSS     ELAPSED NLWP CMD
+1060261 65.0 422508   03:56:23   57 /tmp/meatybroth-goal3-target/release/meatybroth
+active_minilm run=1 code=200 ttfb=3.289448 total=3.289958 bytes=285868
+active_minilm run=2 code=200 ttfb=2.012028 total=2.012540 bytes=285868
+active_minilm run=3 code=200 ttfb=2.020697 total=2.021198 bytes=287844

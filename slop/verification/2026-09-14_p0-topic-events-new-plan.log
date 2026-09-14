@@ -1,0 +1,16 @@
+QUERY PLAN
+|--SEARCH event USING COVERING INDEX idx_events_created_at (created_at>? AND created_at<?)
+|--SEARCH event USING PRIMARY KEY (id=?)
+|--CORRELATED SCALAR SUBQUERY 3
+|  `--SCAN json_each VIRTUAL TABLE INDEX 1:
+|--CORRELATED SCALAR SUBQUERY 4
+|  `--SEARCH exclusion USING COVERING INDEX sqlite_autoindex_policy_exclusions_1 (event_id=?)
+|--LIST SUBQUERY 5
+|  |--SEARCH e USING INDEX idx_events_kind_created_at (kind=?)
+|  |--SEARCH r USING COVERING INDEX sqlite_autoindex_reader_events_1 (event_id=?)
+|  |--SCAN d VIRTUAL TABLE INDEX 1:
+|  |--SCAN member VIRTUAL TABLE INDEX 1:
+|  `--CORRELATED SCALAR SUBQUERY 7
+|     `--SCAN p VIRTUAL TABLE INDEX 1:
+|--SEARCH topic USING INDEX sqlite_autoindex_post_topics_1 (event_id=? AND space_id=?)
+`--SEARCH reader USING COVERING INDEX sqlite_autoindex_reader_events_1 (event_id=?)

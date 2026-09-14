@@ -1,0 +1,33 @@
+2026-09-14T16:36:05+08:00
+release_build_pid=1949271,1949353,1958125,1958137,1958140
+    PID STAT %CPU %MEM   RSS COMMAND         COMMAND
+1060261 Sl   65.1  0.7 494180 meatybroth     /tmp/meatybroth-goal3-target/release/meatybroth
+ 226373 Rl+  59.1  4.2 2820976 pi            pi
+3203572 Sl+  55.1  3.8 2562884 pi            pi
+   1931 Sl+  46.0  1.5 999180 pi             pi
+ 682587 Sl+  44.9  1.8 1184528 pi            pi
+3447259 Rl+  33.5  2.2 1459724 pi            pi
+3869447 Sl+  32.5  3.2 2140896 pi            pi
+3135944 Rl+  26.5  2.6 1713960 pi            pi
+   1929 Sl+  24.9  3.1 2072620 pi            pi
+3216205 Sl+  17.1  3.3 2230704 pi            pi
+3476470 Sl+  10.3  2.1 1399108 pi            pi
+space_id                                                          memberships  topics
+----------------------------------------------------------------  -----------  ------
+bd46d8b3badab3de9e7c2747879e27e781c69e059bf0a19dedf7a39516db644e  22173        12
+vectors  latest_embed
+-------  ------------
+22177    1789374962
+latest_fixed_rebuild  fixed_topics
+--------------------  ------------
+1789355552            12
+latest_dbscan_rebuild  dbscan_topics
+---------------------  -------------
+1789355552             137
+old_sql run=1 elapsed=1.43 user=0.47 sys=0.93
+event_first_sql run=1 elapsed=0.03 user=0.01 sys=0.01
+old_sql run=2 elapsed=1.58 user=0.51 sys=0.97
+event_first_sql run=2 elapsed=0.02 user=0.00 sys=0.01
+old_sql run=3 elapsed=1.32 user=0.43 sys=0.87
+event_first_sql run=3 elapsed=0.02 user=0.01 sys=0.01
+old_binary_http code=200 ttfb=1.995871 total=1.995998
