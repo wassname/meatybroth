@@ -1328,7 +1328,19 @@ async fn dbscan_preserves_noise_cores_and_assigns_new_vectors_to_core_points() {
         .any(|topic| topic.id == -1 && topic.label == "Noise / unmatched"));
     assert!(dbscan_topics
         .iter()
-        .any(|topic| topic.id >= 0 && topic.label.contains("dbscan")));
+        .any(|topic| topic.id >= 0 && topic.label == "Unlabelled topic"));
+    assert_eq!(
+        dbscan_topics
+            .iter()
+            .map(|topic| topic.post_count)
+            .sum::<i64>(),
+        6
+    );
+    let displayed_percent = dbscan_topics
+        .iter()
+        .map(|topic| topic.percent.parse::<f64>().unwrap())
+        .sum::<f64>();
+    assert!((displayed_percent - 100.0).abs() <= 0.1);
     assert_eq!(
         conn.query_row(
             "SELECT epsilon_cosine,min_samples FROM embedding_dbscan_topics WHERE topic_id!=-1 LIMIT 1",

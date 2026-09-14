@@ -1115,7 +1115,7 @@ pub struct TopicSettings {
 impl TopicSettings {
     pub fn from_env() -> Result<Self, Error> {
         let kmeans_k = std::env::var("MEATYBROTH_KMEANS_K")
-            .unwrap_or_else(|_| "12".into())
+            .unwrap_or_else(|_| "24".into())
             .parse()?;
         let dbscan_epsilon_cosine = std::env::var("MEATYBROTH_DBSCAN_EPSILON_COSINE")
             .unwrap_or_else(|_| "0.20".into())
@@ -1147,6 +1147,7 @@ pub struct Topic {
     pub id: i64,
     pub label: String,
     pub post_count: i64,
+    pub percent: String,
 }
 
 fn dot(left: &[f32], right: &[f32]) -> f32 {
@@ -1164,46 +1165,89 @@ fn normalize(vector: &mut [f32]) -> Result<(), Error> {
     Ok(())
 }
 
-fn topic_label(texts: &[&str]) -> String {
+fn document_terms(text: &str) -> std::collections::HashSet<String> {
     // stopwords-iso English list, MIT, pinned at ccc8898. -- Pi/gpt-5.6-sol
     // https://github.com/stopwords-iso/stopwords-en/tree/ccc8898188850d8fb019d5f69c14a6635c3bd115
     static STOP: LazyLock<std::collections::HashSet<&'static str>> =
         LazyLock::new(|| include_str!("data/english-stopwords.txt").lines().collect());
-    let urls = regex::Regex::new(r"(?i)https?://\S+").unwrap();
-    let words = regex::Regex::new(r"(?i)[\p{L}\p{N}][\p{L}\p{N}_-]{2,}").unwrap();
-    let mut counts = std::collections::HashMap::<String, usize>::new();
-    for text in texts {
-        let without_urls = urls.replace_all(text, " ");
-        let unique: std::collections::HashSet<_> = words
-            .find_iter(&without_urls)
-            .map(|word| word.as_str().to_lowercase())
-            .filter(|word| {
-                word.is_ascii()
-                    && word
-                        .chars()
-                        .any(|character| character.is_ascii_alphabetic())
-                    && word.chars().count() <= 32
-                    && !STOP.contains(word.as_str())
-                    && !word.starts_with("http")
-            })
-            .collect();
-        for word in unique {
-            *counts.entry(word).or_default() += 1;
+    static URLS: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r"(?i)(?:https?://|www\.)\S+").unwrap());
+    static WORDS: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r"(?i)[\p{L}\p{N}][\p{L}\p{N}_-]{2,}").unwrap());
+    WORDS
+        .find_iter(&URLS.replace_all(text, " "))
+        .map(|word| word.as_str().to_lowercase())
+        .filter(|word| {
+            word.chars().count() <= 40
+                && word.chars().any(char::is_alphabetic)
+                && !(word.is_ascii() && STOP.contains(word.as_str()))
+        })
+        .collect()
+}
+
+fn document_frequencies(
+    documents: &[std::collections::HashSet<String>],
+) -> std::collections::HashMap<String, usize> {
+    let mut frequencies = std::collections::HashMap::new();
+    for document in documents {
+        for term in document {
+            *frequencies.entry(term.clone()).or_default() += 1;
         }
     }
-    let mut counts: Vec<_> = counts.into_iter().collect();
-    counts.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
-    let minimum_support = 2.max((texts.len() * 3).div_ceil(5));
-    let terms: Vec<_> = counts
+    frequencies
+}
+
+fn topic_label(
+    member_indices: &[usize],
+    representative_indices: &[usize],
+    documents: &[std::collections::HashSet<String>],
+    corpus_frequencies: &std::collections::HashMap<String, usize>,
+) -> String {
+    let mut cluster_frequencies = std::collections::HashMap::<String, usize>::new();
+    for index in member_indices {
+        for term in &documents[*index] {
+            *cluster_frequencies.entry(term.clone()).or_default() += 1;
+        }
+    }
+    let minimum_support = 2.max(member_indices.len().div_ceil(10));
+    let minimum_representatives = representative_indices.len().min(2);
+    let mut terms = cluster_frequencies
         .into_iter()
-        .filter(|(_, support)| *support >= minimum_support)
+        .filter_map(|(term, cluster_frequency)| {
+            let corpus_frequency = corpus_frequencies[&term];
+            let cluster_rate = cluster_frequency as f64 / member_indices.len() as f64;
+            let corpus_rate = corpus_frequency as f64 / documents.len() as f64;
+            let representative_frequency = representative_indices
+                .iter()
+                .filter(|index| documents[**index].contains(&term))
+                .count();
+            (cluster_frequency >= minimum_support
+                && cluster_rate >= 1.5 * corpus_rate
+                && representative_frequency >= minimum_representatives)
+                .then_some((
+                    term,
+                    cluster_frequency,
+                    cluster_rate * (1.0 / corpus_rate).ln(),
+                ))
+        })
+        .collect::<Vec<_>>();
+    terms.sort_by(|left, right| {
+        right
+            .2
+            .total_cmp(&left.2)
+            .then_with(|| right.1.cmp(&left.1))
+            .then_with(|| left.0.cmp(&right.0))
+    });
+    let label = terms
+        .into_iter()
         .take(3)
-        .map(|(word, _)| word)
-        .collect();
-    if terms.len() < 2 {
-        "mixed".into()
+        .map(|(term, _, _)| term)
+        .collect::<Vec<_>>()
+        .join(" · ");
+    if label.is_empty() {
+        "Unlabelled topic".into()
     } else {
-        terms.join(" · ")
+        label
     }
 }
 
@@ -1311,28 +1355,34 @@ pub fn cluster_topics(path: &Path, space: &Space, now: i64) -> Result<usize, Err
             }
         }
     }
+    let documents = rows
+        .iter()
+        .map(|(_, _, text)| document_terms(text))
+        .collect::<Vec<_>>();
+    let corpus_frequencies = document_frequencies(&documents);
     let labels: Vec<_> = (0..cluster_count)
         .map(|cluster| {
-            let mut representatives = assignments
+            let member_indices = assignments
                 .iter()
-                .zip(&rows)
-                .filter(|(assignment, _)| **assignment == cluster)
-                .map(|(_, (event_id, vector, text))| {
-                    (dot(vector, &centroids[cluster]), event_id, text.as_str())
-                })
+                .enumerate()
+                .filter_map(|(index, assignment)| (*assignment == cluster).then_some(index))
                 .collect::<Vec<_>>();
-            representatives.sort_by(|left, right| right.0.total_cmp(&left.0));
-            let representatives = representatives.into_iter().take(5).collect::<Vec<_>>();
+            let mut representative_indices = member_indices.clone();
+            representative_indices.sort_by(|left, right| {
+                dot(&rows[*right].1, &centroids[cluster])
+                    .total_cmp(&dot(&rows[*left].1, &centroids[cluster]))
+            });
+            representative_indices.truncate(5);
             (
                 topic_label(
-                    &representatives
-                        .iter()
-                        .map(|(_, _, text)| *text)
-                        .collect::<Vec<_>>(),
+                    &member_indices,
+                    &representative_indices,
+                    &documents,
+                    &corpus_frequencies,
                 ),
-                representatives
+                representative_indices
                     .iter()
-                    .map(|(_, event_id, _)| (*event_id).clone())
+                    .map(|index| rows[*index].0.clone())
                     .collect::<Vec<Vec<u8>>>(),
             )
         })
@@ -1365,7 +1415,7 @@ pub fn cluster_topics(path: &Path, space: &Space, now: i64) -> Result<usize, Err
             .iter()
             .any(|event_id| !current_events.contains(event_id))
         {
-            "mixed"
+            "Unlabelled topic"
         } else {
             label
         };
@@ -1468,6 +1518,11 @@ pub fn cluster_dbscan_topics(
         members.entry(topic_id).or_default().push(index);
     }
     members.entry(-1).or_default();
+    let documents = rows
+        .iter()
+        .map(|(_, _, text)| document_terms(text))
+        .collect::<Vec<_>>();
+    let corpus_frequencies = document_frequencies(&documents);
     let mut prepared_topics = Vec::with_capacity(members.len());
     for (topic_id, indices) in &members {
         let centroid_sum = if *topic_id == -1 {
@@ -1501,10 +1556,10 @@ pub fn cluster_dbscan_topics(
                 .collect::<Vec<_>>();
             (
                 topic_label(
-                    &representative_indices
-                        .iter()
-                        .map(|index| rows[*index].2.as_str())
-                        .collect::<Vec<_>>(),
+                    indices,
+                    &representative_indices,
+                    &documents,
+                    &corpus_frequencies,
                 ),
                 representative_indices
                     .iter()
@@ -1539,7 +1594,7 @@ pub fn cluster_dbscan_topics(
             .iter()
             .any(|event_id| !current_events.contains(event_id))
         {
-            label = "mixed".into();
+            label = "Unlabelled topic".into();
         }
         let centroid = if let Some(mut centroid) = centroid_sum {
             for index in &members[&topic_id] {
@@ -1722,25 +1777,38 @@ pub fn assign_new_topics(path: &Path, space: &Space, now: i64) -> Result<usize, 
 /// Lists keyword-labelled topics largest first. -- Pi/gpt-5.6-sol
 pub fn topics(path: &Path, space: &Space, algorithm: &str) -> Result<Vec<Topic>, Error> {
     let conn = db(path)?;
-    let table = match algorithm {
-        "kmeans" => "embedding_topics",
-        "dbscan" => "embedding_dbscan_topics",
+    let (topic_table, membership_table) = match algorithm {
+        "kmeans" => ("embedding_topics", "post_topics"),
+        "dbscan" => ("embedding_dbscan_topics", "post_dbscan_topics"),
         _ => return Err(format!("Unknown topic algorithm: {algorithm}").into()),
     };
     let sql = format!(
-        "SELECT topic_id,label,post_count FROM {table}
-         WHERE space_id=?1 ORDER BY post_count DESC,topic_id"
+        "SELECT topic.topic_id,topic.label,count(member.event_id)
+         FROM {topic_table} topic LEFT JOIN {membership_table} member
+           ON member.space_id=topic.space_id AND member.topic_id=topic.topic_id
+         WHERE topic.space_id=?1
+         GROUP BY topic.topic_id,topic.label
+         ORDER BY count(member.event_id) DESC,topic.topic_id"
     );
     let mut statement = conn.prepare(&sql)?;
-    let topics = statement
+    let mut topics = statement
         .query_map([&space.id], |row| {
             Ok(Topic {
                 id: row.get(0)?,
                 label: row.get(1)?,
                 post_count: row.get(2)?,
+                percent: String::new(),
             })
         })?
-        .collect::<Result<_, _>>()?;
+        .collect::<Result<Vec<_>, _>>()?;
+    let population = topics.iter().map(|topic| topic.post_count).sum::<i64>();
+    for topic in &mut topics {
+        topic.percent = if population == 0 {
+            "0.0".into()
+        } else {
+            format!("{:.1}", 100.0 * topic.post_count as f64 / population as f64)
+        };
+    }
     Ok(topics)
 }
 
@@ -1896,17 +1964,72 @@ pub fn nearest(
 
 #[cfg(test)]
 mod label_tests {
-    use super::topic_label;
+    use super::{document_frequencies, document_terms, topic_label};
+
+    fn label(texts: &[&str], members: &[usize], representatives: &[usize]) -> String {
+        let documents = texts
+            .iter()
+            .map(|text| document_terms(text))
+            .collect::<Vec<_>>();
+        topic_label(
+            members,
+            representatives,
+            &documents,
+            &document_frequencies(&documents),
+        )
+    }
 
     #[test]
-    fn labels_remove_english_fragments_and_mark_heterogeneous_clusters() {
+    fn labels_use_contrastive_unicode_terms_from_members_and_check_representatives() {
+        let texts = [
+            "good year all",
+            "them because don't",
+            "rust vector search",
+            "rust vector index",
+            "rust vector",
+        ];
+        assert_eq!(label(&texts, &[0, 1], &[0, 1]), "Unlabelled topic");
+        assert_eq!(label(&texts, &[2, 3, 4], &[2, 3, 4]), "rust · vector");
         assert_eq!(
-            topic_label(&["good year all", "them because don't"]),
-            "mixed"
+            label(
+                &[
+                    "rust protocol",
+                    "rust implementation",
+                    "ordinary note",
+                    "garden soil",
+                    "orchard fruit",
+                    "birds flying",
+                ],
+                &[0, 1, 2],
+                &[0, 2],
+            ),
+            "Unlabelled topic"
         );
+        assert!(label(
+            &[
+                "東京経済 ニュース",
+                "東京経済 市場",
+                "rust code",
+                "garden soil"
+            ],
+            &[0, 1],
+            &[0]
+        )
+        .contains("東京経済"));
         assert_eq!(
-            topic_label(&["rust vector search", "rust vector index", "rust vector"]),
-            "rust · vector"
+            label(
+                &[
+                    "plain words https://same.example/path",
+                    "quantum https://same.example/path",
+                    "quantum https://same.example/path",
+                    "garden soil",
+                    "orchard fruit",
+                    "birds flying",
+                ],
+                &[0, 1, 2],
+                &[0]
+            ),
+            "Unlabelled topic"
         );
     }
 }

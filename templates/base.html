@@ -32,9 +32,9 @@
       <fieldset class="topic-options">
         <legend class="sr-only">Topics</legend>
         {% for topic in topics %}
-        <label><input type="checkbox" name="topics" value="{{ topic.id }}" {% if topic.id in selected_topics %}checked{% endif %}> {{ topic.label if topic.label != 'mixed' else 'Mixed #' ~ topic.id }} <small>({{ topic.post_count }})</small></label>
+        <label><input type="checkbox" name="topics" value="{{ topic.id }}" {% if topic.id in selected_topics %}checked{% endif %}> {{ topic.label }} <small>({{ topic.post_count }}, {{ topic.percent }}%)</small></label>
         {% endfor %}
-        {% if clustering == 'dbscan' %}<label><input type="checkbox" name="unsorted" value="true" {% if include_unsorted %}checked{% endif %}> Unsorted <small>({{ unsorted_count }})</small></label>{% endif %}
+        {% if clustering == 'dbscan' %}<label><input type="checkbox" name="unsorted" value="true" {% if include_unsorted %}checked{% endif %}> Unsorted <small>({{ unsorted_count }}, {{ unsorted_percent }}%)</small></label>{% endif %}
         <div class="topic-actions">
           <button type="submit">Apply topics</button>
           <a href="/?mode=topics&amp;clustering={{ clustering }}&amp;embedding={{ embedding }}{% if hide_flagged_spam %}&amp;hide_spam=true{% endif %}">Clear selection</a>

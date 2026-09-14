@@ -13,7 +13,7 @@
 {% endif %}
 {% if mode == 'topics' %}
 <details class="topic-method"><summary>How topics are grouped</summary>
-<p class="hint">{% if clustering == 'dbscan' %}DBSCAN uses distance {{ topic_epsilon }} and at least {{ topic_settings.dbscan_min_samples }} posts. Posts outside a group appear as Unsorted.{% else %}K-means uses {{ topic_settings.kmeans_k }} clusters.{% endif %}</p>
+<p class="hint">{% if clustering == 'dbscan' %}DBSCAN uses distance {{ topic_epsilon }} and at least {{ topic_settings.dbscan_min_samples }} posts. Posts outside a group appear as Unsorted.{% else %}K-means uses {{ topic_settings.kmeans_k }} clusters.{% endif %} Counts and percentages use all eligible posts assigned in this embedding space and grouping method; DBSCAN includes Unsorted in the denominator.</p>
 </details>
 {% if not topics and not error %}<p class="hint">No topic groups are available.</p>{% endif %}
 {% endif %}

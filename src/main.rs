@@ -492,6 +492,10 @@ fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, 
         .iter()
         .find(|topic| topic.id == -1)
         .map_or(0, |topic| topic.post_count);
+    let unsorted_percent = topics
+        .iter()
+        .find(|topic| topic.id == -1)
+        .map_or_else(|| "0.0".to_string(), |topic| topic.percent.clone());
     topics.retain(|topic| topic.id != -1);
     if topic_mode
         && search
@@ -628,7 +632,8 @@ fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, 
         "spam_filter_available":true,"hide_flagged_spam":search.hide_flagged_spam,
         "now":now,"before":search.before,"similar":search.similar,
         "similar_context":similar_context,"topics":topics,"selected_topics":search.topics,
-        "include_unsorted":search.include_unsorted,"unsorted_count":unsorted_count,"topic_settings":topic_settings,"topic_epsilon":topic_epsilon,
+        "include_unsorted":search.include_unsorted,"unsorted_count":unsorted_count,"unsorted_percent":unsorted_percent,
+        "topic_settings":topic_settings,"topic_epsilon":topic_epsilon,
         "meaning_available":app.embedding.is_some() || app.embedding_queries.is_some(),"minilm_available":app.embedding.is_some() || app.cached_minilm.is_some(),
         "reach":if search.mode=="discovery"{Some(search.reach)}else{None},
         "order":&search.order,
