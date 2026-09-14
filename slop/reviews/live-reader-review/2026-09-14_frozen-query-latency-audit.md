@@ -1,13 +1,23 @@
 # Frozen reader-query latency audit
 
-- source inspected: `/tmp/meatybroth-src-cab09b6` (same reader SQL as deployed `5b8ddd4`; concurrency-only candidate)
+- source: deployed `5b8ddd4371a582f35733c3ef611486989eb44dfd`
 - database: `.local/deployment-handoff/events-8136.sqlite`
 - database SHA-256: `cabe5372bd11729bd33468c311e9e980e5e20ddfa9bd47c973943be473cecd02`
 - database bytes: 538,599,424
-- audit copy: `/tmp/latency-audit-5b.sqlite`; current `posts.sql` applied only to the copy
+- audit copy: temporary; `5b8ddd4:src/posts.sql` applied only to the copy
 - parameters: `now=max(events.created_at)=1789323794`, 30-day window, page 0, limit 101
 - cohort: 13,788 eligible posts; 8,136 Titan vectors
-- raw output: `/tmp/latency-audit-5b.txt` (machine-local, not committed)
+- original output: `2026-09-14_benchmark-output-original.txt`
+- corrected reproduction: `2026-09-14_benchmark-output-reproduction.txt`
+- executable method: `benchmark_frozen_reader_queries.py`
+
+Reproduce from the repository root:
+
+```bash
+git show 5b8ddd4371a582f35733c3ef611486989eb44dfd:src/posts.sql > /tmp/posts-5b8ddd4.sql
+python3 slop/reviews/live-reader-review/benchmark_frozen_reader_queries.py \
+  .local/deployment-handoff/events-8136.sqlite /tmp/posts-5b8ddd4.sql
+```
 
 This was one bounded point measurement on a warm local filesystem. It is useful for decomposing query work, not for predicting EC2 wall time.
 
@@ -104,7 +114,9 @@ The SQL part returned 8,085 vectors and 16.82 MB in 0.336 s. Rust cosine calcula
 
 ### Reply counts are already bounded
 
-The selected-parent reply query used `reader_parent`, returned zero rows for this New100 page, and took 0.00023 s. It is not a useful optimization target for this cohort.
+The corrected selected-parent query used `reader_parent`, returned four rows for this New100 page, and took 0.0011 s. It is not a useful optimization target for this cohort.
+
+The original ad hoc output reported zero rows/0.00023 s because it passed `posts.rowid` rather than `canonical_id`. The saved original output is preserved rather than rewritten. This error does not affect the plan or conclusion: both executions used the `reader_parent` index and were negligible relative to warning hydration.
 
 ## Inferences
 

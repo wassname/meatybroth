@@ -1,0 +1,118 @@
+snapshot_sha256=cabe5372bd11729bd33468c311e9e980e5e20ddfa9bd47c973943be473cecd02
+snapshot_bytes=538599424
+now= 1789323794 eligible= 13788 vectors= 8136
+
+NEW_PLAN
+MATERIALIZE matches
+SEARCH event USING COVERING INDEX idx_events_created_at (created_at>? AND created_at<?)
+SEARCH event USING PRIMARY KEY (id=?)
+CORRELATED SCALAR SUBQUERY 13
+SCAN json_each VIRTUAL TABLE INDEX 1:
+CORRELATED SCALAR SUBQUERY 14
+SEARCH exclusion USING COVERING INDEX sqlite_autoindex_policy_exclusions_1 (event_id=?)
+LIST SUBQUERY 15
+SEARCH e USING INDEX idx_events_kind_created_at (kind=?)
+SEARCH r USING COVERING INDEX sqlite_autoindex_reader_events_1 (event_id=?)
+SCAN d VIRTUAL TABLE INDEX 1:
+SCAN member VIRTUAL TABLE INDEX 1:
+CORRELATED SCALAR SUBQUERY 17
+SCAN p VIRTUAL TABLE INDEX 1:
+CREATE BLOOM FILTER
+SEARCH reader USING COVERING INDEX sqlite_autoindex_reader_events_1 (event_id=?)
+SEARCH event USING INDEX idx_events_created_at (created_at>? AND created_at<?)
+SEARCH reader USING INDEX sqlite_autoindex_reader_events_1 (event_id=?)
+SEARCH event USING PRIMARY KEY (id=?)
+CORRELATED SCALAR SUBQUERY 6
+SCAN json_each VIRTUAL TABLE INDEX 1:
+CORRELATED SCALAR SUBQUERY 7
+SEARCH exclusion USING COVERING INDEX sqlite_autoindex_policy_exclusions_1 (event_id=?)
+LIST SUBQUERY 8
+SEARCH e USING INDEX idx_events_kind_created_at (kind=?)
+SEARCH r USING COVERING INDEX sqlite_autoindex_reader_events_1 (event_id=?)
+SCAN d VIRTUAL TABLE INDEX 1:
+SCAN member VIRTUAL TABLE INDEX 1:
+CORRELATED SCALAR SUBQUERY 10
+SCAN p VIRTUAL TABLE INDEX 1:
+CREATE BLOOM FILTER
+BLOOM FILTER ON x (canonical_id=?)
+SEARCH x USING AUTOMATIC COVERING INDEX (canonical_id=?)
+USE TEMP B-TREE FOR LAST TERM OF ORDER BY
+NEW_TIMING {"seconds": 0.26806708599906415, "rows": 101, "payload_bytes": 66907}
+
+SIMILAR_VECTOR_SCAN_PLAN
+SEARCH event USING COVERING INDEX idx_events_created_at (created_at>? AND created_at<?)
+SEARCH event USING PRIMARY KEY (id=?)
+CORRELATED SCALAR SUBQUERY 3
+SCAN json_each VIRTUAL TABLE INDEX 1:
+CORRELATED SCALAR SUBQUERY 4
+SEARCH exclusion USING COVERING INDEX sqlite_autoindex_policy_exclusions_1 (event_id=?)
+LIST SUBQUERY 5
+SEARCH e USING INDEX idx_events_kind_created_at (kind=?)
+SEARCH r USING COVERING INDEX sqlite_autoindex_reader_events_1 (event_id=?)
+SCAN d VIRTUAL TABLE INDEX 1:
+SCAN member VIRTUAL TABLE INDEX 1:
+CORRELATED SCALAR SUBQUERY 7
+SCAN p VIRTUAL TABLE INDEX 1:
+CREATE BLOOM FILTER
+SEARCH embedding USING INDEX sqlite_autoindex_post_embeddings_1 (event_id=? AND space_id=?)
+SEARCH reader USING COVERING INDEX sqlite_autoindex_reader_events_1 (event_id=?)
+SIMILAR_VECTOR_SCAN_TIMING {"seconds": 0.33608205398195423, "rows": 8085, "payload_bytes": 16816800}
+
+BOUNDED_REPLY_PLAN
+SEARCH reader USING INDEX reader_parent (parent_id=?)
+LIST SUBQUERY 2
+SCAN json_each VIRTUAL TABLE INDEX 1:
+SEARCH event USING PRIMARY KEY (id=?)
+CORRELATED SCALAR SUBQUERY 6
+SCAN json_each VIRTUAL TABLE INDEX 1:
+CORRELATED SCALAR SUBQUERY 7
+SEARCH exclusion USING COVERING INDEX sqlite_autoindex_policy_exclusions_1 (event_id=?)
+LIST SUBQUERY 8
+SEARCH e USING INDEX idx_events_kind_created_at (kind=?)
+SEARCH r USING COVERING INDEX sqlite_autoindex_reader_events_1 (event_id=?)
+SCAN d VIRTUAL TABLE INDEX 1:
+SCAN member VIRTUAL TABLE INDEX 1:
+CORRELATED SCALAR SUBQUERY 10
+SCAN p VIRTUAL TABLE INDEX 1:
+CREATE BLOOM FILTER
+SEARCH event USING PRIMARY KEY (id=?)
+BOUNDED_REPLY_TIMING {"seconds": 0.0002346219844184816, "rows": 0, "payload_bytes": 0}
+
+INDEXES
+events ['idx_events_kind_created_at', 'idx_events_pubkey_kind_created_at', 'idx_events_pubkey_created_at', 'idx_events_kind', 'idx_events_created_at', 'idx_events_pubkey', 'sqlite_autoindex_events_1']
+reader_events ['reader_root', 'reader_parent', 'sqlite_autoindex_reader_events_1']
+post_embeddings ['sqlite_autoindex_post_embeddings_1']
+
+HYDRATION_INPUT {"cards": 100, "authors": 79, "pairs": 98, "events": 100, "parents": 31}
+IDENTITY_FULL {"seconds": 0.010025953990407288, "rows": 694, "payload_bytes": 365669}
+IDENTITY_FULL_PLAN
+SEARCH events USING INDEX idx_events_kind_created_at (kind=?)
+IDENTITY_BOUNDED {"seconds": 0.0006844770105089992, "rows": 25, "payload_bytes": 13224}
+IDENTITY_BOUNDED_PLAN
+MATERIALIZE wanted
+SCAN json_each VIRTUAL TABLE INDEX 1:
+SCAN w
+SEARCH e USING INDEX idx_events_pubkey_kind_created_at (pubkey=? AND kind=?)
+USE TEMP B-TREE FOR ORDER BY
+WARNINGS_FULL_NIP36 {"seconds": 0.24412412199308164, "rows": 85, "payload_bytes": 7072}
+WARNINGS_FULL_NIP36_PLAN
+SEARCH event USING INDEX idx_events_kind_created_at (kind=?)
+SCAN tag VIRTUAL TABLE INDEX 1:
+WARNINGS_BOUNDED_NIP36 {"seconds": 0.0018219880003016442, "rows": 1, "payload_bytes": 84}
+WARNINGS_BOUNDED_NIP36_PLAN
+MATERIALIZE wanted
+SCAN json_each VIRTUAL TABLE INDEX 1:
+SCAN w
+SEARCH event USING PRIMARY KEY (id=?)
+SCAN tag VIRTUAL TABLE INDEX 1:
+DUPLICATES_FULL {"seconds": 0.22532300700549968, "rows": 397, "payload_bytes": 119503}
+DUPLICATES_FULL_PLAN
+SEARCH events USING INDEX idx_events_kind_created_at (kind=? AND created_at>?)
+USE TEMP B-TREE FOR GROUP BY
+DUPLICATES_BOUNDED {"seconds": 0.030519352992996573, "rows": 8, "payload_bytes": 2176}
+DUPLICATES_BOUNDED_PLAN
+MATERIALIZE wanted
+SCAN json_each VIRTUAL TABLE INDEX 1:
+SCAN w
+SEARCH e USING INDEX idx_events_pubkey_kind_created_at (pubkey=? AND kind=? AND created_at>?)
+USE TEMP B-TREE FOR GROUP BY
