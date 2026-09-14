@@ -260,4 +260,10 @@ Serial state checks passed:
 
 The render still needs four small copy/interface corrections before acceptance: remove `stored` from the Similar source phrase; move topic algorithm parameters into the existing collapsed `How topics are grouped` control and format DBSCAN distance as `0.20`; replace the duplicate DBSCAN empty messages (`No topic groups are available.` plus `No posts found.`) with one state-specific message such as `No unsorted posts.`; and avoid the duplicate adjacent `Topics` control/summary and bare `?` help glyph. These were sent to the app owner. The screenshot remains uncommitted for parent inspection.
 
+### Final local pages — 2026-09-14
+
+I also checked `/about`, `/status`, `/tos`, and the missing-source Similar error on local 8088. About and the full terms rewrite render accurately; the header's Terms link correctly targets `/tos`. Status has concise collection/index summaries and collapsed operational details. Final DBSCAN `unsorted=true` renders 100 cards with Unsorted checked; its picker remains compact when closed. Screenshot [`38-local-dbscan-unsorted-final.png`](38-local-dbscan-unsorted-final.png) was opened.
+
+Three small defects were returned to the app owner: Similar appears as a `View` select option on its error page even though it must remain a post action; zero-card error pages still show pager/date controls; and Status summary uses `bedrock`/`minilm` rather than plain `Titan`/`MiniLM` while model details are already available below. No public traffic or auth action occurred.
+
 -- Pi/gpt-5.6-terra
