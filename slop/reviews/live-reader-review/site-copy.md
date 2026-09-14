@@ -8,7 +8,7 @@ The app writer should implement the proposed strings and small structural change
 
 | location | old | new |
 |:---|:---|:---|
-| page title and site heading | `🍲 meatybroth.com` | `meatybroth.com` |
+| page title and site heading | `🍲 meatybroth.com` | preserve exactly |
 | tagline | `AI slop or human broth? Who cares as long as it’s meaty` | preserve exactly |
 | feed label | `Feed:` | `View:` |
 | `new` label | `Latest` | `Latest` |
@@ -24,11 +24,11 @@ The app writer should implement the proposed strings and small structural change
 | semantic button | `Semantic search` | `Meaning` |
 | disabled semantic button | `Semantic search unavailable` | `Meaning unavailable` |
 | disabled semantic title | `Semantic search requires a configured embedding provider` | `Meaning search is unavailable right now.` |
-| vector label | `Vectors:` | `Meaning with:` — show only for Meaning |
+| vector label | `Vectors:` | `Model:` — keep visible wherever selected-space controls affect Meaning, Topics, or Similar comparisons |
 | MiniLM option | `MiniLM local` | `MiniLM` |
 | Titan option | `Titan` | `Titan` |
 | topic clustering label | `Clusters:` | `Group by:` |
-| fixed-k option | `Fixed-k` | `Fixed number` |
+| fixed-k option | `Fixed-k` | `K-means (fixed k)` |
 | network order options | `recent`, `connections` | `Newest`, `Most connected` |
 | network reach label/options | `Reach:`, `1 hop`, `2 hops`, `3 hops` | `Through follows:`, `1 hop`, `2 hops`, `3 hops` |
 
@@ -44,27 +44,30 @@ With replies: Threads with recent replies. A search limits this view to matching
 Network: Posts within the selected number of follow hops. Stored follow lists are incomplete.
 ```
 
-Replace the scope note with one short, relevant line:
-
-```text
-30-day Nostr archive. <a href="/status">Status</a>
-```
+Delete the scope/banner note entirely. The header already links to Status, and its operational facts belong there.
 
 Delete the `Live SDK`, `embedded posts`, `partial backfill`, `order-biased`, `stored vectors`, `PoW`, and `AWS` wording from the main page. The controls already say which search space is selected. The status page has the diagnostics.
 
 ## Topics: `templates/feed.html`
 
-Replace the large topic-link list with one compact select control. It must preserve topic ID, selected model, clustering choice, and count. Suggested structure:
+Replace the large topic-link list with one compact **multi-select checkbox dropdown**. A single `<select>` is wrong: the user requested multiple topics. It must preserve selected topic IDs, model, clustering choice, and each count.
 
 ```html
-<label for="topic-select">Topic:</label>
-<select id="topic-select" name="topic" onchange="this.form.submit()">
-  <option value="">Choose a topic</option>
-  <!-- {{ topic.label }} ({{ topic.post_count }}) -->
-</select>
+<details class="topic-picker">
+  <summary>Topics{% if selected_topics %} ({{ selected_topics|length }} selected){% endif %}</summary>
+  <fieldset>
+    <legend class="sr-only">Topics</legend>
+    {% for topic in topics %}
+    <label><input type="checkbox" name="topics" value="{{ topic.id }}"
+      {% if topic.id in selected_topics %}checked{% endif %}>
+      {{ topic.label }} ({{ topic.post_count }})</label>
+    {% endfor %}
+    <button type="submit">Apply topics</button>
+  </fieldset>
+</details>
 ```
 
-The select belongs in the existing controls form or a small GET form that preserves `mode=topics`, `embedding`, and `clustering`. Do not show a long tag list below it.
+Keep it in the existing GET controls form. Preserve repeated topic query parameters in the URL (`topics=id&topics=id`) along with `mode=topics`, `embedding`, `clustering`, page, and other active filters. The server must union selected-topic memberships, deduplicate post IDs, then apply the existing rank/order; no selected topic means the existing topic-index behavior. Do not show a long tag list below it.
 
 Replace the topic hint with:
 
@@ -72,7 +75,7 @@ Replace the topic hint with:
 {% if clustering == 'dbscan' %}
 Groups use DBSCAN (distance {{ topic_settings.dbscan_epsilon_cosine }}, at least {{ topic_settings.dbscan_min_samples }} posts). Posts outside a group appear as Unsorted.
 {% else %}
-Groups use a fixed number of clusters ({{ topic_settings.kmeans_k }}).
+Groups use K-means with {{ topic_settings.kmeans_k }} clusters.
 {% endif %}
 ```
 
@@ -84,7 +87,7 @@ Other feed copy:
 |:---|:---|
 | `Compared with the source post and thread context in the {{ embedding }} cache.` | `Based on <a ...>this post and its stored thread</a>.` |
 | `No Social matches for this query. Search everything instead.` | `No Network matches. <a ...>Search all stored posts</a>.` |
-| `Topics are not built yet.` | `Topics are being prepared.` |
+| `Topics are not built yet.` | `No topic groups are available.` |
 | `No results in the current window.` | `No posts found.` |
 | `newer`, `older` | `Newer`, `Older` |
 | `page`, `jump` | `Page`, `Go` |
@@ -100,7 +103,7 @@ Other feed copy:
 | replies without count | `replies` | `Replies` |
 | Similar link | `similar` | `Similar` |
 | pending Similar | `similar pending` | `Similar pending` |
-| pending tooltip | `This post is waiting for its {{ p.embedding }} vector` | `Similar posts will appear after this post is indexed.` |
+| pending tooltip | `This post is waiting for its {{ p.embedding }} vector` | `This post is not indexed for Similar posts.` |
 | event link | `event` | `Nostr event` |
 | more-button label | `more details` | `Post details` |
 | details labels | `account`, `posted`, `event`, `thread`, `name` | `Account`, `Posted`, `Event`, `Thread`, `Name` |
@@ -130,13 +133,13 @@ Render user-caused errors as `Search: …`, not `Search error: …`. Proposed me
 | `Meaning search requires text` | `Enter text for Meaning search.` |
 | `This Titan query is not cached and no provider is available` | `This Meaning search is not available yet.` |
 | `Similar search requires an event ID` | `Choose a post first.` |
-| `The source post is not eligible in the current reader window` | `This post is outside the stored 30-day window.` |
-| `This post is absent from the selected embedding cache` | `Similar posts are still being prepared for this post.` |
+| `The source post is not eligible in the current reader window` | `This post is not available in this view.` |
+| `This post is absent from the selected embedding cache` | `Similar posts are not available for this post.` |
 | `Post not stored in the current window.` | `This post is not stored here.` |
 | `Titan semantic search is not configured.` | `Meaning search is unavailable right now.` |
 | `Titan embedding worker stopped.` | `Meaning search is temporarily unavailable.` |
 | `Titan semantic search timed out.` | `Meaning search took too long. Try again later.` |
-| `Reader is shutting down.` | `The reader is restarting. Try again shortly.` |
+| `Reader is shutting down.` | `The reader cannot accept this request right now.` |
 | `Reader request failed; see server log.` | `The reader could not load this page. Try again shortly.` |
 
 Keep detailed causes in server logs and `/status`, not in page errors.
@@ -154,18 +157,17 @@ Replace the body with:
 
 ## Terms: `templates/tos.html`
 
-Retain all policies and warnings. Replace the five dense paragraphs with these five shorter paragraphs. The meaning is intentionally unchanged.
+Retain every policy, retention, notice, disclaimer, and liability clause. This is a wording rewrite, not a substantive terms change.
 
 ```html
 <h2>Terms of use</h2>
-<p>This is a public, read-only reader for a 30-day sample of public Nostr posts from selected relays and bridge accounts. It has no accounts or posting. Posts are cached text copies; Event links point to Nostr.</p>
-<p>Only signed Nostr events are stored. Post text, names, and profiles come from those events. Displayed names and addresses do not prove a real-world identity. Post bodies are sanitized text with http(s) links. Posts expire after 30 days. Profiles and follow data can remain longer. Filter rejections keep counts and event IDs, not post content.</p>
-<p>Posts with obvious credentials are discarded. The operator removes prohibited material when found. Explicit content and spam are filtered as described on <a href="/status">status</a>. Removing a post here does not remove it from Nostr relays.</p>
-<p>Report a post through <a href="https://github.com/wassname/meatybroth/issues/new">GitHub issues</a> with its event ID and a short reason. Issues are public and usually show your GitHub identity. Do not include post text, screenshots, credentials, or illegal material.</p>
-<p>Posts are third-party content. Showing one is not an endorsement. This site may pause or stop. Collection is partial and filters can miss content. Author content warnings hide text until opened. Other warnings can remain visible. The operator keeps a blocklist of authors and posts, with filter counts on the status page.</p>
+<p><strong>What this is.</strong> This experimental, non-commercial site is a public, read-only reader and search over a bounded 30-day text sample of public Nostr posts observed through the operator’s followed network and followed RSS, Mastodon, and Bluesky bridge accounts. It has no accounts or posting. Shown posts are cached copies from Nostr relays; original-event links point back to Nostr.</p>
+<p><strong>What is collected and shown.</strong> Only Nostr events with a verified cryptographic signature are stored. Post text, author names, and profile details come from those events. Bodies are sanitized text with http(s) links only; they contain no scripts or images. A displayed name or address does not verify a real-world identity. Signed events cannot be edited without breaking their signatures, and this reader cannot guarantee their deletion from Nostr relays. Post bodies expire after 30 days; profiles and follow metadata can remain longer. Filter rejections retain counts and event IDs, never content.</p>
+<p><strong>Prohibited material and removal.</strong> Child sexual abuse or exploitation material, exposed private credentials, threats, and doxxing are prohibited here. Obvious credentials are discarded before storage. The operator removes stored prohibited posts when found and prevents their collection. Spam and explicit content are filtered at the operator’s discretion, as described on <a href="/status">status</a>. Removing a post here does not affect relay copies or delete a signed event from Nostr network-wide.</p>
+<p><strong>Notices.</strong> To report a problem, including copyright infringement, open a <a href="https://github.com/wassname/meatybroth/issues/new">GitHub issue</a> with the event ID and a short reason. Issues are public and normally show the reporter’s GitHub identity. Do not paste post text, screenshots, credentials, or illegal or sensitive material into a report. The operator reviews notices and disables public access to identified prohibited posts.</p>
+<p><strong>Disclaimer and liability.</strong> This site and its contents are provided “as is”, without warranties. Shown posts are third-party Nostr content; showing one is not an endorsement, including where the operator also publishes on Nostr. To the extent permitted by law, the operator is not liable for displayed third-party posts; nothing excludes liability that cannot be excluded by law. The operator acts on notices and findings as described above. The site can pause, suspend, or stop at any time.</p>
+<p><strong>Limits.</strong> Collection is budgeted and partial. Filtering can miss content or filter benign content; no particular post is guaranteed complete, correct, or available. Missing posts can result from collection limits or deliberate filtering. Author-labelled content warnings hide text until opened with the author’s reason. Unlabelled explicit text is not auto-detected and renders normally unless blocklisted. Obvious spam can be labelled rather than hidden and is never automatically deleted. The operator maintains author and post blocklists that prevent content appearing or being collected again; per-rule filter counts are on the status page.</p>
 ```
-
-Legal review remains necessary before replacing existing terms. The new text removes repeated signature/network-liability prose; it should not be deployed if the operator needs that exact language.
 
 ## Status: `templates/status.html`, `src/main.rs`
 
@@ -239,12 +241,10 @@ For this site, improve on the reference: use the same blue link treatment for si
 
 ## Implementation inventory
 
-Templates above cover all user-visible literals in `templates/{base,feed,_post,context,status,about,tos}.html`. Rust-generated messages to change are in `src/main.rs:245,297-341,584,808-893`. Preserve internal startup, telemetry, and server-log wording. The proposed Topic `<select>` is a required structural change, not copy alone.
+Templates above cover all user-visible literals in `templates/{base,feed,_post,context,status,about,tos}.html`. Rust-generated messages to change are in `src/main.rs:245,297-341,584,808-893`. Preserve internal startup, telemetry, and server-log wording. The proposed Topic checkbox dropdown is a required structural change, not copy alone.
 
 ## Cold-reader check
 
-A bounded external comprehension check read the controls without the current implementation context. It incorrectly inferred ActivityPub/ATProto from the previous draft, so the About copy now names Nostr and the page notice says `30-day Nostr archive`. It also found `Find`/`Words`/`Meaning`/`Search in` ambiguous; the draft now makes backend choice `Meaning with:` and shows it only for Meaning, and shows `Order matches:` only for Words/Meaning. `Nostr event` replaces the unexplained `Event`. Its valid remaining point is visual: gray non-link age/score must not resemble the blue author/action links. Results: [`site-copy-panel.answer.md`](../2026-09-14_glm-5.3-flash_site-copy-panel.answer.md); prompt: [`site-copy-panel-brief.md`](site-copy-panel-brief.md). The panel's claims about the existing system are not source evidence.
-
--- Pi/gpt-5.6-terra
+A bounded external comprehension check read the controls without the current implementation context. It incorrectly inferred ActivityPub/ATProto from the previous draft, so the About copy now names Nostr. It found the search labels ambiguous; `Order matches:` is therefore limited to Words/Meaning. The user-approved selected-space control remains available for Meaning, Topics, and Similar comparisons; its plain label is `Model:`, not `Meaning with:`. `Nostr event` replaces the unexplained `Event`. Its valid remaining point is visual: gray non-link age/score must not resemble the blue author/action links. Results: [`site-copy-panel.answer.md`](../2026-09-14_glm-5.3-flash_site-copy-panel.answer.md); prompt: [`site-copy-panel-brief.md`](site-copy-panel-brief.md). The panel's claims about the existing system are not source evidence.
 
 -- Pi/gpt-5.6-terra
