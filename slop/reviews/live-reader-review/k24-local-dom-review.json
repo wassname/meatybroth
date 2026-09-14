@@ -1,0 +1,354 @@
+{
+  "capturedAt": "2026-09-14T11:14:46.270Z",
+  "base": "http://localhost:8088",
+  "routes": {
+    "default": {
+      "url": "http://localhost:8088/?mode=topics&embedding=minilm",
+      "articleCards": 100,
+      "postIds": {
+        "count": 100,
+        "firstThree": [
+          "0000012c54f5e0f5168144f51a23edf327b839d905c03f7aa5600b138a2e6c78",
+          "0914c831ff4665acc0b9a58ecab0291a54a3e35ffe6b99dd2f44c13c503c1b2f",
+          "7edad399c25b6f783336e2a366af2baf87423e692de040263d090c407d3e633e"
+        ]
+      },
+      "selectedOptions": [
+        {
+          "value": "kmeans",
+          "label": "K-means (fixed count)"
+        },
+        {
+          "value": "minilm",
+          "label": "MiniLM"
+        }
+      ],
+      "topicControls": {
+        "count": 24,
+        "checked": [],
+        "firstThree": [
+          {
+            "name": "topics",
+            "value": "11",
+            "checked": false,
+            "label": "Unlabelled topic",
+            "countPercent": "2312, 9.6%"
+          },
+          {
+            "name": "topics",
+            "value": "10",
+            "checked": false,
+            "label": "Unlabelled topic",
+            "countPercent": "2025, 8.4%"
+          },
+          {
+            "name": "topics",
+            "value": "12",
+            "checked": false,
+            "label": "photo · news · flickr",
+            "countPercent": "1819, 7.6%"
+          }
+        ],
+        "lastThree": [
+          {
+            "name": "topics",
+            "value": "22",
+            "checked": false,
+            "label": "a2a · diversz · agent_card",
+            "countPercent": "451, 1.9%"
+          },
+          {
+            "name": "topics",
+            "value": "19",
+            "checked": false,
+            "label": "ai-operated · interacting · discretion",
+            "countPercent": "447, 1.9%"
+          },
+          {
+            "name": "topics",
+            "value": "18",
+            "checked": false,
+            "label": "Unlabelled topic",
+            "countPercent": "392, 1.6%"
+          }
+        ]
+      },
+      "hint": "K-means uses 24 clusters. Counts and percentages use all eligible posts assigned in this embedding space and grouping method; DBSCAN includes Unsorted in the denominator."
+    },
+    "selected": {
+      "url": "http://localhost:8088/?mode=topics&embedding=minilm&topics=17",
+      "articleCards": 100,
+      "postIds": {
+        "count": 100,
+        "firstThree": [
+          "fb87ce9fc73e0b52e0ff293d0bda272a74c4d9377bcf5585463921f053fa0bed",
+          "50b7455a327ac86f9f134e940aea1ab2a4976f156d7781fc8662ae1e41382383",
+          "08e04482cf2f00bad3e561b082f716be84e20ba37173d73dd74a9a29aeb49d33"
+        ]
+      },
+      "selectedOptions": [
+        {
+          "value": "kmeans",
+          "label": "K-means (fixed count)"
+        },
+        {
+          "value": "minilm",
+          "label": "MiniLM"
+        }
+      ],
+      "topicControls": {
+        "count": 24,
+        "checked": [
+          {
+            "name": "topics",
+            "value": "17",
+            "checked": true,
+            "label": "reference · note · casino",
+            "countPercent": "759, 3.2%"
+          }
+        ],
+        "firstThree": [
+          {
+            "name": "topics",
+            "value": "11",
+            "checked": false,
+            "label": "Unlabelled topic",
+            "countPercent": "2312, 9.6%"
+          },
+          {
+            "name": "topics",
+            "value": "10",
+            "checked": false,
+            "label": "Unlabelled topic",
+            "countPercent": "2025, 8.4%"
+          },
+          {
+            "name": "topics",
+            "value": "12",
+            "checked": false,
+            "label": "photo · news · flickr",
+            "countPercent": "1819, 7.6%"
+          }
+        ],
+        "lastThree": [
+          {
+            "name": "topics",
+            "value": "22",
+            "checked": false,
+            "label": "a2a · diversz · agent_card",
+            "countPercent": "451, 1.9%"
+          },
+          {
+            "name": "topics",
+            "value": "19",
+            "checked": false,
+            "label": "ai-operated · interacting · discretion",
+            "countPercent": "447, 1.9%"
+          },
+          {
+            "name": "topics",
+            "value": "18",
+            "checked": false,
+            "label": "Unlabelled topic",
+            "countPercent": "392, 1.6%"
+          }
+        ]
+      },
+      "hint": "K-means uses 24 clusters. Counts and percentages use all eligible posts assigned in this embedding space and grouping method; DBSCAN includes Unsorted in the denominator."
+    },
+    "dbscan": {
+      "url": "http://localhost:8088/?mode=topics&embedding=minilm&clustering=dbscan",
+      "articleCards": 100,
+      "postIds": {
+        "count": 100,
+        "firstThree": [
+          "0000012c54f5e0f5168144f51a23edf327b839d905c03f7aa5600b138a2e6c78",
+          "22e0395c0ac3e1558656a1317e52072d9b9fbc352e39cf7eef0e02d145077c3f",
+          "e6a09a5e7def5eb7c647279e85e0342aaf335878f3b0e3c7a06b17581595a19c"
+        ]
+      },
+      "selectedOptions": [
+        {
+          "value": "dbscan",
+          "label": "DBSCAN"
+        },
+        {
+          "value": "minilm",
+          "label": "MiniLM"
+        }
+      ],
+      "topicControls": {
+        "count": 211,
+        "checked": [],
+        "firstThree": [
+          {
+            "name": "topics",
+            "value": "13",
+            "checked": false,
+            "label": "Unlabelled topic",
+            "countPercent": "586, 2.4%"
+          },
+          {
+            "name": "topics",
+            "value": "1",
+            "checked": false,
+            "label": "Unlabelled topic",
+            "countPercent": "499, 2.1%"
+          },
+          {
+            "name": "topics",
+            "value": "23",
+            "checked": false,
+            "label": "conviction · equity · execution",
+            "countPercent": "479, 2.0%"
+          }
+        ],
+        "lastThree": [
+          {
+            "name": "topics",
+            "value": "187",
+            "checked": false,
+            "label": "これ以上 · お前たちの不浄な儀式に資金を提供するためではないのだ · 国民の税金を無駄遣いするのはやめろ",
+            "countPercent": "5, 0.0%"
+          },
+          {
+            "name": "topics",
+            "value": "199",
+            "checked": false,
+            "label": "universitario · minuto · último",
+            "countPercent": "4, 0.0%"
+          },
+          {
+            "name": "unsorted",
+            "value": "true",
+            "checked": false,
+            "label": "Unsorted",
+            "countPercent": "15290, 63.8%"
+          }
+        ]
+      },
+      "hint": "DBSCAN uses distance 0.20 and at least 8 posts. Posts outside a group appear as Unsorted. Counts and percentages use all eligible posts assigned in this embedding space and grouping method; DBSCAN includes Unsorted in the denominator."
+    },
+    "unsorted": {
+      "url": "http://localhost:8088/?mode=topics&embedding=minilm&clustering=dbscan&unsorted=true",
+      "articleCards": 100,
+      "postIds": {
+        "count": 100,
+        "firstThree": [
+          "7edad399c25b6f783336e2a366af2baf87423e692de040263d090c407d3e633e",
+          "0000811ffe8cdaef590dfb9a1ba99d14a301dcbb112bd424415ae97f42a4e4ea",
+          "6809b69ab011dbffc67d13e77cce735e113d98247d201c84e4be1bd685d1f05d"
+        ]
+      },
+      "selectedOptions": [
+        {
+          "value": "dbscan",
+          "label": "DBSCAN"
+        },
+        {
+          "value": "minilm",
+          "label": "MiniLM"
+        }
+      ],
+      "topicControls": {
+        "count": 211,
+        "checked": [
+          {
+            "name": "unsorted",
+            "value": "true",
+            "checked": true,
+            "label": "Unsorted",
+            "countPercent": "15290, 63.8%"
+          }
+        ],
+        "firstThree": [
+          {
+            "name": "topics",
+            "value": "13",
+            "checked": false,
+            "label": "Unlabelled topic",
+            "countPercent": "586, 2.4%"
+          },
+          {
+            "name": "topics",
+            "value": "1",
+            "checked": false,
+            "label": "Unlabelled topic",
+            "countPercent": "499, 2.1%"
+          },
+          {
+            "name": "topics",
+            "value": "23",
+            "checked": false,
+            "label": "conviction · equity · execution",
+            "countPercent": "479, 2.0%"
+          }
+        ],
+        "lastThree": [
+          {
+            "name": "topics",
+            "value": "187",
+            "checked": false,
+            "label": "これ以上 · お前たちの不浄な儀式に資金を提供するためではないのだ · 国民の税金を無駄遣いするのはやめろ",
+            "countPercent": "5, 0.0%"
+          },
+          {
+            "name": "topics",
+            "value": "199",
+            "checked": false,
+            "label": "universitario · minuto · último",
+            "countPercent": "4, 0.0%"
+          },
+          {
+            "name": "unsorted",
+            "value": "true",
+            "checked": true,
+            "label": "Unsorted",
+            "countPercent": "15290, 63.8%"
+          }
+        ]
+      },
+      "hint": "DBSCAN uses distance 0.20 and at least 8 posts. Posts outside a group appear as Unsorted. Counts and percentages use all eligible posts assigned in this embedding space and grouping method; DBSCAN includes Unsorted in the denominator."
+    },
+    "words": {
+      "url": "http://localhost:8088/?q=bitcoin&mode=relevance",
+      "articleCards": 100,
+      "postIds": {
+        "count": 100,
+        "firstThree": [
+          "68fe845a5b90babe95c00c8b0280e240e83b3fc8be723c45a7098acc4bf0bd16",
+          "73a83f0b6431c79af4d47c324353ae0134601fec04953438539b6d7e4a288529",
+          "070abb5c6c2ecdd5db05f0f0be578b0b2b0b92790e87a550879c436b0450fa22"
+        ]
+      },
+      "selectedOptions": [
+        {
+          "value": "relevance",
+          "label": "Relevance"
+        }
+      ],
+      "topicControls": [],
+      "hint": ""
+    },
+    "meaning": {
+      "url": "http://localhost:8088/?q=bitcoin&mode=meaning&embedding=minilm",
+      "articleCards": 100,
+      "postIds": {
+        "count": 100,
+        "firstThree": [
+          "5c78e748184c1d462ae1d6042503662295ddda686fff034012fe658331893dc6",
+          "122bda3a2ab2314ff31358fd2caa49370c97882e06beaf7276f0581490bcb9e9",
+          "150f9a30ea91b35c25f2e80a6366a36c4b05ec33e838a42bda99f10f5ea52338"
+        ]
+      },
+      "selectedOptions": [
+        {
+          "value": "minilm",
+          "label": "MiniLM"
+        }
+      ],
+      "topicControls": [],
+      "hint": ""
+    }
+  }
+}
