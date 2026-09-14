@@ -2,6 +2,7 @@
 {% block body %}
 <h2>Collector status</h2>
 <p>As of {{ now }}. {{ eligible_posts }} eligible Nostr posts in the last {{ window_days }} days.</p>
+<div id="status-snapshot-notice"></div>
 <p>The Rust SDK collector and reader share this SQLite file. Collection keeps durable five-minute forward/backfill attempts plus fetched profiles and referenced parents. Gap rows identify intervals without inventory proof; counts do not establish complete relay coverage.</p>
 <p>{{ direct_follows - missing_contact_lists }} of {{ direct_follows }} direct follows have a stored contact list; {{ missing_contact_lists }} remain missing or unavailable from the selected relays.</p>
 {% for s in status_rows %}

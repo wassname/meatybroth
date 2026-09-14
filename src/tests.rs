@@ -54,6 +54,8 @@ impl Fixture {
             embedding_error: Arc::new(Mutex::new(None)),
             default_embedding: "minilm".into(),
             collecting: false,
+            reader_slots: Arc::new(tokio::sync::Semaphore::new(2)),
+            status_cache: Arc::new(RwLock::new(None)),
         }
     }
     fn post(
@@ -468,6 +470,84 @@ async fn status_exposes_gaps_signed_list_age_and_reader_scope() {
     assert_eq!(f.request("/tos").await.0, StatusCode::OK);
 }
 
+#[tokio::test]
+async fn status_snapshot_avoids_recomputing_on_request() {
+    let f = Fixture::new();
+    f.post(100, 2, "eligible", 100, None, None);
+    let app = f.app();
+    refresh_status_cache(&app, f.now).unwrap();
+    f.db.execute(
+        "INSERT INTO source_status VALUES('after-snapshot',?1,'{}')",
+        [f.now],
+    )
+    .unwrap();
+    app.status_cache
+        .write()
+        .unwrap()
+        .as_mut()
+        .unwrap()
+        .refresh_error = true;
+    let response = router(app)
+        .oneshot(
+            Request::builder()
+                .uri("/status")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let html = String::from_utf8(
+        axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(html.contains("1 eligible Nostr posts"));
+    assert!(html.contains("Status snapshot generated"));
+    assert!(html.contains("latest refresh failed; values may be stale"));
+    assert!(!html.contains("after-snapshot"));
+}
+
+#[tokio::test]
+async fn reader_work_waits_for_one_of_two_slots() {
+    let f = Fixture::new();
+    let app = f.app();
+    refresh_status_cache(&app, f.now).unwrap();
+    let slots = app.reader_slots.clone();
+    let first = slots.clone().acquire_owned().await.unwrap();
+    let second = slots.clone().acquire_owned().await.unwrap();
+    let mut response = Box::pin(
+        router(app.clone()).oneshot(
+            Request::builder()
+                .uri("/about")
+                .body(Body::empty())
+                .unwrap(),
+        ),
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), &mut response)
+            .await
+            .is_err()
+    );
+    let status = tokio::time::timeout(
+        Duration::from_millis(20),
+        router(app).oneshot(
+            Request::builder()
+                .uri("/status")
+                .body(Body::empty())
+                .unwrap(),
+        ),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(status.status(), StatusCode::OK);
+    drop(first);
+    drop(second);
+    assert_eq!(response.await.unwrap().status(), StatusCode::OK);
+}
+
 #[test]
 #[ignore = "requires saved matched-corpus fixtures"]
 fn matched_reference_reader_outputs() {
@@ -483,6 +563,8 @@ fn matched_reference_reader_outputs() {
         embedding_error: Arc::new(Mutex::new(None)),
         default_embedding: "minilm".into(),
         collecting: false,
+        reader_slots: Arc::new(tokio::sync::Semaphore::new(2)),
+        status_cache: Arc::new(RwLock::new(None)),
     };
     let mut observed = Vec::new();
     for case in expected["cases"].as_array().unwrap() {

@@ -21,7 +21,7 @@ use std::{
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
+        Arc, Mutex, RwLock,
     },
     time::Duration,
 };
@@ -38,6 +38,13 @@ const MODES: [&str; 6] = [
 ];
 const FEED_MODES: [&str; 4] = ["new", "conversations", "discovery", "topics"];
 
+struct StatusSnapshot {
+    generated_at: i64,
+    html: String,
+    refresh_error: bool,
+}
+
+#[derive(Clone)]
 struct App {
     path: PathBuf,
     root: String,
@@ -47,6 +54,8 @@ struct App {
     embedding_error: Arc<Mutex<Option<String>>>,
     default_embedding: String,
     collecting: bool,
+    reader_slots: Arc<tokio::sync::Semaphore>,
+    status_cache: Arc<RwLock<Option<StatusSnapshot>>>,
 }
 
 fn local_embedding(
@@ -616,7 +625,7 @@ fn thread(app: &App, db: &Connection, id: &str, now: i64) -> Result<(StatusCode,
     ))
 }
 
-fn status(app: &App, db: &Connection, now: i64) -> Result<String, Error> {
+fn status_uncached(app: &App, db: &Connection, now: i64) -> Result<String, Error> {
     let mut rows = Vec::new();
     let mut statement =
         db.prepare("SELECT source,updated_at,detail FROM source_status ORDER BY source")?;
@@ -681,20 +690,75 @@ fn status(app: &App, db: &Connection, now: i64) -> Result<String, Error> {
     )
 }
 
-fn handle(app: &App, path: &str, raw: &str, now: i64) -> Result<(StatusCode, String), Error> {
-    let db = Connection::open_with_flags(&app.path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+fn open_reader(path: &std::path::Path) -> Result<Connection, Error> {
+    let db = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     db.busy_timeout(Duration::from_secs(10))?;
-    db.pragma_update(None, "cache_size", -65_536)?;
-    db.pragma_update(None, "mmap_size", 268_435_456)?;
-    db.pragma_update(None, "temp_store", "MEMORY")?;
+    db.pragma_update(None, "cache_size", -16_384)?;
+    db.pragma_update(None, "mmap_size", 67_108_864)?;
+    db.pragma_update(None, "temp_store", "FILE")?;
     db.execute_batch("BEGIN")?;
+    Ok(db)
+}
+
+fn refresh_status_cache(app: &App, now: i64) -> Result<(), Error> {
+    let db = open_reader(&app.path)?;
+    let html = status_uncached(app, &db, now)?;
+    *app.status_cache.write().unwrap() = Some(StatusSnapshot {
+        generated_at: now,
+        html,
+        refresh_error: false,
+    });
+    Ok(())
+}
+
+fn cached_status_html(app: &App, now: i64) -> Option<String> {
+    let cache = app.status_cache.read().unwrap();
+    let snapshot = cache.as_ref()?;
+    let generated =
+        chrono::DateTime::from_timestamp(snapshot.generated_at, 0)?.format("%Y-%m-%d %H:%M:%S UTC");
+    let age = now.saturating_sub(snapshot.generated_at);
+    let warning = if snapshot.refresh_error {
+        " The latest refresh failed; values may be stale."
+    } else {
+        ""
+    };
+    let notice = format!(
+        "<p class=\"status-line\">Status snapshot generated {generated} ({age}s ago).{warning}</p>"
+    );
+    Some(
+        snapshot
+            .html
+            .replacen("<div id=\"status-snapshot-notice\"></div>", &notice, 1),
+    )
+}
+
+fn cached_status(app: &App, db: &Connection, now: i64) -> Result<String, Error> {
+    if let Some(html) = cached_status_html(app, now) {
+        return Ok(html);
+    }
+    let html = status_uncached(app, db, now)?;
+    *app.status_cache.write().unwrap() = Some(StatusSnapshot {
+        generated_at: now,
+        html,
+        refresh_error: false,
+    });
+    cached_status_html(app, now).ok_or_else(|| "status snapshot was not stored".into())
+}
+
+fn handle(app: &App, path: &str, raw: &str, now: i64) -> Result<(StatusCode, String), Error> {
+    if path == "/status" {
+        if let Some(html) = cached_status_html(app, now) {
+            return Ok((StatusCode::OK, html));
+        }
+    }
+    let db = open_reader(&app.path)?;
     match path {
         "/" => feed(app, &db, raw, now),
         "/about" | "/tos" => Ok((
             StatusCode::OK,
             page(app, &format!("{}.html", &path[1..]), json!({}))?,
         )),
-        "/status" => Ok((StatusCode::OK, status(app, &db, now)?)),
+        "/status" => Ok((StatusCode::OK, cached_status(app, &db, now)?)),
         _ => {
             if let Some(id) = path
                 .strip_prefix("/context/")
@@ -716,6 +780,11 @@ async fn request(State(app): State<Arc<App>>, OriginalUri(uri): OriginalUri) -> 
         )
             .into_response();
     }
+    if uri.path() == "/status" {
+        if let Some(html) = cached_status_html(&app, Utc::now().timestamp()) {
+            return Html(html).into_response();
+        }
+    }
     let now = Utc::now().timestamp();
     let path = uri.path().to_owned();
     let raw = uri.query().unwrap_or("").to_owned();
@@ -725,53 +794,85 @@ async fn request(State(app): State<Arc<App>>, OriginalUri(uri): OriginalUri) -> 
         && search.embedding == "titan"
         && !search.q.is_empty()
     {
-        let Some(sender) = &app.embedding_queries else {
-            return (
-                StatusCode::BAD_REQUEST,
-                "Titan semantic search is not configured.",
-            )
-                .into_response();
-        };
-        let (reply, result) = tokio::sync::oneshot::channel();
-        if sender
-            .send(collect::EmbeddingQuery {
-                query: search.q.clone(),
-                reply,
-            })
-            .await
-            .is_err()
-        {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                "Titan embedding worker stopped.",
-            )
-                .into_response();
-        }
-        let result = tokio::time::timeout(Duration::from_secs(300), result).await;
-        match result {
-            Ok(Ok(Ok(()))) => *app.embedding_error.lock().unwrap() = None,
-            Ok(Ok(Err(error))) => {
-                let message = format!("Titan semantic search failed: {error}");
-                *app.embedding_error.lock().unwrap() = Some(message.clone());
-                return (StatusCode::SERVICE_UNAVAILABLE, message).into_response();
+        let cache_path = app.path.clone();
+        let query = search.q.clone();
+        let cached = tokio::task::spawn_blocking(move || {
+            let Some(space) = embed::space_by_backend(&cache_path, "bedrock")? else {
+                return Ok::<bool, Error>(false);
+            };
+            Ok(embed::cached_query(&cache_path, &space, &query)?.is_some())
+        })
+        .await;
+        let cached = match cached {
+            Ok(Ok(cached)) => cached,
+            error => {
+                eprintln!("Titan query cache lookup failed: {error:?}");
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Titan query cache lookup failed; see server log.",
+                )
+                    .into_response();
             }
-            Ok(Err(_)) => {
+        };
+        if !cached {
+            let Some(sender) = &app.embedding_queries else {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    "Titan semantic search is not configured.",
+                )
+                    .into_response();
+            };
+            let (reply, result) = tokio::sync::oneshot::channel();
+            if sender
+                .send(collect::EmbeddingQuery {
+                    query: search.q.clone(),
+                    reply,
+                })
+                .await
+                .is_err()
+            {
                 return (
                     StatusCode::SERVICE_UNAVAILABLE,
                     "Titan embedding worker stopped.",
                 )
                     .into_response();
             }
-            Err(_) => {
-                return (
-                    StatusCode::GATEWAY_TIMEOUT,
-                    "Titan semantic search timed out.",
-                )
-                    .into_response();
+            let result = tokio::time::timeout(Duration::from_secs(300), result).await;
+            match result {
+                Ok(Ok(Ok(()))) => *app.embedding_error.lock().unwrap() = None,
+                Ok(Ok(Err(error))) => {
+                    let message = format!("Titan semantic search failed: {error}");
+                    *app.embedding_error.lock().unwrap() = Some(message.clone());
+                    return (StatusCode::SERVICE_UNAVAILABLE, message).into_response();
+                }
+                Ok(Err(_)) => {
+                    return (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "Titan embedding worker stopped.",
+                    )
+                        .into_response();
+                }
+                Err(_) => {
+                    return (
+                        StatusCode::GATEWAY_TIMEOUT,
+                        "Titan semantic search timed out.",
+                    )
+                        .into_response();
+                }
             }
         }
     }
-    let result = tokio::task::spawn_blocking(move || handle(&app, &path, &raw, now)).await;
+    let permit = match app.reader_slots.clone().acquire_owned().await {
+        Ok(permit) => permit,
+        Err(_) => {
+            return (StatusCode::SERVICE_UNAVAILABLE, "Reader is shutting down.").into_response();
+        }
+    };
+    let result = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        handle(&app, &path, &raw, now)
+    })
+    .await;
     match result {
         Ok(Ok((status, html))) => (status, Html(html)).into_response(),
         error => {
@@ -978,7 +1079,7 @@ async fn main() -> Result<(), Error> {
     } else {
         (None, None)
     };
-    let app = router(App {
+    let app_state = App {
         path: path.clone(),
         root,
         templates: templates()?,
@@ -989,7 +1090,39 @@ async fn main() -> Result<(), Error> {
         embedding_error: embedding_error.clone(),
         default_embedding,
         collecting: !read_only,
+        reader_slots: Arc::new(tokio::sync::Semaphore::new(2)),
+        status_cache: Arc::new(RwLock::new(None)),
+    };
+    refresh_status_cache(&app_state, Utc::now().timestamp())?;
+    let status_app = app_state.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(120)).await;
+            let app = status_app.clone();
+            let permit = app
+                .reader_slots
+                .clone()
+                .acquire_owned()
+                .await
+                .expect("reader semaphore remains open");
+            match tokio::task::spawn_blocking(move || {
+                let _permit = permit;
+                refresh_status_cache(&app, Utc::now().timestamp())
+            })
+            .await
+            {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => {
+                    if let Some(snapshot) = status_app.status_cache.write().unwrap().as_mut() {
+                        snapshot.refresh_error = true;
+                    }
+                    eprintln!("Status snapshot refresh failed: {error}");
+                }
+                Err(error) => eprintln!("Status snapshot task failed: {error}"),
+            }
+        }
     });
+    let app = router(app_state);
     let addr = std::env::var("MEATYBROTH_ADDR").unwrap_or_else(|_| "127.0.0.1:8083".into());
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     eprintln!("Rust reader listening on http://{addr}");

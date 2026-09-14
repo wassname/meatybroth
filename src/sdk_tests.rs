@@ -267,6 +267,8 @@ async fn html_with_models(
         embedding_error: Arc::new(Mutex::new(None)),
         default_embedding: "minilm".into(),
         collecting: false,
+        reader_slots: Arc::new(tokio::sync::Semaphore::new(2)),
+        status_cache: Arc::new(RwLock::new(None)),
     });
     let response = app
         .oneshot(
@@ -1163,16 +1165,90 @@ async fn incremental_embeddings_reuse_delete_and_budget_after_sdk_drain() {
     assert_eq!(status, StatusCode::OK);
     assert!(titan_meaning.contains("<article"));
     let calls_after_query = mock.calls.load(Ordering::SeqCst);
-    let (status, _) = html_with_models(
-        &path,
-        "/?q=related+concept&mode=meaning&embedding=titan",
-        None,
-        Some(provider.clone()),
-        Some(budget),
+    let (sender, mut receiver) = tokio::sync::mpsc::channel(1);
+    let cached_app = router(App {
+        path: path.clone(),
+        root: ROOT.into(),
+        templates: templates().unwrap(),
+        embedding: None,
+        embedding_queries: Some(sender),
+        embedding_error: Arc::new(Mutex::new(None)),
+        default_embedding: "minilm".into(),
+        collecting: false,
+        reader_slots: Arc::new(tokio::sync::Semaphore::new(2)),
+        status_cache: Arc::new(RwLock::new(None)),
+    });
+    let cached_response = tokio::time::timeout(
+        Duration::from_secs(1),
+        cached_app.oneshot(
+            axum::http::Request::builder()
+                .uri("/?q=related+concept&mode=meaning&embedding=titan")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        ),
     )
-    .await;
-    assert_eq!(status, StatusCode::OK);
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(cached_response.status(), StatusCode::OK);
+    assert!(receiver.try_recv().is_err());
     assert_eq!(mock.calls.load(Ordering::SeqCst), calls_after_query);
+
+    let (sender, mut receiver) = tokio::sync::mpsc::channel(2);
+    let awaiting_app = router(App {
+        path: path.clone(),
+        root: ROOT.into(),
+        templates: templates().unwrap(),
+        embedding: None,
+        embedding_queries: Some(sender),
+        embedding_error: Arc::new(Mutex::new(None)),
+        default_embedding: "minilm".into(),
+        collecting: false,
+        reader_slots: Arc::new(tokio::sync::Semaphore::new(2)),
+        status_cache: Arc::new(RwLock::new(None)),
+    });
+    let first_query = tokio::spawn(
+        awaiting_app.clone().oneshot(
+            axum::http::Request::builder()
+                .uri("/?q=uncached-one&mode=meaning&embedding=titan")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        ),
+    );
+    let second_query = tokio::spawn(
+        awaiting_app.clone().oneshot(
+            axum::http::Request::builder()
+                .uri("/?q=uncached-two&mode=meaning&embedding=titan")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        ),
+    );
+    let first_queued = tokio::time::timeout(Duration::from_secs(1), receiver.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    let second_queued = tokio::time::timeout(Duration::from_secs(1), receiver.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    let ordinary = tokio::time::timeout(
+        Duration::from_secs(1),
+        awaiting_app.oneshot(
+            axum::http::Request::builder()
+                .uri("/about")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        ),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(ordinary.status(), StatusCode::OK);
+    first_query.abort();
+    second_query.abort();
+    drop(first_queued);
+    drop(second_queued);
+
     let (status, provider_status) =
         html_with_models(&path, "/status", None, Some(provider), Some(budget)).await;
     assert_eq!(status, StatusCode::OK);
@@ -1379,6 +1455,8 @@ async fn sdk_storage_failure_does_not_stop_http_reader() {
         embedding_error: Arc::new(Mutex::new(None)),
         default_embedding: "minilm".into(),
         collecting: false,
+        reader_slots: Arc::new(tokio::sync::Semaphore::new(2)),
+        status_cache: Arc::new(RwLock::new(None)),
     });
     let server = tokio::spawn(async move { axum::serve(listener, app).await });
     let error = collect::scan(

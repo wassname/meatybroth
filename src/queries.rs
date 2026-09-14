@@ -254,17 +254,38 @@ pub fn eligible_map_for(
     now: i64,
     canonical_ids: Option<&[String]>,
 ) -> Result<HashMap<String, Post>, Error> {
-    let id_filter = canonical_ids
-        .map(|_| "WHERE canonical_id IN (SELECT value FROM json_each(:ids))")
-        .unwrap_or("");
-    let mut statement = db.prepare(&format!(
-        "{ELIGIBLE}
-         SELECT
-           *,
-           NULL AS bm25,
-           {CARD_DEFAULTS}
-         FROM eligible {id_filter}"
-    ))?;
+    let indexed_reader: bool = canonical_ids.is_some()
+        && db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='reader_events')",
+            [],
+            |row| row.get(0),
+        )?;
+    let query = if indexed_reader {
+        format!(
+            "SELECT
+               post.*,
+               NULL AS bm25,
+               {CARD_DEFAULTS}
+             FROM json_each(:ids) wanted
+             JOIN reader_post_events reader
+               ON reader.event_id=unhex(substr(wanted.value,7))
+             JOIN posts post ON post.rowid=reader.id
+             WHERE post.created_at BETWEEN :since AND :until"
+        )
+    } else {
+        let id_filter = canonical_ids
+            .map(|_| "WHERE canonical_id IN (SELECT value FROM json_each(:ids))")
+            .unwrap_or("");
+        format!(
+            "{ELIGIBLE}
+             SELECT
+               *,
+               NULL AS bm25,
+               {CARD_DEFAULTS}
+             FROM eligible {id_filter}"
+        )
+    };
+    let mut statement = db.prepare(&query)?;
     statement.raw_bind_parameter(statement.parameter_index(":since")?.unwrap(), now - WINDOW)?;
     statement.raw_bind_parameter(statement.parameter_index(":until")?.unwrap(), now)?;
     let ids_json;
