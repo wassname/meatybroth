@@ -208,7 +208,7 @@ Reference capture, not a mockup:
 - capture date reported by the archive: 2017-01-01 00:34:59 UTC (`memento-datetime`)
 - inspected locally on 2026-09-14. A direct `old.reddit.com` attempt returned a network-security block and is not the reference image.
 
-The reference makes a simple distinction: post titles and action links are blue and underlined or plainly blue; submission age, score, and domain are small gray text. A reader can identify a link from its color before hovering. Our screenshot 36 instead uses rust, ink, and gray for links in the same card. The author link, parent excerpt, `similar`, `replies`, `event`, and the details summary have different cues despite all being interactive.
+The reference makes titles and author links blue; age, score, domain, and its `comments`/`share` actions are small gray text. Its gray actions are precisely the part **not** to copy: they are difficult to identify as clickable without prior Reddit familiarity. The useful reference is the compact card hierarchy, not a complete interaction treatment. Our screenshot 36 likewise uses rust, ink, and gray for links in the same card. The author link, parent excerpt, `similar`, `replies`, `event`, and the details summary have different cues despite all being interactive.
 
 Proposed CSS direction, keeping the broth page's paper background and its own layout:
 
@@ -235,7 +235,7 @@ article.post .meta details.more summary,
 article.post details.rest summary { color: var(--link); text-decoration: underline; }
 ```
 
-Use the same blue link treatment for site navigation, post links in rendered text, replies, Similar, Event, parent excerpts, pagination, and details controls. Gray then has one job: non-clickable metadata. Keep warning text amber and errors red. Do not rely on a hover-only underline. Buttons and selects stay bordered controls, separate from text links.
+For this site, improve on the reference: use the same blue link treatment for site navigation, post links in rendered text, replies, Similar, Event, parent excerpts, pagination, and details controls. Gray then has one job: non-clickable metadata. Keep warning text amber and errors red. Do not rely on a hover-only underline. Buttons and selects stay bordered controls, separate from text links. Do not import Reddit's newsletter/sidebar clutter or its gray action-link treatment.
 
 ## Implementation inventory
 
