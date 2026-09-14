@@ -784,6 +784,100 @@ async fn machine_presence_envelopes_stay_auditable_but_not_reader_or_embedding_e
 }
 
 #[tokio::test]
+async fn reviewed_aepiot_campaign_keeps_canonical_events_and_ledger_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("events.sqlite");
+    let sdk = collect::open(&path, collect::PRIMAL_AUTHOR).await.unwrap();
+    let now = Utc::now().timestamp();
+    let target_keys = Keys::generate();
+    let targeted = [
+        signed(&target_keys, 1, "Visit AEPIOT today", now as u64, vec![]),
+        signed(&target_keys, 1, "news from #AllGraph", now as u64, vec![]),
+        signed(
+            &target_keys,
+            1,
+            "headlines-world digest",
+            now as u64,
+            vec![],
+        ),
+    ];
+    let same_author_benign = signed(
+        &target_keys,
+        1,
+        &"A long benign research note without campaign markers. ".repeat(100),
+        now as u64,
+        vec![],
+    );
+    let other_author_marker = signed(
+        &Keys::generate(),
+        1,
+        "aepiot allgraph headlines-world",
+        now as u64,
+        vec![],
+    );
+    for event in targeted
+        .iter()
+        .chain([&same_author_benign, &other_author_marker])
+    {
+        sdk.save_event(event).await.unwrap();
+    }
+    let mock = MockEmbedder::default();
+    assert_eq!(
+        embed::embed_pending(
+            &path,
+            &mock,
+            embed::Budget {
+                total_nusd: i64::MAX,
+                monthly_nusd: i64::MAX,
+            },
+            now,
+            10,
+        )
+        .await
+        .unwrap(),
+        5
+    );
+
+    let conn = Connection::open(&path).unwrap();
+    let reviewed_author = "441d176ae740ef78b4b22129da2aea29aa2caf20dbf53bb8463ddd4fea90cf47";
+    for event in targeted.iter().chain([&same_author_benign]) {
+        conn.execute(
+            "UPDATE events SET pubkey=unhex(?1) WHERE id=?2",
+            (reviewed_author, event.id.as_bytes()),
+        )
+        .unwrap();
+    }
+    assert_eq!(count(&conn, "SELECT count(*) FROM events WHERE kind=1"), 5);
+    assert_eq!(count(&conn, "SELECT count(*) FROM posts"), 2);
+    collect::cleanup_ineligible_derived(&conn).unwrap();
+    assert_eq!(count(&conn, "SELECT count(*) FROM events WHERE kind=1"), 5);
+    assert_eq!(count(&conn, "SELECT count(*) FROM post_embeddings"), 2);
+    assert_eq!(
+        count(
+            &conn,
+            "SELECT count(DISTINCT event_id) FROM embedding_requests WHERE status='succeeded'"
+        ),
+        5
+    );
+    drop(conn);
+    assert_eq!(
+        embed::embed_pending(
+            &path,
+            &mock,
+            embed::Budget {
+                total_nusd: i64::MAX,
+                monthly_nusd: i64::MAX,
+            },
+            now,
+            10,
+        )
+        .await
+        .unwrap(),
+        0
+    );
+}
+
+#[tokio::test]
 async fn transport_failure_disables_further_paid_calls_until_restart() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("events.sqlite");
