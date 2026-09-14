@@ -49,4 +49,8 @@ No further Meaning request, retry, or paid semantic query was made. With replies
 
 The status page supports that collection and Titan embedding were active at the observed time. New100 and cached Similar are now publicly responsive under active writing, but their 8.5–13.0 s TTFB is still slow. This review does not prove that all posts met the embedding-latency target: the status denominator itself shows 8,416 Titan-eligible posts pending, and stored collection gaps are not proof that every upstream post was missed. It also does not accept Similar quality: the observed duplicate-heavy, URL-only result prefix is an explicit counterexample.
 
+### P0 recovery cached-Similar check
+
+After the deployment worker announced public `088f0da6d610…` restoration, and after it had already checked root and New100, I made one existing-vector cached Similar browser navigation only. It returned HTTP 200 with 100 cards: TTFB 9.398 s, `responseEnd` 9.648 s, navigation total 10.533 s, 17,211 encoded-body bytes and 211,969 decoded-body bytes. This independently confirms response compression and the recovered route; it does not repeat a semantic query or provider call. The bounded screenshot [`36-public-cached-titan-similar-p0-recovery.png`](36-public-cached-titan-similar-p0-recovery.png) still begins with consecutive Shawn Burden Blossom MP4 URLs (scores 0.874 down to 0.846), so P0 recovery does not change the previously recorded Similar quality counterexample.
+
 -- Pi/gpt-5.6-terra
