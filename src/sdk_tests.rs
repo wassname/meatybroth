@@ -133,11 +133,11 @@ impl embed::Transport for MockEmbedder {
     }
 }
 
-struct SlowTwoChunkEmbedder {
+struct DeadlineBoundaryEmbedder {
     inner: MockEmbedder,
 }
 
-impl embed::Transport for SlowTwoChunkEmbedder {
+impl embed::Transport for DeadlineBoundaryEmbedder {
     fn space(&self) -> &embed::Space {
         &self.inner.space
     }
@@ -146,18 +146,21 @@ impl embed::Transport for SlowTwoChunkEmbedder {
         Ok(vec!["first".into(), "second".into()])
     }
 
+    fn epoch_seconds(&self) -> u64 {
+        if self.inner.calls.load(Ordering::SeqCst) == 0 {
+            0
+        } else {
+            u64::MAX
+        }
+    }
+
     fn embed<'a>(
         &'a self,
         text: &'a str,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = Result<embed::Output, Error>> + Send + 'a>,
     > {
-        Box::pin(async move {
-            if self.inner.calls.load(Ordering::SeqCst) == 0 {
-                tokio::time::sleep(Duration::from_secs(2)).await;
-            }
-            self.inner.embed(text).await
-        })
+        self.inner.embed(text)
     }
 }
 
@@ -637,6 +640,35 @@ async fn sdk_relay_to_atomic_fts_http_policy_and_expiry() {
 }
 
 #[tokio::test]
+async fn expired_provider_deadline_makes_no_calls() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("events.sqlite");
+    let sdk = collect::open(&path, collect::PRIMAL_AUTHOR).await.unwrap();
+    let now = i64::try_from(Timestamp::now().as_secs()).unwrap();
+    sdk.save_event(&signed(
+        &Keys::generate(),
+        1,
+        "already expired",
+        now as u64,
+        vec![],
+    ))
+    .await
+    .unwrap();
+    let model = MockEmbedder::default();
+    let budget = embed::Budget {
+        total_nusd: i64::MAX,
+        monthly_nusd: i64::MAX,
+    };
+    assert_eq!(
+        embed::embed_pending_until(&path, &model, budget, Some(0), now, 1, false)
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(model.calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
 async fn provider_deadline_stops_before_a_second_chunk_and_resumes_it() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("events.sqlite");
@@ -644,14 +676,10 @@ async fn provider_deadline_stops_before_a_second_chunk_and_resumes_it() {
     let now = i64::try_from(Timestamp::now().as_secs()).unwrap();
     let event = signed(&Keys::generate(), 1, "two chunks", now as u64, vec![]);
     sdk.save_event(&event).await.unwrap();
-    let model = SlowTwoChunkEmbedder {
+    let model = DeadlineBoundaryEmbedder {
         inner: MockEmbedder::default(),
     };
-    let deadline = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
-        + 1;
+    let deadline = 1;
     let budget = embed::Budget {
         total_nusd: i64::MAX,
         monthly_nusd: i64::MAX,

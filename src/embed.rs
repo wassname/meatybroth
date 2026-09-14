@@ -91,6 +91,12 @@ pub trait Transport: Send + Sync {
     fn concurrency(&self) -> usize {
         1
     }
+    fn epoch_seconds(&self) -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+    }
     fn embed<'a>(
         &'a self,
         text: &'a str,
@@ -779,14 +785,8 @@ fn finalize(
     Ok(())
 }
 
-fn deadline_reached(deadline: Option<u64>) -> bool {
-    deadline.is_some_and(|deadline| {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-            >= deadline
-    })
+fn deadline_reached(transport: &(impl Transport + ?Sized), deadline: Option<u64>) -> bool {
+    deadline.is_some_and(|deadline| transport.epoch_seconds() >= deadline)
 }
 
 async fn embed_event(
@@ -801,7 +801,7 @@ async fn embed_event(
     let space = transport.space();
     let text_chunks = transport.split(text)?;
     for (chunk_index, text_chunk) in text_chunks.iter().enumerate() {
-        if deadline_reached(deadline) {
+        if deadline_reached(transport, deadline) {
             return Ok(false);
         }
         let Some(request_id) = reserve(
@@ -892,7 +892,7 @@ pub(crate) async fn embed_pending_until(
     let posts = pending(path, space, now, limit, recent_first)?;
     let mut embedded = 0;
     for window in posts.chunks(transport.concurrency()) {
-        if deadline_reached(deadline) {
+        if deadline_reached(transport, deadline) {
             break;
         }
         // SQLite sections finish synchronously; only provider awaits overlap. -- Pi/gpt-5.6-sol
