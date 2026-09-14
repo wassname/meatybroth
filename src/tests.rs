@@ -407,7 +407,15 @@ async fn rendering_preserves_safe_text_profiles_warnings_and_exclusions() {
     let text = format!(
         "{text}\n\n![outer ![inner](https://tracker.invalid/inner)](https://tracker.invalid/outer)"
     );
-    f.post(100, 2, &text, 100, None, None);
+    f.post(
+        99,
+        3,
+        "Alert: nostr:quoted AI-operated account",
+        200,
+        None,
+        None,
+    );
+    f.post(100, 2, &text, 100, Some(99), None);
     f.event(
         2,
         0,
@@ -461,6 +469,8 @@ async fn rendering_preserves_safe_text_profiles_warnings_and_exclusions() {
     let flagged =
         &html[flagged_start..html[flagged_start..].find("</article>").unwrap() + flagged_start];
     assert!(flagged.contains("<aside class=\"spam-flag\">Flagged spam: link farm</aside>"));
+    assert!(flagged.contains("<span class=\"relation-label\">In reply to:</span>"));
+    assert!(flagged.contains("Alert: nostr:quoted AI-operated account"));
     assert!(
         flagged.find("Flagged spam:").unwrap() < flagged.find("<strong>strong</strong>").unwrap()
     );

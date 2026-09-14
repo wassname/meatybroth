@@ -45,7 +45,7 @@
     </span>
   </div>
   {% if p.parent_excerpt %}
-  <a class="parent-excerpt" href="/context/nostr/{{ p.parent_excerpt.source_id|urlencode }}{% if p.embedding %}?embedding={{ p.embedding }}{% endif %}{% if p.hide_flagged_spam %}&amp;hide_spam=true{% endif %}" aria-label="parent context">↳ {{ p.parent_excerpt.author }}: {{ p.parent_excerpt.text }}</a>
+  <aside class="parent-relation"><span class="relation-label">In reply to:</span> <a class="parent-excerpt" href="/context/nostr/{{ p.parent_excerpt.source_id|urlencode }}{% if p.embedding %}?embedding={{ p.embedding }}{% endif %}{% if p.hide_flagged_spam %}&amp;hide_spam=true{% endif %}" aria-label="parent context">{{ p.parent_excerpt.author }}: {{ p.parent_excerpt.text }}</a></aside>
   {% endif %}
   {% if p.flagged_spam %}<aside class="spam-flag">Flagged spam: {{ p.spam_warning }}</aside>{% endif %}
   {% if p.warning_hides %}

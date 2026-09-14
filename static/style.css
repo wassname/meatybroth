@@ -77,8 +77,9 @@ article.post details.warning > summary { color: #8a6d1a; cursor: pointer; margin
 article.post details.warning[open] > summary { margin-bottom: 0.3rem; }
 article.post .flag { color: #8a6d1a; font-size: 0.85em; margin: 0 0 0.3rem; }
 article.post .spam-flag { border-left: 3px solid #8a6d1a; color: #6b4f08; font-size: 0.85em; font-weight: 600; margin: 0.2rem 0 0.35rem; padding: 0.15rem 0.4rem; }
-.parent-excerpt { display: block; color: var(--link); font-size: 0.9em; margin: 0 0 0.25rem;
-                  overflow-wrap: anywhere; text-decoration: underline; }
+.parent-relation { font-size: 0.9em; margin: 0 0 0.25rem; overflow-wrap: anywhere; }
+.parent-relation .relation-label { color: var(--muted); font-weight: 600; }
+.parent-excerpt { color: var(--link); text-decoration: underline; }
 .reply-tree .reply-node { margin-left: min(calc(var(--tree-depth) * 1.25rem), 7.5rem);
                           border-left: 1px solid var(--rule); padding-left: 0.6rem; }
 .context-ancestor { border-left: 2px solid var(--rule); padding-left: 0.6rem; }

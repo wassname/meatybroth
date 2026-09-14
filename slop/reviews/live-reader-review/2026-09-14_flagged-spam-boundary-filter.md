@@ -8,7 +8,7 @@ Automatic spam classification now appears in a separate compact aside:
 
 The ordinary post body follows as its own block. The display does not describe the body as app-authored, verified, or as the specific evidence for the classification. Raw post text is unchanged.
 
-Author content warnings remain expandable. NSFW policy exclusion is unchanged. The new filter matches only reasons beginning with the existing exact `auto-flagged: spam ` namespace; it does not add author, domain, length, or broad text rules.
+Author content warnings remain expandable. Raw parent excerpts now start with the separate relation label `In reply to:`; quoted text such as `Alert: ... AI-operated ...` remains unchanged and is not presented as an app classification. NSFW policy exclusion is unchanged. The new filter matches only reasons beginning with the existing exact `auto-flagged: spam ` namespace; it does not add author, domain, length, or broad text rules.
 
 ## Reader filter
 
