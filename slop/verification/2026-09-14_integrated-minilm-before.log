@@ -1,0 +1,11 @@
+now         backend  topics  latest_topic_created  topic_age_s
+----------  -------  ------  --------------------  -----------
+1789359550  bedrock  12      1789355505            4045
+1789359550  minilm   12      1789355552            3998
+backend  vectors  latest_embedded
+-------  -------  ---------------
+bedrock  8085     1789335276
+minilm   12225    1789323846
+eligible
+--------
+13788

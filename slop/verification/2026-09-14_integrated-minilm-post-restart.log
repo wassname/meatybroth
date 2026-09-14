@@ -1,0 +1,8 @@
+space_id                                                          total_minilm_vectors
+----------------------------------------------------------------  --------------------
+bd46d8b3badab3de9e7c2747879e27e781c69e059bf0a19dedf7a39516db644e  12479
+event_id                                                          embedded_at  input_tokens  chunk_count  vector_bytes  vector_sha3
+----------------------------------------------------------------  -----------  ------------  -----------  ------------  ----------------------------------------------------------------
+093818c09fb6ea0953ef691b98ccb53858e8124c22e35db635e19448950df7c3  1789359643   180           1            1536          1eb22aece15eb00aa54d4384050bc63b086c7b94b6d326fc55154ba649beaf0d
+restart_new code=200 total=0.076841
+restart_meaning code=200 total=0.384431

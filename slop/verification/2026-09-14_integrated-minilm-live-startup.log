@@ -1,0 +1,106 @@
+Startup stage sdk_open_ms=1
+Startup stage posts_schema_ms=77
+Startup stage coverage_schema_ms=41
+Startup stage embedding_schema_ms=0
+Startup stage social_schema_ms=108
+Startup stage derived_cleanup_ms=1067
+Startup stage analyze_events_ms=57
+Startup stage embedding_setup_ms=456
+Rust reader listening on http://127.0.0.1:8088
+Verified Primal nsfw_list snapshot id=c4bb56ddd3b476d6b0ff6266eb13ef20b34cc096b6a225feefd0679df1823843 signed_at=1693603030 members=143
+Verified Primal spam_list snapshot id=c788b323272348258dd49df80d229f1b7e773e7de662a68bc72a2d58e941d88e signed_at=1726079985 members=13
+root profile/follow hydration timed out; Social graph may be empty; relay=wss://relay.damus.io; collector continues
+Hydrated root profile and follow list; events=0; relay=wss://relay.primal.net
+Hydrated root profile and follow list; events=3; relay=wss://purplepag.es
+Direct-follow contact-list hydration failed: relay not connected; requested=49; relay=wss://relay.damus.io; collector continues
+Hydrated direct-follow contact lists; requested=49 missing=49; relay=wss://relay.primal.net
+Hydrated direct-follow contact lists; requested=49 missing=49; relay=wss://purplepag.es
+recoverable relay cycle failure: relay not connected; relay=wss://relay.damus.io; HTTP reader remains available
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+recoverable relay cycle failure: Metadata scan timed out for wss://relay.primal.net; partial arrivals retained; relay=wss://relay.primal.net; HTTP reader remains available
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
+Embedded 1 minilm posts between SDK scans
