@@ -146,7 +146,7 @@ impl Transport for Bedrock {
     }
 
     fn concurrency(&self) -> usize {
-        4
+        8
     }
 
     fn embed<'a>(
