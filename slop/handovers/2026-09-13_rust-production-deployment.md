@@ -58,6 +58,19 @@ Expected identity: account `275713940406`, `arn:aws:iam::275713940406:user/wassn
 
 The app handles SIGTERM/INT by blocking new provider windows and draining the current provider future and ledger. Docker container stop timeout and daemon shutdown timeout are both 180 seconds. Continue to use a verified no-inflight boundary for planned upgrades.
 
+### Pending concurrency-8 trial
+
+Candidate `cab09b69d51fdddd34182b1cb1e813b895022f33` built locally but was not uploaded or deployed because the underlying `cds-login` grant expired before S3 staging. Exact non-secret failure: `aws login is required`. When the existing access is next renewed, use `/usr/local/bin/aws login --profile cds-login --region us-east-2`; do not add another access mechanism.
+
+- release binary SHA-256: `d6628c58c1ee0f0f5761b0f01ca1d45382677ae17b8360ae34b3868a251216ca`
+- local image digest: `sha256:ca21b79d55e56cc6d46557eb8b464523b788b1ec3e17cb0726e4bb3b08df41be`
+- transfer archive SHA-256: `06a0aeb7287963bd16249616c04821ff6f87bc2d97108bcd627663a8a7908fb8`
+- transfer archive bytes: 71,350,584
+- rollout state: not started
+- matched ≥10-minute trial measurement: not started
+
+Public `5b8ddd4` remains the sole writer.
+
 ## Earlier read-only artifact
 
 Earlier local bundle: `/tmp/meatybroth-deploy-1d36733/`. The image and database were transferred through two AES256-encrypted, public-blocked S3 objects with 15-minute presigned downloads; exact hashes were verified on the instance and both objects were deleted immediately. Build and smoke evidence is in `slop/verification/2026-09-13_production-rust-deployment.log`.
