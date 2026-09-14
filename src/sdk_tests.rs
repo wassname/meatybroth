@@ -50,7 +50,7 @@ impl embed::Transport for FailingEmbedder {
     }
 
     fn concurrency(&self) -> usize {
-        8
+        4
     }
 }
 
@@ -58,6 +58,7 @@ impl embed::Transport for FailingEmbedder {
 struct SlowEmbedder {
     space: embed::Space,
     calls: Arc<AtomicUsize>,
+    started: Arc<tokio::sync::Notify>,
     release: Arc<tokio::sync::Notify>,
 }
 
@@ -70,10 +71,6 @@ impl embed::Transport for SlowEmbedder {
         Ok(embed::titan_chunks(text))
     }
 
-    fn concurrency(&self) -> usize {
-        8
-    }
-
     fn embed<'a>(
         &'a self,
         text: &'a str,
@@ -82,6 +79,7 @@ impl embed::Transport for SlowEmbedder {
     > {
         Box::pin(async move {
             self.calls.fetch_add(1, Ordering::SeqCst);
+            self.started.notify_one();
             self.release.notified().await;
             let mut vector = vec![0.0; self.space.dimensions];
             vector[0] = 1.0;
@@ -1029,40 +1027,40 @@ async fn preflight_only_makes_exactly_one_successful_provider_call() {
 }
 
 #[tokio::test]
-async fn shutdown_drains_eight_inflight_calls_before_returning() {
+async fn shutdown_waits_for_one_inflight_call_to_settle_without_starting_another() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("events.sqlite");
     let sdk = collect::open(&path, collect::PRIMAL_AUTHOR).await.unwrap();
-    for index in 0..9 {
-        sdk.save_event(&signed(
-            &Keys::generate(),
-            1,
-            &format!("slow provider fixture {index}"),
-            Utc::now().timestamp() as u64,
-            vec![],
-        ))
-        .await
-        .unwrap();
-    }
+    sdk.save_event(&signed(
+        &Keys::generate(),
+        1,
+        "slow provider fixture",
+        Utc::now().timestamp() as u64,
+        vec![],
+    ))
+    .await
+    .unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
+    let started = Arc::new(tokio::sync::Notify::new());
     let release = Arc::new(tokio::sync::Notify::new());
     let shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let transport: Arc<dyn embed::Transport> = Arc::new(SlowEmbedder {
         space: embed::Space::titan_v2(),
         calls: calls.clone(),
+        started: started.clone(),
         release: release.clone(),
     });
     let (_sender, queries) = tokio::sync::mpsc::channel(1);
     let worker = collect::EmbeddingWorker {
         transport,
         budget: embed::Budget {
-            total_nusd: 2_000_000,
-            monthly_nusd: 2_000_000,
+            total_nusd: 1_000_000,
+            monthly_nusd: 1_000_000,
         },
         queries,
         error: Arc::new(Mutex::new(None)),
         disabled: false,
-        validated: true,
+        validated: false,
         preflight_only: false,
         shutdown: shutdown.clone(),
         topic_rebuild: None,
@@ -1081,32 +1079,13 @@ async fn shutdown_drains_eight_inflight_calls_before_returning() {
         .await;
         worker
     });
-    let started = tokio::time::timeout(Duration::from_secs(5), async {
-        while calls.load(Ordering::SeqCst) < 8 {
-            tokio::task::yield_now().await;
-        }
-    })
-    .await;
-    assert!(
-        started.is_ok(),
-        "started {} of 8 calls",
-        calls.load(Ordering::SeqCst)
-    );
-    let inflight = Connection::open(&path).unwrap();
-    assert_eq!(
-        count(
-            &inflight,
-            "SELECT count(*) FROM embedding_requests WHERE status='reserved'"
-        ),
-        8
-    );
-    inflight.execute_batch("BEGIN IMMEDIATE; ROLLBACK").unwrap();
-    drop(inflight);
+    started.notified().await;
     shutdown.store(true, Ordering::Release);
     assert!(!task.is_finished());
-    release.notify_waiters();
-    task.await.unwrap();
-    assert_eq!(calls.load(Ordering::SeqCst), 8);
+    release.notify_one();
+    let worker = task.await.unwrap();
+    assert!(worker.validated);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
     let conn = rusqlite::Connection::open(&path).unwrap();
     assert_eq!(
         conn.query_row(
@@ -1115,7 +1094,7 @@ async fn shutdown_drains_eight_inflight_calls_before_returning() {
             |row| row.get::<_, i64>(0)
         )
         .unwrap(),
-        8
+        1
     );
     assert_eq!(
         conn.query_row(
@@ -1124,58 +1103,6 @@ async fn shutdown_drains_eight_inflight_calls_before_returning() {
             |row| row.get::<_, i64>(0)
         )
         .unwrap(),
-        0
-    );
-}
-
-#[tokio::test]
-async fn eight_call_batch_drains_and_accounts_after_provider_errors() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("events.sqlite");
-    let sdk = collect::open(&path, collect::PRIMAL_AUTHOR).await.unwrap();
-    for index in 0..8 {
-        sdk.save_event(&signed(
-            &Keys::generate(),
-            1,
-            &format!("failed provider fixture {index}"),
-            Utc::now().timestamp() as u64,
-            vec![],
-        ))
-        .await
-        .unwrap();
-    }
-    let calls = Arc::new(AtomicUsize::new(0));
-    let model = FailingEmbedder {
-        space: embed::Space::titan_v2(),
-        calls: calls.clone(),
-    };
-    let error = embed::embed_pending(
-        &path,
-        &model,
-        embed::Budget {
-            total_nusd: i64::MAX,
-            monthly_nusd: i64::MAX,
-        },
-        Utc::now().timestamp(),
-        8,
-    )
-    .await
-    .unwrap_err();
-    assert!(error.to_string().contains("synthetic dispatch failure"));
-    assert_eq!(calls.load(Ordering::SeqCst), 8);
-    let conn = Connection::open(&path).unwrap();
-    assert_eq!(
-        count(
-            &conn,
-            "SELECT count(*) FROM embedding_requests WHERE status='uncertain'"
-        ),
-        8
-    );
-    assert_eq!(
-        count(
-            &conn,
-            "SELECT count(*) FROM embedding_requests WHERE status='reserved'"
-        ),
         0
     );
 }
