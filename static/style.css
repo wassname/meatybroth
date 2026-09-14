@@ -81,6 +81,7 @@ article.post .flag { color: #8a6d1a; font-size: 0.85em; margin: 0 0 0.3rem; }
 .reply-tree .reply-node { margin-left: min(calc(var(--tree-depth) * 1.25rem), 7.5rem);
                           border-left: 1px solid var(--rule); padding-left: 0.6rem; }
 .context-ancestor { border-left: 2px solid var(--rule); padding-left: 0.6rem; }
+.similar-replies { border-top: 1px solid var(--rule); margin-top: 1rem; padding-top: 0.5rem; }
 @media (max-width: 480px) {
   .reply-tree .reply-node { margin-left: min(calc(var(--tree-depth) * 0.75rem), 4.5rem); padding-left: 0.4rem; }
 }

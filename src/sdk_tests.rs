@@ -1932,7 +1932,42 @@ async fn incremental_embeddings_reuse_delete_and_budget_after_sdk_drain() {
     assert!(cache_status.contains("Titan: 2 posts ready, 0 waiting"));
     assert!(cache_status.contains("US$0.000180720 recorded, US$0.000180720 this month"));
 
-    sdk.delete(Filter::new().ids([long.id, second.id]))
+    let related = signed(&keys, 1, "independent related post", now as u64, vec![]);
+    sdk.save_event(&related).await.unwrap();
+    let conn = Connection::open(&path).unwrap();
+    conn.execute(
+        "UPDATE reader_events SET parent_id=?1,root_id=?1 WHERE event_id=?2",
+        (canonical_event_id(long.id.as_bytes()), second.id.as_bytes()),
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO post_embeddings
+         (event_id,space_id,dimensions,chunk_count,input_tokens,cost_nusd,vector,embedded_at)
+         SELECT ?1,space_id,dimensions,chunk_count,input_tokens,0,vector,embedded_at
+         FROM post_embeddings WHERE event_id=?2 AND space_id=?3",
+        (related.id.as_bytes(), second.id.as_bytes(), &mock.space.id),
+    )
+    .unwrap();
+    drop(conn);
+    let calls_before_context = mock.calls.load(Ordering::SeqCst);
+    let context_uri = format!("/context/nostr/{}?embedding=titan", long.id.to_hex());
+    let (status, context) = html_with_embedding(&path, &context_uri, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(context.contains("<h3>Similar replies:</h3>"));
+    assert_eq!(context.matches("<article").count(), 3);
+    for event in [&long, &second, &related] {
+        let article = format!(
+            "<article class=\"post\" id=\"nostr:{}\">",
+            event.id.to_hex()
+        );
+        assert_eq!(context.matches(&article).count(), 1);
+    }
+    let heading = context.find("<h3>Similar replies:</h3>").unwrap();
+    assert!(context.find(&second.id.to_hex()).unwrap() < heading);
+    assert!(heading < context.find(&related.id.to_hex()).unwrap());
+    assert_eq!(mock.calls.load(Ordering::SeqCst), calls_before_context);
+
+    sdk.delete(Filter::new().ids([long.id, second.id, related.id]))
         .await
         .unwrap();
     let conn = Connection::open(&path).unwrap();

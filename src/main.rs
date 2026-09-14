@@ -608,13 +608,18 @@ fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, 
     ))
 }
 
-fn thread(app: &App, db: &Connection, id: &str, now: i64) -> Result<(StatusCode, String), Error> {
+fn thread(
+    app: &App,
+    db: &Connection,
+    id: &str,
+    raw: &str,
+    now: i64,
+) -> Result<(StatusCode, String), Error> {
     let Some(post) = queries::get(db, id, now)? else {
-        return Ok((
-            StatusCode::NOT_FOUND,
-            "This post is not stored here.".into(),
-        ));
+        return Ok((StatusCode::NOT_FOUND, "This post is not available.".into()));
     };
+    let search = Search::parse(raw, now, &app.default_embedding);
+    let space = selected_space(app, &search).ok();
     let mut seen = HashSet::from([id.to_string()]);
     let (mut ancestors, mut replies) = (Vec::new(), Vec::new());
     let (mut missing, mut cycle) = (None, false);
@@ -629,14 +634,9 @@ fn thread(app: &App, db: &Connection, id: &str, now: i64) -> Result<(StatusCode,
             break;
         };
         parent = p.parent_id.clone();
-        ancestors.push(render::card(
-            db,
-            &p,
-            now,
-            "",
-            false,
-            render::CardCache::default(),
-        )?);
+        let mut view = render::card(db, &p, now, "", false, render::CardCache::default())?;
+        view["embedding"] = json!(&search.embedding);
+        ancestors.push(view);
     }
     ancestors.reverse();
     let mut pending: Vec<_> = queries::children(db, &post.canonical_id, now)?
@@ -656,16 +656,50 @@ fn thread(app: &App, db: &Connection, id: &str, now: i64) -> Result<(StatusCode,
                 .map(|p| (p, depth + 1)),
         );
         let mut view = render::card(db, &p, now, "", false, render::CardCache::default())?;
+        view["embedding"] = json!(&search.embedding);
         view["tree_depth"] = json!(depth.min(6));
         replies.push(view);
     }
+    let mut similar_replies = Vec::new();
+    if let Some(space) = space {
+        let event_id = EventId::from_hex(&post.source_id)?;
+        if let Some(vector) = embed::event_vector(&app.path, &space, event_id.as_bytes())? {
+            let ranked = embed::nearest(
+                &app.path,
+                &space,
+                &vector,
+                Some(event_id.as_bytes()),
+                now,
+                seen.len().saturating_add(6),
+            )?;
+            let ranked_ids = ranked
+                .into_iter()
+                .map(|(event_id, _)| canonical_event_id(&event_id))
+                .filter(|id| !seen.contains(id))
+                .take(5)
+                .collect::<Vec<_>>();
+            let eligible = queries::eligible_map_for(db, now, Some(&ranked_ids))?;
+            for id in ranked_ids {
+                let Some(related) = eligible.get(&id) else {
+                    continue;
+                };
+                let mut view =
+                    render::card(db, related, now, "", true, render::CardCache::default())?;
+                view["embedding"] = json!(&search.embedding);
+                view["similar_available"] = json!(true);
+                similar_replies.push(view);
+            }
+        }
+    }
+    let mut current = render::card(db, &post, now, "", false, render::CardCache::default())?;
+    current["embedding"] = json!(&search.embedding);
     Ok((
         StatusCode::OK,
         page(
             app,
             "context.html",
-            json!({"post":render::card(db,&post,now,"",false,render::CardCache::default())?,
-        "ancestors":ancestors,"available_reply_count":replies.len(),"replies":replies,"missing_parent_id":missing,"cycle_cut":cycle}),
+            json!({"post":current,"ancestors":ancestors,"available_reply_count":replies.len(),
+        "replies":replies,"similar_replies":similar_replies,"missing_parent_id":missing,"cycle_cut":cycle}),
         )?,
     ))
 }
@@ -809,7 +843,7 @@ fn handle(app: &App, path: &str, raw: &str, now: i64) -> Result<(StatusCode, Str
                 .and_then(|s| s.split_once('/'))
             {
                 let id = format!("{}:{}", id.0, id.1);
-                thread(app, &db, &id, now)
+                thread(app, &db, &id, raw, now)
             } else {
                 Ok((StatusCode::NOT_FOUND, "Not found".into()))
             }

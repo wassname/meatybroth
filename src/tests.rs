@@ -309,9 +309,9 @@ async fn conversation_context_counts_cycles_and_warning_excerpts() {
     assert!(html.contains("2 repliers (24h)"));
     let (_, html) = f.request(&format!("/context/nostr/{}", key(101))).await;
     assert_eq!(ids(&html), [100, 101, 102, 103].map(cid));
-    assert!(html.contains("2 stored replies"));
+    assert!(html.contains("2 replies"));
     let (_, html) = f.request(&format!("/context/nostr/{}", key(200))).await;
-    assert!(html.contains("parent post is not stored"));
+    assert!(html.contains("parent post is not available"));
     f.db.execute(
         "INSERT INTO content_warnings VALUES(?1,'cw','author: sensitive')",
         [key(100)],
