@@ -1,0 +1,18 @@
+{
+  "observed_url": "http://localhost:8088/context/nostr/6e8d376eb766289e89a5a53fc589abc9ff78756d9720257107cd60ff16e48af9?embedding=minilm&hide_spam=true",
+  "generated_from_hidden_page": true,
+  "hide_spam_preserved": true,
+  "flagged_spam_asides": 0,
+  "show_flagged_spam_link": true,
+  "canonical_event_ids": [
+    "6e8d376eb766289e89a5a53fc589abc9ff78756d9720257107cd60ff16e48af9"
+  ],
+  "browser_navigation": {
+    "response_status": 200,
+    "response_start_ms": 21.8,
+    "duration_ms": 31.8,
+    "transfer_size": 6593,
+    "decoded_body_size": 6293
+  },
+  "limitation": "The two supplied feed pages loaded, but their capture process failed before their in-memory DOM card arrays were written. This record is only the generated hidden-state context link."
+}
