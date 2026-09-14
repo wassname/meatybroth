@@ -9,7 +9,7 @@ http://localhost:8088/context/nostr/452f90829b3a4d8e1ee4fe20ca53401b9a74eb98b60e
 
 ## Model selection failure
 
-Both URLs explicitly request Titan, but both rendered the model select as **MiniLM**. The local service command sets `MEATYBROTH_DEFAULT_EMBEDDING=minilm`; the browser therefore silently substituted the selected space. This review can assess the diversity mechanics and MiniLM output only. It is not evidence that Titan selection is preserved.
+An earlier pre-release review found that URLs explicitly requesting Titan rendered MiniLM because shared template data omitted the selected embedding. That review therefore assessed MiniLM output only. The final verification below supersedes this display failure.
 
 ## Mechanics
 
@@ -29,5 +29,13 @@ The saved source is a weak result after diversity: only `8ab990…` is directly 
 The fresh source is a post about trimming tech longs before CPI. `325c89…`, `39847b…`, and `792e41…` are useful related examples: CPI risk, holding cash, and position sizing. `6d69ee…` is a crypto signal promotion and `6d4185…` is a chess/late-night post; these are non-useful. The fresh screenshot makes this distinction visible.
 
 Fresh screenshots opened locally: `41-local-similar-replies-diverse-saved.png` and `42-local-similar-replies-diverse-fresh.png`. They remain uncommitted image evidence for parent inspection.
+
+## Final Titan verification
+
+After the owner added the selected embedding to shared template data and an SDK assertion, I loaded exactly the same two URLs once more. Both now visibly select **Titan**. The saved page has 31 actual thread articles, then `Similar replies:`, then five recommendations (36 unique article IDs). The fresh page has 26 actual articles, then the heading, then five recommendations (31 unique IDs). The change from the earlier counts is consistent with the persistent local writer receiving extra actual replies; it is not evidence of a duplicate because each final page's article IDs are unique.
+
+Read-only raw-tag checks on the final recommendation IDs again show five distinct direct-parent/source keys per page. The parent-grouping mechanism therefore remains effective after the display fix. The final fresh screenshot [`44-local-final-similar-fresh.png`](44-local-final-similar-fresh.png) was opened: Titan is selected; three recommendations concern CPI/tech exposure and are plausibly useful, while the crypto promotion and chess post remain clear misses. The final browser requests contained no Meaning query text and used cached context/Similar data; they initiated no provider call, without claiming anything about unrelated writer work.
+
+Final screenshots `43-local-final-similar-saved.png` and `44-local-final-similar-fresh.png` remain uncommitted image evidence for parent inspection.
 
 -- Pi/gpt-5.6-terra
