@@ -249,4 +249,15 @@ Templates above cover all user-visible literals in `templates/{base,feed,_post,c
 
 A bounded external comprehension check read the controls without the current implementation context. It incorrectly inferred ActivityPub/ATProto from the previous draft, so the About copy now names Nostr. It found the search labels ambiguous; `Order matches:` is therefore limited to Words/Meaning. The user-approved selected-space control remains available for Meaning, Topics, and Similar comparisons; its plain label is `Model:`, not `Meaning with:`. `Nostr event` replaces the unexplained `Event`. Its valid remaining point is visual: gray non-link age/score must not resemble the blue author/action links. Results: [`site-copy-panel.answer.md`](../2026-09-14_glm-5.3-flash_site-copy-panel.answer.md); prompt: [`site-copy-panel-brief.md`](site-copy-panel-brief.md). The panel's claims about the existing system are not source evidence.
 
+## Local rendered review — 2026-09-14
+
+Fresh local review used the copied frozen database at `http://127.0.0.1:8088/`, without public traffic. I opened [`37-local-topics-default.png`](37-local-topics-default.png). Default `mode=topics&embedding=titan&clustering=kmeans` returned 100 cards (browser TTFB 1.374 s). The picker was compact when closed; its expanded screenshot shows all topic checkboxes. Links are consistently blue and underlined while age/address metadata is gray. The soup icon is retained and the old operational banner is absent.
+
+Serial state checks passed:
+
+- `topics=1&topics=0&page=2` returned 100 cards with both boxes checked. Newer/Older links preserve `mode=topics`, `clustering=kmeans`, `embedding=titan`, both `topics` values, and page.
+- `clustering=dbscan&unsorted=true` keeps Unsorted checked and does not silently mix it into normal topics. Its frozen data has zero Unsorted cards.
+
+The render still needs four small copy/interface corrections before acceptance: remove `stored` from the Similar source phrase; move topic algorithm parameters into the existing collapsed `How topics are grouped` control and format DBSCAN distance as `0.20`; replace the duplicate DBSCAN empty messages (`No topic groups are available.` plus `No posts found.`) with one state-specific message such as `No unsorted posts.`; and avoid the duplicate adjacent `Topics` control/summary and bare `?` help glyph. These were sent to the app owner. The screenshot remains uncommitted for parent inspection.
+
 -- Pi/gpt-5.6-terra
