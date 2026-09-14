@@ -39,7 +39,7 @@ Latest: Recent posts, newest first.
 Words: Posts containing these words. Sort by relevance or newest.
 Meaning: Posts related to your query. It can find posts without the same words.
 Similar posts: Posts related to this post.
-Topics: Groups of related posts. Choose a topic below.
+Topics: Groups of related posts. Choose one or more topics, or browse all topic posts.
 With replies: Threads with recent replies. A search limits this view to matching threads.
 Network: Posts within the selected number of follow hops. Stored follow lists are incomplete.
 ```
@@ -62,12 +62,14 @@ Replace the large topic-link list with one compact **multi-select checkbox dropd
       {% if topic.id in selected_topics %}checked{% endif %}>
       {{ topic.label }} ({{ topic.post_count }})</label>
     {% endfor %}
+    <label><input type="checkbox" name="unsorted" value="true"
+      {% if include_unsorted %}checked{% endif %}> Unsorted ({{ unsorted_count }})</label>
     <button type="submit">Apply topics</button>
   </fieldset>
 </details>
 ```
 
-Keep it in the existing GET controls form. Preserve repeated topic query parameters in the URL (`topics=id&topics=id`) along with `mode=topics`, `embedding`, `clustering`, page, and other active filters. The server must union selected-topic memberships, deduplicate post IDs, then apply the existing rank/order; no selected topic means the existing topic-index behavior. Do not show a long tag list below it.
+Keep it in the existing GET controls form. Preserve repeated topic query parameters in the URL (`topics=id&topics=id`) along with `mode=topics`, `embedding`, `clustering`, page, and other active filters. The server must union selected-topic memberships, deduplicate post IDs, then apply the existing rank/order. With no selected topic, default to the union of all clustered topic posts; do not leave default Topics as an empty index page. Show `Unsorted (N)` as a separate explicit option, not silently included in All topics. Do not show a long tag list below it.
 
 Replace the topic hint with:
 
@@ -161,7 +163,7 @@ Retain every policy, retention, notice, disclaimer, and liability clause. This i
 
 ```html
 <h2>Terms of use</h2>
-<p><strong>What this is.</strong> This experimental, non-commercial site is a public, read-only reader and search over a bounded 30-day text sample of public Nostr posts observed through the operator’s followed network and followed RSS, Mastodon, and Bluesky bridge accounts. It has no accounts or posting. Shown posts are cached copies from Nostr relays; original-event links point back to Nostr.</p>
+<p><strong>What this is.</strong> This experimental, non-commercial site is a public, read-only reader and search over a bounded 30-day text sample of public Nostr posts from selected relays, plus followed RSS, Mastodon, and Bluesky bridge accounts. Follows filter the Network view; they do not limit Nostr collection. It has no accounts or posting. Shown posts are cached copies from Nostr relays; original-event links point back to Nostr.</p>
 <p><strong>What is collected and shown.</strong> Only Nostr events with a verified cryptographic signature are stored. Post text, author names, and profile details come from those events. Bodies are sanitized text with http(s) links only; they contain no scripts or images. A displayed name or address does not verify a real-world identity. Signed events cannot be edited without breaking their signatures, and this reader cannot guarantee their deletion from Nostr relays. Post bodies expire after 30 days; profiles and follow metadata can remain longer. Filter rejections retain counts and event IDs, never content.</p>
 <p><strong>Prohibited material and removal.</strong> Child sexual abuse or exploitation material, exposed private credentials, threats, and doxxing are prohibited here. Obvious credentials are discarded before storage. The operator removes stored prohibited posts when found and prevents their collection. Spam and explicit content are filtered at the operator’s discretion, as described on <a href="/status">status</a>. Removing a post here does not affect relay copies or delete a signed event from Nostr network-wide.</p>
 <p><strong>Notices.</strong> To report a problem, including copyright infringement, open a <a href="https://github.com/wassname/meatybroth/issues/new">GitHub issue</a> with the event ID and a short reason. Issues are public and normally show the reporter’s GitHub identity. Do not paste post text, screenshots, credentials, or illegal or sensitive material into a report. The operator reviews notices and disables public access to identified prohibited posts.</p>
