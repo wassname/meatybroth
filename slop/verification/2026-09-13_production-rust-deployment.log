@@ -389,4 +389,39 @@ compose wrapper processes=none
 
 Its Compose definition, image and DB remain for rollback. Immediately afterward the Rust writer remained running with restart count zero; its latest received event was epoch `1789341558`, latest Titan embedding `1789341510`, and vector count 10,526. A public Status request made in the same command timed out after 20 seconds; this does not negate the DB continuity evidence and remains a reader-responsiveness failure.
 
+## P0 reader recovery and combined runtime, 2026-09-14
+
+Public root and Status later stopped responding and SSM last pinged at 23:30:59Z. Management credentials were due to expire at 00:41:31Z. The instance did not complete its initial forced stop, so a second stop request used `--force --skip-os-shutdown`. EBS and the canonical database were retained. This recovery added one conservative uncertain Bedrock row; no history was released.
+
+Revision `088f0da6d6107ba9eeff4d7af4a8f19ddd2db6b9` was built from a detached exact worktree and staged privately before credential expiry:
+
+```text
+release binary sha256=0e37eb58ea8b45174729e30095950db4081f9057068a670c4a6520cd5accb1a7
+local image=sha256:d6c9be7c0906e3a34604bb8fa09b592541b28e60b8c1206d0626509c13b898d4
+EC2 image config=sha256:a9eb86cebeb39f4727415e8cf0c1639c52554a4ccfb98d5a82264732d4be550e
+CA bundle sha256=ecd9dc38bc3efb7dbd6431f57e29d2f8d6a0f0d211e1464b3fef2cbfe266fcd2
+```
+
+SSM command `2ee7b188-61b3-4bbe-9955-496abe7e9758` stopped `cb71d87` through its 180-second cooperative timeout, loaded `088f0da`, retained the same DB/WAL/ledger, renamed the stopped prior container `meatybroth-rust-cb71-rollback`, and started exactly one new writer. Private Status returned HTTP 200 in 0.005 seconds. The temporary S3 object, bucket and local presigned URL were deleted after transfer.
+
+Public checks after restoration:
+
+```text
+root, zero-card Topics  HTTP 200, 0.77s
+?mode=new, 100 cards   HTTP 200, TTFB 10.62s, total 17.97s, 6,378,977 bytes
+```
+
+At 00:33:33Z the process used 244.9 MiB, compared with 1.293 GiB in the earlier `cb71d87` sample; host available memory was 1.2 GiB. This is a point observation, not a leak or causal benchmark. The writer had restart count zero. Canonical state continued advancing:
+
+```text
+reader events=29920 latest received=1789345977
+Titan vectors=10607 latest embedded=1789346011
+ledger succeeded=17779 uncertain=74 reserved=3
+succeeded cost=$0.472387540
+uncertain held=$0.011960380
+reserved held=$0.000491520
+```
+
+The one new uncertain row is attributed to the forced host recovery by temporal difference; billing status remains unknown, so it stays held.
+
 -- Pi/gpt-5.6-sol

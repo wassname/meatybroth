@@ -1,11 +1,11 @@
 continuous Rust deployment manifest
 recorded 2026-09-14 Australia/Perth
 
-app source revision: cb71d87af3c1d9d6eb7b9658c4c878f756561fca
-release binary sha256: 3e35b1adae0bfbe1f16b138b507a0de53d95483ead846965512f7c4cceae25c4
-local container image id: sha256:3132bd9d9a21abbc9334b538ee25da14e70c12d1347c73ec9e840a19157bc037
-EC2 container image config id: sha256:09c526852a0dfc373fcebcbfae0ad155a950c2c038cb28e1663d7ccfbd9cec52
-container revision label: cb71d87af3c1d9d6eb7b9658c4c878f756561fca
+app source revision: 088f0da6d6107ba9eeff4d7af4a8f19ddd2db6b9
+release binary sha256: 0e37eb58ea8b45174729e30095950db4081f9057068a670c4a6520cd5accb1a7
+local container image id: sha256:d6c9be7c0906e3a34604bb8fa09b592541b28e60b8c1206d0626509c13b898d4
+EC2 container image config id: sha256:a9eb86cebeb39f4727415e8cf0c1639c52554a4ccfb98d5a82264732d4be550e
+container revision label: 088f0da6d6107ba9eeff4d7af4a8f19ddd2db6b9
 CA bundle sha256: ecd9dc38bc3efb7dbd6431f57e29d2f8d6a0f0d211e1464b3fef2cbfe266fcd2
 
 canonical database source: .local/deployment-handoff/events-8136.sqlite
@@ -25,6 +25,6 @@ destination sha256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852
 
 The first private start failed because only the database had been packaged. The matching empty blocklist was then supplied and verified. Future packaging must transfer and verify both inputs before process start; absence must not create an empty fallback.
 
-The database hashes above identify the pre-start handoff. The canonical EC2 database then accumulated collection events and preserved all subsequent succeeded, uncertain and reserved request states; do not replace it with the handoff snapshot. Public upstream: `meatybroth-rust-next:8088`. Runtime container restart count was zero at the 2026-09-14 06:58+08 observation. Container and Docker daemon shutdown timeouts are 180 seconds.
+The database hashes above identify the pre-start handoff. The canonical EC2 database then accumulated collection events and preserved all subsequent succeeded, uncertain and reserved request states; do not replace it with the handoff snapshot. Public upstream: `meatybroth-rust-next:8088`. Runtime container restart count was zero at the 2026-09-14 08:33+08 observation. Container and Docker daemon shutdown timeouts are 180 seconds.
 
 — Pi/OpenAI
