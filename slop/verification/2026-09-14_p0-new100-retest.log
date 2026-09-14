@@ -1,0 +1,5 @@
+source_commit=088f0da6d6107ba9eeff4d7af4a8f19ddd2db6b9
+request=http://127.0.0.1:8093/?mode=new
+http=200 ttfb=1.409076s total=1.413103s bytes=3231960
+cards=100
+rust_pid=4030765 comm=meatybroth exe=/tmp/meatybroth-continuous-target/release/meatybroth rss_kib=80192

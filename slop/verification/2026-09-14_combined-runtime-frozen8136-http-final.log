@@ -1,3 +1,9 @@
+# CORRECTION 2026-09-14
+# `?feed=new` is not a reader route selector; those lines rendered empty Topics, not New.
+# Ignore the root/New/concurrent-request timing claims below. RSS used a wrapper PID and is withdrawn.
+# The cached /status and `mode=similar` observations remain valid.
+# Correct one-request New100 evidence: 2026-09-14_p0-new100-retest.log.
+
 source_commit=9c9c0c41f7b6c456970b0528c89ceeb0bc9911eb
 config=READ_ONLY=1 EMBEDDING_BACKEND=bedrock DEFAULT_EMBEDDING=titan (cached; no provider worker)
 db=/workspace/meatybroth-rust/.local/deployment-handoff/events-8136.sqlite
