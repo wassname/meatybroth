@@ -194,6 +194,25 @@ fn topic_selection_preserves_repeated_and_noise_ids() {
     assert!(query.contains("unsorted=true"));
 }
 
+#[test]
+fn similar_replies_keep_one_per_parent_and_keep_top_level_posts_distinct() {
+    let same_parent = Some("nostr:quoted".to_string());
+    let candidates = vec![
+        ("same-1".into(), same_parent.clone()),
+        ("same-2".into(), same_parent.clone()),
+        ("same-3".into(), same_parent.clone()),
+        ("same-4".into(), same_parent.clone()),
+        ("same-5".into(), same_parent),
+        ("other-parent".into(), Some("nostr:other".into())),
+        ("top-level-1".into(), None),
+        ("top-level-2".into(), None),
+    ];
+    assert_eq!(
+        diverse_related_ids(candidates, 5),
+        vec!["same-1", "other-parent", "top-level-1", "top-level-2"]
+    );
+}
+
 #[tokio::test]
 async fn pages_query_state_and_invalid_requests_use_real_handlers() {
     let f = Fixture::new();

@@ -1954,6 +1954,7 @@ async fn incremental_embeddings_reuse_delete_and_budget_after_sdk_drain() {
     let (status, context) = html_with_embedding(&path, &context_uri, None).await;
     assert_eq!(status, StatusCode::OK);
     assert!(context.contains("<h3>Similar replies:</h3>"));
+    assert!(context.contains("<option value=\"titan\" selected>Titan</option>"));
     assert_eq!(context.matches("<article").count(), 3);
     for event in [&long, &second, &related] {
         let article = format!(

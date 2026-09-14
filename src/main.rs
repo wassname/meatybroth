@@ -608,6 +608,19 @@ fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, 
     ))
 }
 
+fn diverse_related_ids(candidates: Vec<(String, Option<String>)>, limit: usize) -> Vec<String> {
+    let mut relations = HashSet::new();
+    candidates
+        .into_iter()
+        .filter_map(|(id, parent_id)| {
+            relations
+                .insert(parent_id.unwrap_or_else(|| id.clone()))
+                .then_some(id)
+        })
+        .take(limit)
+        .collect()
+}
+
 fn thread(
     app: &App,
     db: &Connection,
@@ -670,16 +683,20 @@ fn thread(
                 &vector,
                 Some(event_id.as_bytes()),
                 now,
-                seen.len().saturating_add(6),
+                seen.len().saturating_add(64),
             )?;
             let ranked_ids = ranked
                 .into_iter()
                 .map(|(event_id, _)| canonical_event_id(&event_id))
                 .filter(|id| !seen.contains(id))
-                .take(5)
+                .take(64)
                 .collect::<Vec<_>>();
             let eligible = queries::eligible_map_for(db, now, Some(&ranked_ids))?;
-            for id in ranked_ids {
+            let candidates = ranked_ids
+                .into_iter()
+                .filter_map(|id| eligible.get(&id).map(|post| (id, post.parent_id.clone())))
+                .collect();
+            for id in diverse_related_ids(candidates, 5) {
                 let Some(related) = eligible.get(&id) else {
                     continue;
                 };
@@ -699,7 +716,8 @@ fn thread(
             app,
             "context.html",
             json!({"post":current,"ancestors":ancestors,"available_reply_count":replies.len(),
-        "replies":replies,"similar_replies":similar_replies,"missing_parent_id":missing,"cycle_cut":cycle}),
+        "replies":replies,"similar_replies":similar_replies,"embedding":search.embedding,
+        "missing_parent_id":missing,"cycle_cut":cycle}),
         )?,
     ))
 }
