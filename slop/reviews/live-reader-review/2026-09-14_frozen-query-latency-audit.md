@@ -9,14 +9,18 @@
 - cohort: 13,788 eligible posts; 8,136 Titan vectors
 - original output: `2026-09-14_benchmark-output-original.txt`
 - corrected reproduction: `2026-09-14_benchmark-output-reproduction.txt`
-- executable method: `benchmark_frozen_reader_queries.py`
+- executable method: `benchmark_frozen_reader_queries.sql`
 
-Reproduce from the repository root:
+Reproduce from the repository root with SQLite only:
 
 ```bash
-git show 5b8ddd4371a582f35733c3ef611486989eb44dfd:src/posts.sql > /tmp/posts-5b8ddd4.sql
-python3 slop/reviews/live-reader-review/benchmark_frozen_reader_queries.py \
-  .local/deployment-handoff/events-8136.sqlite /tmp/posts-5b8ddd4.sql
+test "$(sha256sum .local/deployment-handoff/events-8136.sqlite | cut -d' ' -f1)" = \
+  cabe5372bd11729bd33468c311e9e980e5e20ddfa9bd47c973943be473cecd02
+cp --reflink=auto .local/deployment-handoff/events-8136.sqlite /tmp/latency-audit.sqlite
+git show 5b8ddd4371a582f35733c3ef611486989eb44dfd:src/posts.sql | \
+  sqlite3 /tmp/latency-audit.sqlite
+sqlite3 /tmp/latency-audit.sqlite < \
+  slop/reviews/live-reader-review/benchmark_frozen_reader_queries.sql
 ```
 
 This was one bounded point measurement on a warm local filesystem. It is useful for decomposing query work, not for predicting EC2 wall time.
