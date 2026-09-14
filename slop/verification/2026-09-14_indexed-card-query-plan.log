@@ -1,0 +1,48 @@
+# bounded canonical expression (cb71)
+QUERY PLAN
+|--SEARCH event USING INDEX idx_events_created_at (created_at>? AND created_at<?)
+|--LIST SUBQUERY 2
+|  `--SCAN json_each VIRTUAL TABLE INDEX 1:
+|--SEARCH event USING PRIMARY KEY (id=?)
+|--CORRELATED SCALAR SUBQUERY 6
+|  `--SCAN json_each VIRTUAL TABLE INDEX 1:
+|--CORRELATED SCALAR SUBQUERY 7
+|  `--SEARCH exclusion USING COVERING INDEX sqlite_autoindex_policy_exclusions_1 (event_id=?)
+|--LIST SUBQUERY 8
+|  |--SEARCH e USING INDEX idx_events_kind_created_at (kind=?)
+|  |--SEARCH r USING COVERING INDEX sqlite_autoindex_reader_events_1 (event_id=?)
+|  |--SCAN d VIRTUAL TABLE INDEX 1:
+|  |--SCAN member VIRTUAL TABLE INDEX 1:
+|  `--CORRELATED SCALAR SUBQUERY 10
+|     `--SCAN p VIRTUAL TABLE INDEX 1:
+`--SEARCH reader USING INDEX sqlite_autoindex_reader_events_1 (event_id=?)
+# raw event-id lookup (candidate)
+QUERY PLAN
+|--SCAN wanted VIRTUAL TABLE INDEX 1:
+|--SEARCH event USING PRIMARY KEY (id=?)
+|--CORRELATED SCALAR SUBQUERY 3
+|  `--SCAN json_each VIRTUAL TABLE INDEX 1:
+|--CORRELATED SCALAR SUBQUERY 4
+|  `--SEARCH exclusion USING COVERING INDEX sqlite_autoindex_policy_exclusions_1 (event_id=?)
+|--LIST SUBQUERY 5
+|  |--SEARCH e USING INDEX idx_events_kind_created_at (kind=?)
+|  |--SEARCH r USING COVERING INDEX sqlite_autoindex_reader_events_1 (event_id=?)
+|  |--SCAN d VIRTUAL TABLE INDEX 1:
+|  |--SCAN member VIRTUAL TABLE INDEX 1:
+|  `--CORRELATED SCALAR SUBQUERY 7
+|     `--SCAN p VIRTUAL TABLE INDEX 1:
+|--SEARCH reader USING COVERING INDEX sqlite_autoindex_reader_events_1 (event_id=?)
+|--SEARCH reader USING INTEGER PRIMARY KEY (rowid=?)
+|--SEARCH event USING PRIMARY KEY (id=?)
+|--SEARCH event USING PRIMARY KEY (id=?)
+|--CORRELATED SCALAR SUBQUERY 10
+|  `--SCAN json_each VIRTUAL TABLE INDEX 1:
+|--CORRELATED SCALAR SUBQUERY 11
+|  `--SEARCH exclusion USING COVERING INDEX sqlite_autoindex_policy_exclusions_1 (event_id=?)
+`--LIST SUBQUERY 12
+   |--SEARCH e USING INDEX idx_events_kind_created_at (kind=?)
+   |--SEARCH r USING COVERING INDEX sqlite_autoindex_reader_events_1 (event_id=?)
+   |--SCAN d VIRTUAL TABLE INDEX 1:
+   |--SCAN member VIRTUAL TABLE INDEX 1:
+   `--CORRELATED SCALAR SUBQUERY 14
+      `--SCAN p VIRTUAL TABLE INDEX 1:

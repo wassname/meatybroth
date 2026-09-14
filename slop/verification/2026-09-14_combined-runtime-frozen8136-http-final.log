@@ -1,0 +1,22 @@
+source_commit=9c9c0c41f7b6c456970b0528c89ceeb0bc9911eb
+config=READ_ONLY=1 EMBEDDING_BACKEND=bedrock DEFAULT_EMBEDDING=titan (cached; no provider worker)
+db=/workspace/meatybroth-rust/.local/deployment-handoff/events-8136.sqlite
+pid=3992612 initial_rss_kib=3732
+http=200 ttfb=0.000467s total=0.000627s bytes=24883
+url=http://127.0.0.1:8093/status title=<title>🍲 meatybroth.com
+http=200 ttfb=0.078585s total=0.078768s bytes=4862
+url=http://127.0.0.1:8093/ title=<title>🍲 meatybroth.com
+http=200 ttfb=0.008960s total=0.009034s bytes=4862
+url=http://127.0.0.1:8093/?feed=new title=<title>🍲 meatybroth.com
+http=200 ttfb=1.025466s total=1.025827s bytes=224876
+url=http://127.0.0.1:8093/?mode=similar&similar=nostr:00000002ef29a3b28b3af3d08f20e0665e6ad9cb03f337126b20fa9528d777bb&embedding=titan title=<title>🍲 meatybroth.com
+Status snapshot generated 2026-09-14 00:09:39 UTC (29s ago).
+# six concurrent ordinary requests and one cached status
+status http=200 total=0.000269s
+ordinary1 http=200 total=0.014130s
+ordinary3 http=200 total=0.014350s
+ordinary2 http=200 total=0.025064s
+ordinary4 http=200 total=0.025011s
+ordinary5 http=200 total=0.032544s
+ordinary6 http=200 total=0.032883s
+final_rss_kib=3732
