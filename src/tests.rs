@@ -456,6 +456,51 @@ async fn rendering_preserves_safe_text_profiles_warnings_and_exclusions() {
 }
 
 #[tokio::test]
+async fn bounded_card_hydration_preserves_off_page_duplicates_and_parent_warnings() {
+    let f = Fixture::new();
+    f.post(100, 2, "needle duplicate", 0, None, None);
+    for index in 0..100 {
+        f.post(
+            101 + index,
+            3,
+            &format!("needle filler {index}"),
+            1 + i64::from(index),
+            None,
+            None,
+        );
+    }
+    f.post(300, 2, "needle duplicate", 1_000, None, None);
+    for (id, age) in [(100, 0), (300, 1_000)] {
+        f.db.execute(
+            "INSERT INTO events VALUES(unhex(?1),unhex(?2),1,?3,'needle duplicate','[]',zeroblob(64))",
+            rusqlite::params![key(id), key(2), f.now - age],
+        )
+        .unwrap();
+    }
+    let (_, html) = f.request("/?mode=new").await;
+    assert_eq!(ids(&html).len(), 100);
+    assert!(ids(&html).contains(&cid(100)));
+    assert!(!ids(&html).contains(&cid(300)));
+    assert!(html.contains("duplicate-content"));
+
+    f.post(400, 4, "parent body", 100, None, None);
+    f.db.execute(
+        "INSERT INTO events VALUES(unhex(?1),unhex(?2),1,?3,'parent body',?4,zeroblob(64))",
+        rusqlite::params![
+            key(400),
+            key(4),
+            f.now - 100,
+            json!([["content-warning", "sensitive"]]).to_string()
+        ],
+    )
+    .unwrap();
+    f.post(401, 5, "parentneedle child", 0, Some(400), Some(400));
+    let (_, html) = f.request("/?q=parentneedle").await;
+    assert!(html.contains("content warning"));
+    assert!(!html.contains("parent body"));
+}
+
+#[tokio::test]
 async fn status_exposes_gaps_signed_list_age_and_reader_scope() {
     let f = Fixture::new();
     f.post(100, 2, "eligible", 100, None, None);

@@ -217,14 +217,22 @@ pub fn identity_map<'a>(
     posts: impl IntoIterator<Item = &'a Post>,
 ) -> Result<HashMap<String, Identity>, Error> {
     let posts: Vec<_> = posts.into_iter().collect();
+    if posts.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let authors = posts
+        .iter()
+        .map(|post| post.author_id.as_str())
+        .collect::<HashSet<_>>();
+    let authors = serde_json::to_string(&authors)?;
     let mut statement = db.prepare(
         "SELECT lower(hex(pubkey)),content
          FROM events
-         WHERE kind=0
+         WHERE kind=0 AND pubkey IN (SELECT unhex(value) FROM json_each(?1))
          ORDER BY created_at DESC,id ASC",
     )?;
     let mut profiles = HashMap::<String, String>::new();
-    for row in statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get(1)?)))? {
+    for row in statement.query_map([authors], |row| Ok((row.get::<_, String>(0)?, row.get(1)?)))? {
         let (author, content) = row?;
         profiles.entry(author).or_insert(content);
     }
@@ -244,6 +252,24 @@ pub fn warning_map<'a>(
     posts: impl IntoIterator<Item = &'a Post>,
 ) -> Result<HashMap<String, Vec<String>>, Error> {
     let posts: Vec<_> = posts.into_iter().collect();
+    if posts.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let source_ids = posts
+        .iter()
+        .map(|post| post.source_id.as_str())
+        .collect::<HashSet<_>>();
+    let warning_ids = posts
+        .iter()
+        .flat_map(|post| [post.source_id.as_str(), post.canonical_id.as_str()])
+        .collect::<HashSet<_>>();
+    let source_ids = serde_json::to_string(&source_ids)?;
+    let warning_ids = serde_json::to_string(&warning_ids)?;
+    let selected_pairs = posts
+        .iter()
+        .map(|post| (post.author_id.as_str(), post.text.as_str()))
+        .collect::<HashSet<_>>();
+    let selected_pairs = serde_json::to_string(&selected_pairs)?;
     let object_type: String = db.query_row(
         "SELECT type FROM sqlite_master WHERE name='content_warnings'",
         [],
@@ -271,9 +297,14 @@ pub fn warning_map<'a>(
             }
         }
     } else {
-        let mut statement =
-            db.prepare("SELECT event_id,reason FROM content_warnings ORDER BY category")?;
-        for row in statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get(1)?)))? {
+        let mut statement = db.prepare(
+            "SELECT event_id,reason FROM content_warnings
+             WHERE event_id IN (SELECT value FROM json_each(?1))
+             ORDER BY category",
+        )?;
+        for row in statement.query_map([&warning_ids], |row| {
+            Ok((row.get::<_, String>(0)?, row.get(1)?))
+        })? {
             let (event_id, reason) = row?;
             warnings.entry(event_id).or_default().push(reason);
         }
@@ -282,9 +313,11 @@ pub fn warning_map<'a>(
     let mut statement = db.prepare(
         "SELECT lower(hex(event.id)),coalesce(json_extract(tag.value,'$[1]'),'')
          FROM events event,json_each(event.tags) tag
-         WHERE event.kind=1 AND json_extract(tag.value,'$[0]')='content-warning'",
+         WHERE event.kind=1
+           AND event.id IN (SELECT unhex(value) FROM json_each(?1))
+           AND json_extract(tag.value,'$[0]')='content-warning'",
     )?;
-    for row in statement.query_map([], |row| {
+    for row in statement.query_map([&source_ids], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
     })? {
         let (event_id, reason) = row?;
@@ -294,14 +327,19 @@ pub fn warning_map<'a>(
             .push(format!("author: {reason}"));
     }
     let mut statement = db.prepare(
-        "SELECT lower(hex(pubkey)),content
-         FROM events
-         WHERE kind=1 AND created_at>=unixepoch()-?1
-         GROUP BY pubkey,content
+        "WITH selected(author,content) AS (
+           SELECT DISTINCT unhex(json_extract(value,'$[0]')),json_extract(value,'$[1]')
+           FROM json_each(?1)
+         )
+         SELECT lower(hex(event.pubkey)),event.content
+         FROM selected JOIN events event
+           ON event.pubkey=selected.author AND event.content=selected.content
+         WHERE event.kind=1 AND event.created_at>=unixepoch()-?2
+         GROUP BY event.pubkey,event.content
          HAVING count(*)>1",
     )?;
     let duplicates: HashSet<(String, String)> = statement
-        .query_map([queries::WINDOW], |row| {
+        .query_map((&selected_pairs, queries::WINDOW), |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })?
         .collect::<Result<_, _>>()?;
@@ -375,7 +413,11 @@ pub fn parent_excerpt_map<'a>(
     let parent_ids = posts
         .iter()
         .filter_map(|post| post.parent_id.clone())
-        .collect::<Vec<_>>();
+        .collect::<HashSet<_>>();
+    if parent_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let parent_ids = parent_ids.into_iter().collect::<Vec<_>>();
     let eligible = queries::eligible_map_for(db, now, Some(&parent_ids))?;
     let parents: Vec<_> = posts
         .iter()
