@@ -19,12 +19,12 @@ The app writer should implement the proposed strings and small structural change
 | `discovery` label | `Network` | `Network` |
 | search label | `Search:` | `Find:` |
 | search placeholder | `terms AND terms, "quoted phrase"` | `words, "exact phrase"` |
-| result-order label | `Results:` | `Sort:` |
+| result-order label | `Results:` | `Order matches:` — show only for Words and Meaning |
 | keyword button | `Keyword search` | `Words` |
 | semantic button | `Semantic search` | `Meaning` |
 | disabled semantic button | `Semantic search unavailable` | `Meaning unavailable` |
 | disabled semantic title | `Semantic search requires a configured embedding provider` | `Meaning search is unavailable right now.` |
-| vector label | `Vectors:` | `Search in:` |
+| vector label | `Vectors:` | `Meaning with:` — show only for Meaning |
 | MiniLM option | `MiniLM local` | `MiniLM` |
 | Titan option | `Titan` | `Titan` |
 | topic clustering label | `Clusters:` | `Group by:` |
@@ -41,13 +41,13 @@ Meaning: Posts related to your query. It can find posts without the same words.
 Similar posts: Posts related to this post.
 Topics: Groups of related posts. Choose a topic below.
 With replies: Threads with recent replies. A search limits this view to matching threads.
-Network: Posts from accounts near the people you follow. The follow graph here is incomplete.
+Network: Posts within the selected number of follow hops. Stored follow lists are incomplete.
 ```
 
 Replace the scope note with one short, relevant line:
 
 ```text
-Posts from the last 30 days stored here. <a href="/status">Status</a>
+30-day Nostr archive. <a href="/status">Status</a>
 ```
 
 Delete the `Live SDK`, `embedded posts`, `partial backfill`, `order-biased`, `stored vectors`, `PoW`, and `AWS` wording from the main page. The controls already say which search space is selected. The status page has the diagnostics.
@@ -101,7 +101,7 @@ Other feed copy:
 | Similar link | `similar` | `Similar` |
 | pending Similar | `similar pending` | `Similar pending` |
 | pending tooltip | `This post is waiting for its {{ p.embedding }} vector` | `Similar posts will appear after this post is indexed.` |
-| event link | `event` | `Event` |
+| event link | `event` | `Nostr event` |
 | more-button label | `more details` | `Post details` |
 | details labels | `account`, `posted`, `event`, `thread`, `name` | `Account`, `Posted`, `Event`, `Thread`, `Name` |
 | missing root | `root post not stored — thread context incomplete` | `The first post in this thread is not stored here.` |
@@ -147,7 +147,7 @@ Replace the body with:
 
 ```html
 <h2>About</h2>
-<p>A text reader for recent public Nostr posts and replies from selected relays. Search words, browse topics, open threads, or look for related posts.</p>
+<p>A reader for recent public Nostr posts and replies from selected relays. Search words, browse topics, open threads, or look for related posts.</p>
 <p>We prefer human broth but take either as long as they are mildly interesting.</p>
 <p>AI readers can visit <a href="https://therustyclaw.com" rel="noopener noreferrer">The Rusty Claw</a>. Source: <a href="https://github.com/wassname/meatybroth" rel="noopener noreferrer">GitHub</a>.</p>
 ```
@@ -240,5 +240,11 @@ For this site, improve on the reference: use the same blue link treatment for si
 ## Implementation inventory
 
 Templates above cover all user-visible literals in `templates/{base,feed,_post,context,status,about,tos}.html`. Rust-generated messages to change are in `src/main.rs:245,297-341,584,808-893`. Preserve internal startup, telemetry, and server-log wording. The proposed Topic `<select>` is a required structural change, not copy alone.
+
+## Cold-reader check
+
+A bounded external comprehension check read the controls without the current implementation context. It incorrectly inferred ActivityPub/ATProto from the previous draft, so the About copy now names Nostr and the page notice says `30-day Nostr archive`. It also found `Find`/`Words`/`Meaning`/`Search in` ambiguous; the draft now makes backend choice `Meaning with:` and shows it only for Meaning, and shows `Order matches:` only for Words/Meaning. `Nostr event` replaces the unexplained `Event`. Its valid remaining point is visual: gray non-link age/score must not resemble the blue author/action links. Results: [`site-copy-panel.answer.md`](../2026-09-14_glm-5.3-flash_site-copy-panel.answer.md); prompt: [`site-copy-panel-brief.md`](site-copy-panel-brief.md). The panel's claims about the existing system are not source evidence.
+
+-- Pi/gpt-5.6-terra
 
 -- Pi/gpt-5.6-terra
