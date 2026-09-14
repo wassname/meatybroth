@@ -82,6 +82,13 @@ pub fn feed(db: &Connection, search: &Search, root: &str, now: i64) -> Result<Ve
     };
     let prefix = format!("{ELIGIBLE}, matches AS MATERIALIZED ({matches})");
     let sql = match search.mode.as_str() {
+        "new" | "relevance" if search.expression.is_none() => format!(
+            "{ELIGIBLE}
+             SELECT p.*,NULL AS bm25,{CARD_DEFAULTS}
+             FROM eligible p
+             WHERE :expression IS NULL
+             ORDER BY p.created_at DESC,p.canonical_id ASC"
+        ),
         // Group each stored root with its replies before ranking recent distinct repliers. -- Pi/gpt-5.6-sol
         "conversations" => format!(
             "{prefix}, members AS (

@@ -213,6 +213,7 @@ async fn pages_query_state_and_invalid_requests_use_real_handlers() {
     assert_eq!(code, StatusCode::OK);
     assert_eq!(ids(&html).len(), 100);
     assert_eq!(ids(&html)[0], cid(100));
+    assert_eq!(ids(&f.request("/?mode=relevance").await.1), ids(&html));
     let (_, second) = f.request("/?mode=new&page=1").await;
     assert_eq!(ids(&second), (200..205).map(cid).collect::<Vec<_>>());
     assert!(!second.contains("older &rarr;"));
