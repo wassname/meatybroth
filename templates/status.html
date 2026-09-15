@@ -2,6 +2,7 @@
 {% block body %}
 <h2>Status</h2>
 <p>{{ eligible_posts }} {% if eligible_posts == 1 %}post is{% else %}posts are{% endif %} available from the last {{ window_days }} days.</p>
+{% if conversation_cache %}<p>Conversation page cache: {{ conversation_cache.age }}s old; last refresh attempt {{ conversation_cache.attempt_age }}s ago{% if conversation_cache.error %}; error: {{ conversation_cache.error }}{% endif %}.</p>{% endif %}
 <div id="status-snapshot-notice"></div>
 <p>Collection checks selected relays. Gaps and missing profiles are listed below.</p>
 <h3>Collection</h3>

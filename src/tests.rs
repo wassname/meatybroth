@@ -7,6 +7,7 @@ use tower::ServiceExt;
 
 const SCHEMA:&str="
 CREATE TABLE events(id BLOB PRIMARY KEY,pubkey BLOB,kind INTEGER,created_at INTEGER,content TEXT,tags TEXT,sig BLOB);
+CREATE INDEX idx_events_created_at ON events(created_at DESC);
 CREATE TABLE event_tags(event_id BLOB,tag_name TEXT,tag_value TEXT,PRIMARY KEY(event_id,tag_name,tag_value));
 CREATE TABLE social_edges(event_id BLOB,follower TEXT,followee TEXT,PRIMARY KEY(event_id,followee));
 CREATE INDEX social_edges_follower ON social_edges(follower,followee);
@@ -21,6 +22,9 @@ CREATE TABLE moderation_refresh_attempts(source TEXT,identifier TEXT,attempted_a
 CREATE TABLE post_store(canonical_id TEXT PRIMARY KEY,source_id TEXT,author_id TEXT,author_name TEXT,text TEXT,created_at INTEGER,url TEXT,parent_id TEXT,root_id TEXT);
 CREATE INDEX posts_parent ON post_store(parent_id);
 CREATE VIEW posts AS SELECT rowid,post.* FROM post_store post
+WHERE NOT EXISTS(SELECT 1 FROM policy_exclusions exclusion WHERE exclusion.event_id=post.source_id)
+AND post.author_id NOT IN(SELECT member.value FROM moderation_lists list,json_each(list.members_json) member WHERE list.identifier='nsfw' AND member.type='text');
+CREATE VIEW reader_post_events AS SELECT post.rowid AS id,unhex(post.source_id) AS event_id,post.root_id,post.parent_id FROM post_store post
 WHERE NOT EXISTS(SELECT 1 FROM policy_exclusions exclusion WHERE exclusion.event_id=post.source_id)
 AND post.author_id NOT IN(SELECT member.value FROM moderation_lists list,json_each(list.members_json) member WHERE list.identifier='nsfw' AND member.type='text');
 CREATE VIRTUAL TABLE posts_fts USING fts5(text,content='post_store',content_rowid='rowid',tokenize='porter unicode61');
@@ -82,6 +86,16 @@ impl Fixture {
                     parent.map(cid),
                     root.map(cid)
                 ],
+            )
+            .unwrap();
+    }
+    fn sync_post_events(&self) {
+        self.db
+            .execute(
+                "INSERT OR REPLACE INTO events
+                 SELECT unhex(source_id),unhex(author_id),1,created_at,text,'[]',zeroblob(64)
+                 FROM post_store",
+                [],
             )
             .unwrap();
     }
@@ -195,7 +209,15 @@ fn topic_selection_preserves_repeated_and_noise_ids() {
     assert!(query.contains("unsorted=true"));
     assert!(query.contains("hide_spam=true"));
     assert!(repeated.show_flagged_query_string().contains("page=2"));
+    assert!(repeated
+        .show_flagged_query_string()
+        .contains("show_spam=true"));
     assert!(!repeated.show_flagged_query_string().contains("hide_spam"));
+    assert!(Search::parse("mode=new", 1_000, "minilm").hide_flagged_spam);
+    let shown = Search::parse("mode=new&show_spam=true", 1_000, "minilm");
+    assert!(!shown.hide_flagged_spam);
+    assert!(shown.query_string().contains("show_spam=true"));
+    assert!(!Search::parse("mode=new&hide_spam=false", 1_000, "minilm").hide_flagged_spam);
 }
 
 #[test]
@@ -237,6 +259,12 @@ async fn pages_query_state_and_invalid_requests_use_real_handlers() {
     assert_eq!(ids(&html).len(), 100);
     assert_eq!(ids(&html)[0], cid(100));
     assert_eq!(ids(&f.request("/?mode=relevance").await.1), ids(&html));
+    assert!(html.contains("<legend>View</legend>"));
+    assert!(html.contains("<legend>Search</legend>"));
+    assert!(html.contains("type=\"radio\" name=\"mode\""));
+    assert!(html.contains("id=\"loading\" role=\"status\""));
+    assert!(html.contains("<a class=\"help\" href=\"/about#reader-controls\">Help</a>"));
+    assert!(!html.contains("<button type=\"button\" class=\"tipbtn\""));
     let (_, second) = f.request("/?mode=new&page=1").await;
     assert_eq!(ids(&second), (200..205).map(cid).collect::<Vec<_>>());
     assert!(!second.contains("older &rarr;"));
@@ -320,6 +348,7 @@ async fn conversation_context_counts_cycles_and_warning_excerpts() {
         Some(300),
         Some(300),
     );
+    f.sync_post_events();
     let (_, html) = f.request("/?mode=conversations").await;
     assert_eq!(ids(&html)[0], cid(104));
     assert!(html.contains("2 repliers (24h)"));
@@ -329,6 +358,7 @@ async fn conversation_context_counts_cycles_and_warning_excerpts() {
     assert!(provisional.contains("first post in this thread is not stored"));
     let (_, html) = f.request("/?mode=conversations&q=alpha").await;
     assert_eq!(ids(&html), vec![cid(101)]);
+    assert!(html.contains("reply alpha"));
     assert!(html.contains("2 repliers (24h)"));
     let (_, html) = f.request(&format!("/context/nostr/{}", key(101))).await;
     assert_eq!(ids(&html), [100, 101, 102, 103].map(cid));
@@ -424,12 +454,14 @@ async fn rendering_preserves_safe_text_profiles_warnings_and_exclusions() {
     );
     let (_, html) = f.request("/?q=tailneedle").await;
     assert_eq!(ids(&html), vec![cid(100)]);
-    assert!(html.contains("&lt;b&gt;Named&lt;&#x2f;b&gt;"));
-    assert!(html.contains("@example.com"));
-    assert!(html_escape::decode_html_entities(&html).contains("href=\"https://njump.me/npub1"));
-    assert!(html.contains("<strong>strong</strong>"));
-    assert!(html.contains("href=\"https://example.com/path\""));
-    assert!(html.contains("[image: description]"));
+    let post_start = html.find(&format!("id=\"{}\"", cid(100))).unwrap();
+    let post_html = &html[post_start..html[post_start..].find("</article>").unwrap() + post_start];
+    assert!(post_html.contains("&lt;b&gt;Named&lt;&#x2f;b&gt;"));
+    assert!(post_html.contains("@example.com"));
+    assert!(html_escape::decode_html_entities(post_html).contains("href=\"https://njump.me/npub1"));
+    assert!(post_html.contains("<strong>strong</strong>"));
+    assert!(post_html.contains("href=\"https://example.com/path\""));
+    assert!(post_html.contains("[image: description]"));
     for forbidden in [
         "<script",
         "<img",
@@ -438,10 +470,10 @@ async fn rendering_preserves_safe_text_profiles_warnings_and_exclusions() {
         "alert(1)",
         "<h1>hashtag",
     ] {
-        assert!(!html.contains(forbidden), "{forbidden}");
+        assert!(!post_html.contains(forbidden), "{forbidden}");
     }
-    assert!(html.contains("<code>https://code.invalid</code>"));
-    assert!(html.contains("class=\"rest\""));
+    assert!(post_html.contains("<code>https://code.invalid</code>"));
+    assert!(post_html.contains("class=\"rest\""));
 
     let boundary = |marker: &str, length: usize| {
         format!(
@@ -464,7 +496,11 @@ async fn rendering_preserves_safe_text_profiles_warnings_and_exclusions() {
         [key(100)],
     )
     .unwrap();
-    let (_, html) = f.request("/?q=tailneedle").await;
+    let (_, hidden_by_default) = f.request("/?q=tailneedle").await;
+    assert!(!hidden_by_default.contains(&format!("id=\"{}\"", cid(100))));
+    assert!(hidden_by_default.contains(&format!("id=\"{}\"", cid(105))));
+    assert!(hidden_by_default.contains("Show flagged spam"));
+    let (_, html) = f.request("/?q=tailneedle&show_spam=true").await;
     let flagged_start = html.find(&format!("id=\"{}\"", cid(100))).unwrap();
     let flagged =
         &html[flagged_start..html[flagged_start..].find("</article>").unwrap() + flagged_start];
@@ -544,7 +580,7 @@ async fn rendering_preserves_safe_text_profiles_warnings_and_exclusions() {
     )
     .unwrap();
     assert!(f
-        .request("/?q=tailneedle")
+        .request("/?q=tailneedle&show_spam=true")
         .await
         .1
         .contains("class=\"warning\""));
@@ -593,7 +629,7 @@ async fn bounded_card_hydration_preserves_off_page_duplicates_and_parent_warning
         )
         .unwrap();
     }
-    let (_, html) = f.request("/?mode=new").await;
+    let (_, html) = f.request("/?mode=new&show_spam=true").await;
     assert_eq!(ids(&html).len(), 100);
     assert!(ids(&html).contains(&cid(100)));
     assert!(!ids(&html).contains(&cid(300)));
@@ -738,6 +774,63 @@ async fn reader_work_waits_for_one_of_two_slots() {
     drop(first);
     drop(second);
     assert_eq!(response.await.unwrap().status(), StatusCode::OK);
+}
+
+#[test]
+fn conversation_page_cache_keeps_order_and_hydrates_policy() {
+    let fixture = Fixture::new();
+    fixture.post(1, 1, "root", 10, None, None);
+    fixture.post(2, 2, "reply", 5, Some(1), Some(1));
+    let search = Search::parse("mode=conversations", fixture.now, "minilm");
+    let direct = queries::feed(&fixture.db, &search, &fixture.app().root, fixture.now).unwrap();
+    queries::store_conversation_cache(
+        &fixture.dir.path().join("test.sqlite"),
+        fixture.now,
+        &direct,
+        None,
+    )
+    .unwrap();
+    let cache = queries::conversation_cache(&fixture.db).unwrap().unwrap();
+    assert_eq!(
+        cache
+            .rows
+            .iter()
+            .map(|row| &row.canonical_id)
+            .collect::<Vec<_>>(),
+        direct
+            .iter()
+            .map(|row| &row.canonical_id)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        serde_json::to_value(&cache.rows).unwrap()[0]
+            .as_object()
+            .unwrap()
+            .len(),
+        5
+    );
+    queries::store_conversation_cache(
+        &fixture.dir.path().join("test.sqlite"),
+        fixture.now + 1,
+        &[],
+        Some("test refresh failed"),
+    )
+    .unwrap();
+    let failed = queries::conversation_cache(&fixture.db).unwrap().unwrap();
+    assert_eq!(failed.generated_at, cache.generated_at);
+    assert_eq!(failed.rows[0].canonical_id, cache.rows[0].canonical_id);
+    assert_eq!(failed.last_error.as_deref(), Some("test refresh failed"));
+    fixture
+        .db
+        .execute(
+            "INSERT INTO policy_exclusions VALUES(?1,'test')",
+            [&direct[0].source_id],
+        )
+        .unwrap();
+    let hydrated = cached_conversations(&fixture.app(), &fixture.db, fixture.now)
+        .unwrap()
+        .unwrap();
+    assert!(hydrated.is_empty());
 }
 
 #[test]

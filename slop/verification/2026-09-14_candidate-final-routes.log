@@ -1,0 +1,16 @@
+topics	/?mode=topics&embedding=minilm	http=200	ttfb=0.378540	total=0.378968
+topics cards=100
+topics kmeans_checkbox_count=24 denominator_copy=1 actual_kmeans_24=1
+topic17	/?mode=topics&embedding=minilm&topics=17	http=200	ttfb=0.474011	total=0.474421
+topic17 cards=100
+topic17 checked=1
+dbscan	/?mode=topics&embedding=minilm&clustering=dbscan	http=200	ttfb=0.516748	total=0.517161
+dbscan cards=100
+dbscan selected=1 unsorted_control=1
+unsorted	/?mode=topics&embedding=minilm&clustering=dbscan&unsorted=true	http=200	ttfb=0.299679	total=0.300103
+unsorted cards=100
+unsorted checked=1
+words	/?q=bitcoin&mode=relevance	http=200	ttfb=4.365998	total=4.366436
+words cards=100
+meaning	/?q=bitcoin&mode=meaning&embedding=minilm	http=200	ttfb=3.483912	total=3.485056
+meaning cards=100

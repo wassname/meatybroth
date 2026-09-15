@@ -28,6 +28,7 @@ use std::{
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
 const ROOT: &str = "60c052cf19fbfb973c1779585df423e3982a3a251fc826d4c76f8063621c5bb6";
+static CONVERSATION_REFRESHING: AtomicBool = AtomicBool::new(false);
 const MODES: [&str; 6] = [
     "new",
     "relevance",
@@ -129,13 +130,16 @@ impl Search {
         if mode == "recent" {
             mode = "new";
         }
-        if !q.is_empty() && args.contains_key("go") {
-            mode = "relevance";
+        if !q.is_empty() && arg("go") == "1" {
+            mode = match arg("search") {
+                "meaning" => "meaning",
+                _ => "relevance",
+            };
         } else if !MODES.contains(&mode) && mode != "similar" {
             mode = if q.is_empty() { "topics" } else { "relevance" };
         }
         if q.is_empty() && mode == "relevance" {
-            mode = "conversations";
+            mode = "new";
         }
         let timestamp = match number("before", 0) {
             0 => NaiveDate::parse_from_str(arg("date"), "%Y-%m-%d")
@@ -197,7 +201,9 @@ impl Search {
             similar: args.get("similar").cloned(),
             topics,
             include_unsorted,
-            hide_flagged_spam: arg("hide_spam") == "true",
+            hide_flagged_spam: arg("hide_spam") != "false"
+                && arg("show_spam") != "true"
+                && arg("show_flagged_spam") != "true",
             embedding: embedding.into(),
             clustering: clustering.into(),
             error,
@@ -222,6 +228,7 @@ impl Search {
         if self.page > 0 {
             query.push_str(&format!("page={}&", self.page));
         }
+        query.push_str("show_spam=true&");
         query
     }
     fn query_string_with_before(&self, include_before: bool, include_hide_spam: bool) -> String {
@@ -253,8 +260,12 @@ impl Search {
         if self.include_unsorted {
             qs.append_pair("unsorted", "true");
         }
-        if include_hide_spam && self.hide_flagged_spam {
-            qs.append_pair("hide_spam", "true");
+        if include_hide_spam {
+            if self.hide_flagged_spam {
+                qs.append_pair("hide_spam", "true");
+            } else {
+                qs.append_pair("show_spam", "true");
+            }
         }
         if self.embedding != "minilm" {
             qs.append_pair("embedding", &self.embedding);
@@ -456,6 +467,70 @@ fn topic_feed(
     Ok(rows)
 }
 
+fn cached_conversations(
+    app: &App,
+    db: &Connection,
+    now: i64,
+) -> Result<Option<Vec<queries::Post>>, Error> {
+    let Some(cache) = queries::conversation_cache(db)? else {
+        return Ok(None);
+    };
+    if now - cache.generated_at > 300 && !CONVERSATION_REFRESHING.swap(true, Ordering::AcqRel) {
+        let (path, root, default_embedding) = (
+            app.path.clone(),
+            app.root.clone(),
+            app.default_embedding.clone(),
+        );
+        std::thread::spawn(move || {
+            let started = std::time::Instant::now();
+            let result = (|| {
+                let db = open_reader(&path)?;
+                let search = Search::parse("mode=conversations", now, &default_embedding);
+                let rows = queries::feed(&db, &search, &root, now)?;
+                let rank_ms = started.elapsed().as_millis();
+                db.execute_batch("COMMIT")?;
+                queries::store_conversation_cache(&path, now, &rows, None)?;
+                Ok::<_, Error>((rows.len(), rank_ms))
+            })();
+            match result {
+                Ok((rows, rank_ms)) => eprintln!(
+                    "Slow reader mode=conversations rows={rows} rank_ms={rank_ms} total_ms={}",
+                    started.elapsed().as_millis()
+                ),
+                Err(error) => {
+                    if let Err(store_error) =
+                        queries::store_conversation_cache(&path, now, &[], Some(&error.to_string()))
+                    {
+                        eprintln!("Conversation cache refresh failed: {error}; could not record it: {store_error}");
+                    }
+                }
+            }
+            CONVERSATION_REFRESHING.store(false, Ordering::Release);
+        });
+    }
+    let ids = cache
+        .rows
+        .iter()
+        .map(|row| row.canonical_id.clone())
+        .collect::<Vec<_>>();
+    let mut current = queries::eligible_map_for(db, now, Some(&ids))?;
+    Ok(Some(
+        cache
+            .rows
+            .into_iter()
+            .filter_map(|ranked| {
+                current.remove(&ranked.canonical_id).map(|mut post| {
+                    post.n_reply_authors = ranked.n_reply_authors;
+                    post.n_replies = ranked.n_replies;
+                    post.latest_activity = ranked.latest_activity;
+                    post.root_present = ranked.root_present;
+                    post
+                })
+            })
+            .collect(),
+    ))
+}
+
 fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, String), Error> {
     let started = std::time::Instant::now();
     let mut search = Search::parse(raw, now, &app.default_embedding);
@@ -473,9 +548,19 @@ fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, 
         }
         Err(_) => None,
     };
-    let topic_settings = topic_mode
+    let configured_topic_settings = topic_mode
         .then(embed::TopicSettings::from_env)
         .transpose()?;
+    let topic_settings = if topic_mode {
+        selected_space
+            .as_ref()
+            .map(|space| embed::stored_topic_settings(&app.path, space))
+            .transpose()?
+            .flatten()
+            .or(configured_topic_settings)
+    } else {
+        None
+    };
     let topic_epsilon = topic_settings
         .as_ref()
         .map(|settings| format!("{:.2}", settings.dbscan_epsilon_cosine));
@@ -505,6 +590,7 @@ fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, 
     {
         search.error = Some("One or more selected topics are not available here.".into());
     }
+    let mut initial_conversation_cache = None;
     let mut scored = if search.error.is_none() && semantic {
         match semantic_feed(
             app,
@@ -528,10 +614,23 @@ fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, 
             now,
         )?
     } else if search.error.is_none() {
-        queries::feed(db, &search, &app.root, now)?
-            .into_iter()
-            .map(|post| (post, f32::NAN))
-            .collect()
+        let cacheable = search.mode == "conversations"
+            && search.q.is_empty()
+            && search.page == 0
+            && search.before.is_none();
+        let rows = if cacheable {
+            match cached_conversations(app, db, now)? {
+                Some(rows) => rows,
+                None => {
+                    let rows = queries::feed(db, &search, &app.root, now)?;
+                    initial_conversation_cache = Some(rows.clone());
+                    rows
+                }
+            }
+        } else {
+            queries::feed(db, &search, &app.root, now)?
+        };
+        rows.into_iter().map(|post| (post, f32::NAN)).collect()
     } else {
         Vec::new()
     };
@@ -620,6 +719,10 @@ fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, 
             ranked_at.as_millis(),
             cards_at.as_millis(),
         );
+    }
+    if let Some(rows) = initial_conversation_cache {
+        db.execute_batch("COMMIT")?;
+        queries::store_conversation_cache(&app.path, now, &rows, None)?;
     }
     let html = page(
         app,
@@ -819,6 +922,9 @@ fn status_uncached(app: &App, db: &Connection, now: i64) -> Result<String, Error
         [&app.root],
         |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
+    let conversation_cache = queries::conversation_cache(db)?.map(
+        |cache| json!({"age":now.saturating_sub(cache.generated_at),"attempt_age":now.saturating_sub(cache.last_attempt),"error":cache.last_error}),
+    );
     let embedding_spaces: Vec<_> = embed::cache_status(db, now)?
         .into_iter()
         .map(|status| {
@@ -841,7 +947,7 @@ fn status_uncached(app: &App, db: &Connection, now: i64) -> Result<String, Error
         "status.html",
         json!({"now":render::time(now),"eligible_posts":counts,"status_rows":rows,"gap_count":gap_count,
             "gaps":gaps,"lists":lists,"embedding_spaces":embedding_spaces,
-            "embedding_error":app.embedding_error.lock().unwrap().clone(),
+            "embedding_error":app.embedding_error.lock().unwrap().clone(),"conversation_cache":conversation_cache,
             "direct_follows":direct_follows,"missing_contact_lists":missing_contact_lists}),
     )
 }

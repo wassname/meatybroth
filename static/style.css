@@ -15,10 +15,10 @@ article.post { border-top: 1px solid var(--rule); padding: 0.45rem 0; }
 article.post .meta { color: var(--muted); font-size: 0.9em; margin: 0 0 0.2rem; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.15rem 0.4rem; }
 /* Identity stays left; time and actions wrap from the right. -- Pi/gpt-5.6-sol */
 article.post .meta .meta-right { margin-left: auto; display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.4rem; min-width: 0; }
-article.post .meta a.author { font-weight: 600; color: var(--link); text-decoration: underline; }
+article.post .meta a.author { font-weight: 600; color: var(--ink); text-decoration: underline; }
 article.post .meta .address { color: var(--muted); font-size: 0.9em; max-width: 16ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 article.post .meta .score { color: var(--muted); font-size: 0.85em; }
-article.post .meta a, article.post .meta a.score { color: var(--link); text-decoration: underline; }
+article.post .meta a, article.post .meta a.score { color: var(--muted); text-decoration: underline; }
 details > summary { color: var(--link); text-decoration: underline; cursor: pointer; }
 article.post .meta time { color: var(--muted); }
 article.post .meta .icon { text-decoration: none; }
@@ -29,7 +29,7 @@ article.post .meta details.more summary::marker { content: ""; }
 article.post .meta details.more[open] dl { position: absolute; z-index: 2; background: var(--paper); border: 1px solid var(--rule); padding: 0.5rem; margin: 0.3rem 0; max-width: 40rem; }
 article.post .meta details.more dt { font-weight: 600; font-size: 0.85em; color: var(--muted); }
 article.post .meta details.more dd { margin: 0 0 0.4rem; font-size: 0.9em; word-break: break-all; }
-article.post .body p { margin: 0.25rem 0; font-size: 1em; }
+article.post .body p { margin: 0.25rem 0; font-size: 1.06em; }
 /* expanded state shows the complete body once: the leading preview hides */
 article.post .body:has(details.rest[open]) .preview { display: none; }
 article.post details.rest summary { display: inline-flex; cursor: pointer; color: var(--link); text-decoration: underline; list-style: none; padding: 0.1rem 0; }
@@ -54,23 +54,8 @@ table { border-collapse: collapse; }
 th, td { padding: 0.4rem; border-bottom: 1px solid var(--rule); text-align: left; }
 blockquote { margin-left: 0; padding-left: 1rem; border-left: 2px solid var(--rule); }
 footer { border-top: 1px solid var(--rule); margin-top: 1.5rem; padding-top: 0.6rem; }
-a.textlabel { color: var(--link); text-decoration: underline; }
+a.textlabel { color: var(--muted); text-decoration: underline; }
 span.textlabel { color: var(--muted); }
-
-/* lr-check2 */
-
-/* Feed help opens on hover, keyboard focus, or tap. -- Pi/gpt-5.6-sol */
-.tipwrap { position: relative; display: inline-flex; }
-.tipbtn { line-height: 1; padding: 0.25rem 0.4rem; }
-.tip { display: none; position: absolute; top: 1.6em; left: 50%; transform: translateX(-50%);
-       z-index: 3; width: min(22rem, 60vw); background: var(--paper); border: 1px solid var(--rule);
-       padding: 0.4rem 0.6rem; color: var(--muted); font-size: 0.9em; }
-.tipwrap:hover .tip, .tipwrap:focus-within .tip { display: block; }
-/* narrow screens: show the explanation in flow so it can never overflow */
-@media (max-width: 480px) {
-  .tipwrap { flex-basis: 100%; }
-  .tip { position: static; transform: none; width: auto; }
-}
 
 /* Keep app flags visually separate from unmodified post text. -- Pi/gpt-5.6-sol */
 article.post details.warning > summary { color: #8a6d1a; cursor: pointer; margin-bottom: 0.3rem; }
@@ -96,9 +81,17 @@ details.rest:not([open]) .when-open { display: none; }
 /* header rows: site+nav / italic tagline / search+go+feed */
 .siterow { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; }
 .tagline { color: var(--muted); margin: 0.2rem 0 0.5rem; }
-form.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; }
-form.controls label, .control-label { color: var(--muted); }
-.control-group { display: inline-flex; align-items: center; gap: 0.3rem; white-space: nowrap; }
+form.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.6rem; }
+.control-set { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; border: 0; margin: 0; padding: 0; min-width: 0; }
+.control-set legend { color: var(--muted); font-size: 0.85em; padding: 0; }
+.control-set label { color: var(--muted); white-space: nowrap; }
+.field { display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap; }
+@media (max-width: 480px) {
+  .search-controls { flex-basis: 100%; }
+}
+.control-set input[type=search] { min-width: min(14rem, 70vw); }
+.help, .spam-toggle { color: var(--muted); font-size: 0.9em; }
+form.controls[aria-busy="true"] { opacity: 0.72; }
 @media (max-width: 480px) {
   .topic-options { position: fixed; left: 0.5rem; right: 0.5rem; width: auto; }
 }

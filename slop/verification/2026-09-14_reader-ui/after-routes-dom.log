@@ -1,0 +1,14 @@
+candidate_sha256=052275c940c348b53f7f4217b99436f5ed6718a0376763ff464c3c409d418707  target/release/meatybroth
+url=/?mode=topics&embedding=minilm&clustering=kmeans
+http=200 ttfb_s=1.221264 total_s=1.221539 bytes=219674
+cards=83
+url=/?mode=conversations&embedding=minilm
+http=200 ttfb_s=6.056955 total_s=6.057336 bytes=259432
+cards=98
+url=/?mode=new&show_spam=true
+http=200 ttfb_s=1.753695 total_s=1.762343 bytes=6584656
+cards=100
+dom_controls=<legend>View</legend>,<legend>Search</legend>,<legend>Topics</legend>,<legend>Model</legend>,
+loading=id="loading" role="status" aria-live="polite" hidden>Loading…
+help=<a class="help" href="/about#reader-controls">Help</a>
+show_flagged=>Show flagged spam<

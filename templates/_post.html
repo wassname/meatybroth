@@ -24,10 +24,10 @@
     </span>
     <span class="meta-right">
       <time title="{{ p.when }}">{{ p.age }}</time>
-      {% if p.conversation %}<a class="score textlabel" href="/context/nostr/{{ p.source_id|urlencode }}{% if p.embedding %}?embedding={{ p.embedding }}{% endif %}{% if p.hide_flagged_spam %}&amp;hide_spam=true{% endif %}" aria-label="reply context" title="Reply context">{{ p.score }}</a>
+      {% if p.conversation %}<a class="score textlabel" href="/context/nostr/{{ p.source_id|urlencode }}{% if p.embedding %}?embedding={{ p.embedding }}{% endif %}{% if p.hide_flagged_spam %}&amp;hide_spam=true{% else %}&amp;show_spam=true{% endif %}" aria-label="reply context" title="Reply context">{{ p.score }}</a>
       {% elif p.score %}<span class="score" {% if p.score_title %}title="{{ p.score_title }}"{% endif %}>{{ p.score }}</span>{% endif %}
-      {% if not p.conversation %}<a class="textlabel" href="/context/nostr/{{ p.source_id|urlencode }}{% if p.embedding %}?embedding={{ p.embedding }}{% endif %}{% if p.hide_flagged_spam %}&amp;hide_spam=true{% endif %}" aria-label="replies and thread context" title="Replies">{% if p.reply_count == 1 %}1 Reply{% elif p.reply_count %}{{ p.reply_count }} Replies{% else %}Replies{% endif %}</a>{% endif %}
-      {% if p.similar_available is undefined or p.similar_available %}<a class="textlabel" href="/?mode=similar&amp;similar={{ p.canonical_id }}&amp;embedding={{ p.embedding }}{% if p.hide_flagged_spam %}&amp;hide_spam=true{% endif %}" aria-label="similar posts">Similar</a>{% else %}<span class="textlabel" title="This post is not indexed for Similar posts.">Similar pending</span>{% endif %}
+      {% if not p.conversation %}<a class="textlabel" href="/context/nostr/{{ p.source_id|urlencode }}{% if p.embedding %}?embedding={{ p.embedding }}{% endif %}{% if p.hide_flagged_spam %}&amp;hide_spam=true{% else %}&amp;show_spam=true{% endif %}" aria-label="replies and thread context" title="Replies">{% if p.reply_count == 1 %}1 Reply{% elif p.reply_count %}{{ p.reply_count }} Replies{% else %}Replies{% endif %}</a>{% endif %}
+      {% if p.similar_available is undefined or p.similar_available %}<a class="textlabel" href="/?mode=similar&amp;similar={{ p.canonical_id }}&amp;embedding={{ p.embedding }}{% if p.hide_flagged_spam %}&amp;hide_spam=true{% else %}&amp;show_spam=true{% endif %}" aria-label="similar posts">Similar</a>{% else %}<span class="textlabel" title="This post is not indexed for Similar posts.">Similar pending</span>{% endif %}
       {% if p.original_url %}<a class="textlabel" href="{{ p.original_url }}" rel="noopener noreferrer" aria-label="original Nostr event" title="Original Nostr event">Nostr event</a>{% endif %}
       <details class="more"><summary>Post details</summary>
         <dl>
@@ -45,7 +45,7 @@
     </span>
   </div>
   {% if p.parent_excerpt %}
-  <aside class="parent-relation"><span class="relation-label">In reply to:</span> <a class="parent-excerpt" href="/context/nostr/{{ p.parent_excerpt.source_id|urlencode }}{% if p.embedding %}?embedding={{ p.embedding }}{% endif %}{% if p.hide_flagged_spam %}&amp;hide_spam=true{% endif %}" aria-label="parent context">{{ p.parent_excerpt.author }}: {{ p.parent_excerpt.text }}</a></aside>
+  <aside class="parent-relation"><span class="relation-label">In reply to:</span> <a class="parent-excerpt" href="/context/nostr/{{ p.parent_excerpt.source_id|urlencode }}{% if p.embedding %}?embedding={{ p.embedding }}{% endif %}{% if p.hide_flagged_spam %}&amp;hide_spam=true{% else %}&amp;show_spam=true{% endif %}" aria-label="parent context">{{ p.parent_excerpt.author }}: {{ p.parent_excerpt.text }}</a></aside>
   {% endif %}
   {% if p.flagged_spam %}<aside class="spam-flag">Flagged spam: {{ p.spam_warning }}</aside>{% endif %}
   {% if p.warning_hides %}

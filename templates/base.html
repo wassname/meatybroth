@@ -12,75 +12,89 @@
     <nav><a href="/status">Status</a> · <a href="/about">About</a> · <a href="/tos">Terms</a></nav>
   </div>
   <p class="tagline"><em>AI slop or human broth? Who cares as long as it’s meaty</em></p>
-  <form method="get" action="/" class="controls">
-    {% if hide_flagged_spam %}<input type="hidden" name="hide_spam" value="true">{% endif %}
-    {% if mode == 'similar' %}<span class="control-group"><span class="control-label">View:</span> Related posts</span>
-    {% else %}<span class="control-group"><label for="feed-select">View:</label>
-    <select id="feed-select" name="mode" aria-label="View"
-            onchange="document.getElementById('feed-tip').textContent=this.options[this.selectedIndex].dataset.tip; this.form.submit()">
-      {% for m in feed_modes %}<option value="{{ m }}" data-tip="{{ mode_explanations[m] }}" {% if m == mode %}selected{% endif %} title="{{ mode_explanations[m] }}">{{ mode_labels[m] }}</option>{% endfor %}
-    </select></span>{% endif %}
+  <form method="get" action="/" class="controls" aria-busy="false">
+    {% if hide_flagged_spam %}<input type="hidden" name="hide_spam" value="true">{% else %}<input type="hidden" name="show_spam" value="true">{% endif %}
+    <input type="hidden" name="go" value="">
     {% if similar %}<input type="hidden" name="similar" value="{{ similar }}">{% endif %}
+    <fieldset class="control-set">
+      <legend>View</legend>
+      {% if mode == 'similar' %}<span>Related posts</span>{% else %}
+      {% for m in feed_modes %}<label><input type="radio" name="mode" value="{{ m }}" data-submit {% if m == mode or (mode not in feed_modes and m == 'new') %}checked{% endif %}> {{ mode_labels[m] }}</label>{% endfor %}
+      {% endif %}
+    </fieldset>
+    <fieldset class="control-set search-controls">
+      <legend>Search</legend>
+      <label for="q-input">Query</label>
+      <input id="q-input" type="search" name="q" value="{{ q or '' }}" placeholder='words, "exact phrase"'>
+      <span class="field"><label for="search-method">Method</label>
+      <select id="search-method" name="search" data-submit {% if not meaning_available %}title="Meaning search is unavailable right now."{% endif %}>
+        <option value="relevance" {% if mode != 'meaning' %}selected{% endif %}>Words</option>
+        <option value="meaning" {% if mode == 'meaning' %}selected{% endif %} {% if not meaning_available %}disabled{% endif %}>Meaning</option>
+      </select></span>
+      {% if mode == 'relevance' %}<label for="search-order">Order</label>
+      <select id="search-order" name="order"><option value="relevance" {% if order != 'newest' %}selected{% endif %}>Relevance</option><option value="newest" {% if order == 'newest' %}selected{% endif %}>Newest</option></select>{% endif %}
+      <button type="submit" name="go" value="1">Search</button>
+    </fieldset>
     {% if mode == 'topics' %}
-    <span class="control-group"><label for="clustering-select">Group by:</label>
-    <select id="clustering-select" name="clustering" aria-label="Topic clustering algorithm" onchange="this.form.querySelectorAll('[name=topics],[name=unsorted]').forEach(input => input.disabled=true); this.form.submit()">
-      <option value="kmeans" {% if clustering != 'dbscan' %}selected{% endif %}>K-means (fixed count)</option>
-      <option value="dbscan" {% if clustering == 'dbscan' %}selected{% endif %}>DBSCAN</option>
-    </select></span>
-    <details class="topic-picker">
-      <summary>Choose topics{% if selected_topics %} ({{ selected_topics|length }} selected){% elif include_unsorted %} (Unsorted){% endif %}</summary>
-      <fieldset class="topic-options">
-        <legend class="sr-only">Topics</legend>
-        {% for topic in topics %}
-        <label><input type="checkbox" name="topics" value="{{ topic.id }}" {% if topic.id in selected_topics %}checked{% endif %}> {{ topic.label }} <small>({{ topic.post_count }}, {{ topic.percent }}%)</small></label>
-        {% endfor %}
-        {% if clustering == 'dbscan' %}<label><input type="checkbox" name="unsorted" value="true" {% if include_unsorted %}checked{% endif %}> Unsorted <small>({{ unsorted_count }}, {{ unsorted_percent }}%)</small></label>{% endif %}
-        <div class="topic-actions">
-          <button type="submit">Apply topics</button>
-          <a href="/?mode=topics&amp;clustering={{ clustering }}&amp;embedding={{ embedding }}{% if hide_flagged_spam %}&amp;hide_spam=true{% endif %}">Clear selection</a>
-        </div>
-      </fieldset>
-    </details>
+    <fieldset class="control-set">
+      <legend>Topics</legend>
+      <label for="clustering-select">Group by</label>
+      <select id="clustering-select" name="clustering" data-submit data-clear-topics>
+        <option value="kmeans" {% if clustering != 'dbscan' %}selected{% endif %}>K-means</option>
+        <option value="dbscan" {% if clustering == 'dbscan' %}selected{% endif %}>DBSCAN</option>
+      </select>
+      <details class="topic-picker">
+        <summary>Choose{% if selected_topics %} ({{ selected_topics|length }}){% elif include_unsorted %} (Unsorted){% endif %}</summary>
+        <fieldset class="topic-options">
+          <legend class="sr-only">Topics</legend>
+          {% for topic in topics %}<label><input type="checkbox" name="topics" value="{{ topic.id }}" {% if topic.id in selected_topics %}checked{% endif %}> {{ topic.label }} <small>({{ topic.post_count }}, {{ topic.percent }}%)</small></label>{% endfor %}
+          {% if clustering == 'dbscan' %}<label><input type="checkbox" name="unsorted" value="true" {% if include_unsorted %}checked{% endif %}> Unsorted <small>({{ unsorted_count }}, {{ unsorted_percent }}%)</small></label>{% endif %}
+          <div class="topic-actions"><button type="submit">Apply</button><a href="/?mode=topics&amp;clustering={{ clustering }}&amp;embedding={{ embedding }}{% if hide_flagged_spam %}&amp;hide_spam=true{% else %}&amp;show_spam=true{% endif %}">Clear</a></div>
+        </fieldset>
+      </details>
+    </fieldset>
     {% endif %}
-    <span class="tipwrap">
-      <button type="button" class="tipbtn" aria-describedby="feed-tip">Help</button>
-      <span id="feed-tip" role="tooltip" class="tip">{{ mode_explanations[mode] }}</span>
-    </span>
-    <span class="control-group"><label for="q-input">Find:</label>
-    <input id="q-input" type="search" name="q" value="{{ q or '' }}" placeholder='words, "exact phrase"' aria-label="Search query"></span>
-    {% if mode == 'relevance' %}
-    <span class="control-group"><label for="search-order">Order matches:</label>
-    <select id="search-order" name="order" aria-label="Search result order">
-      <option value="relevance" {% if order != 'newest' %}selected{% endif %}>Relevance</option>
-      <option value="newest" {% if order == 'newest' %}selected{% endif %}>Newest</option>
-    </select></span>
-    {% endif %}
-    <button type="submit" name="mode" value="relevance">Words</button>
-    <button type="submit" name="mode" value="meaning" {% if not meaning_available %}disabled title="Meaning search is unavailable right now."{% endif %}>Meaning{% if not meaning_available %} unavailable{% endif %}</button>
     {% if mode in ['meaning', 'similar', 'topics'] %}
-    <span class="control-group"><label for="embedding-select">Model:</label>
-    <select id="embedding-select" name="embedding" onchange="this.form.querySelectorAll('[name=topics],[name=unsorted]').forEach(input => input.disabled=true); this.form.submit()">
-      {% if minilm_available %}<option value="minilm" {% if embedding != 'titan' %}selected{% endif %}>MiniLM</option>{% endif %}
-      <option value="titan" {% if embedding == 'titan' or not minilm_available %}selected{% endif %}>Titan</option>
-    </select></span>
+    <fieldset class="control-set">
+      <legend>Model</legend>
+      <label for="embedding-select">Embedding</label>
+      <select id="embedding-select" name="embedding" data-submit data-clear-topics>
+        {% if minilm_available %}<option value="minilm" {% if embedding != 'titan' %}selected{% endif %}>MiniLM</option>{% endif %}
+        <option value="titan" {% if embedding == 'titan' or not minilm_available %}selected{% endif %}>Titan</option>
+      </select>
+    </fieldset>
     {% endif %}
+    {% if mode == 'discovery' %}<fieldset class="control-set"><legend>Network</legend>
+      <label for="reach-select">Through follows</label><select id="reach-select" name="reach" data-submit><option value="1" {% if reach == 1 %}selected{% endif %}>1 hop</option><option value="2" {% if reach == 2 %}selected{% endif %}>2 hops</option><option value="3" {% if reach == 3 %}selected{% endif %}>3 hops</option></select>
+      <label for="order-select">Order</label><select id="order-select" name="order" data-submit><option value="recent" {% if order == 'recent' %}selected{% endif %}>Newest</option><option value="connections" {% if order == 'connections' %}selected{% endif %}>Most connected</option></select>
+    </fieldset>{% endif %}
     {% if spam_filter_available %}<a class="spam-toggle" href="{% if hide_flagged_spam %}{{ show_flagged_url }}{% else %}{{ hide_flagged_url }}{% endif %}">{% if hide_flagged_spam %}Show flagged spam{% else %}Hide flagged spam{% endif %}</a>{% endif %}
-    {% if mode == 'discovery' %}
-    <span class="control-group"><label for="reach-select">Through follows:</label>
-    <select id="reach-select" name="reach" aria-label="Social graph distance in hops" onchange="this.form.submit()">
-      <option value="1" {% if reach == 1 %}selected{% endif %}>1 hop</option>
-      <option value="2" {% if reach == 2 %}selected{% endif %}>2 hops</option>
-      <option value="3" {% if reach == 3 %}selected{% endif %}>3 hops</option>
-    </select></span>
-    <span class="control-group"><label for="order-select">Order:</label>
-    <select id="order-select" name="order" aria-label="Social ranking order" onchange="this.form.submit()">
-      <option value="recent" {% if order == 'recent' %}selected{% endif %}>Newest</option>
-      <option value="connections" {% if order == 'connections' %}selected{% endif %}>Most connected</option>
-    </select></span>
-    {% endif %}
+    <a class="help" href="/about#reader-controls">Help</a>
+    <span id="loading" role="status" aria-live="polite" hidden>Loading…</span>
   </form>
 </header>
 <main>
 {% block body %}{% endblock %}
 </main>
+<script>
+const controls = document.querySelector('form.controls');
+if (controls) {
+  const loading = document.getElementById('loading');
+  const startLoading = () => {
+    controls.setAttribute('aria-busy', 'true');
+    loading.hidden = false;
+  };
+  controls.addEventListener('submit', startLoading);
+  controls.addEventListener('change', (event) => {
+    const input = event.target;
+    if (!input.matches('[data-submit]')) return;
+    if (input.dataset.clearTopics !== undefined) {
+      controls.querySelectorAll('[name=topics],[name=unsorted]').forEach((topic) => topic.disabled = true);
+    }
+    if (input.name === 'search') controls.querySelector('[name=go]').value = '1';
+    startLoading();
+    controls.requestSubmit();
+  });
+}
+</script>
 <!-- Pi/gpt-5.6-terra copy, integrated by Pi/gpt-5.6-sol -->

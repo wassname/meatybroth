@@ -1,0 +1,124 @@
+{
+  "box": {
+    "label": {
+      "x": 12.796875,
+      "y": 213.390625,
+      "width": 52.515625,
+      "height": 19.59375
+    },
+    "select": {
+      "x": 69.3125,
+      "y": 208.390625,
+      "width": 91.59375,
+      "height": 29.59375
+    },
+    "verticalOverlap": true
+  },
+  "tabs": [
+    {
+      "tag": "A",
+      "id": "",
+      "name": null,
+      "type": null,
+      "text": "meatybroth.com"
+    },
+    {
+      "tag": "A",
+      "id": "",
+      "name": null,
+      "type": null,
+      "text": "Status"
+    },
+    {
+      "tag": "A",
+      "id": "",
+      "name": null,
+      "type": null,
+      "text": "About"
+    },
+    {
+      "tag": "A",
+      "id": "",
+      "name": null,
+      "type": null,
+      "text": "Terms"
+    },
+    {
+      "tag": "INPUT",
+      "id": "",
+      "name": "mode",
+      "type": "radio",
+      "text": ""
+    },
+    {
+      "tag": "INPUT",
+      "id": "q-input",
+      "name": "q",
+      "type": "search",
+      "text": ""
+    },
+    {
+      "tag": "SELECT",
+      "id": "search-method",
+      "name": "search",
+      "type": null,
+      "text": "Words\n        Meaning"
+    },
+    {
+      "tag": "BUTTON",
+      "id": "",
+      "name": "go",
+      "type": "submit",
+      "text": "Search"
+    },
+    {
+      "tag": "SELECT",
+      "id": "clustering-select",
+      "name": "clustering",
+      "type": null,
+      "text": "K-means\n        DBSCAN"
+    },
+    {
+      "tag": "SUMMARY",
+      "id": "",
+      "name": null,
+      "type": null,
+      "text": "Choose"
+    },
+    {
+      "tag": "SELECT",
+      "id": "embedding-select",
+      "name": "embedding",
+      "type": null,
+      "text": "MiniLM\n        Titan"
+    },
+    {
+      "tag": "A",
+      "id": "",
+      "name": null,
+      "type": null,
+      "text": "Show flagged spam"
+    },
+    {
+      "tag": "A",
+      "id": "",
+      "name": null,
+      "type": null,
+      "text": "Help"
+    },
+    {
+      "tag": "SUMMARY",
+      "id": "",
+      "name": null,
+      "type": null,
+      "text": "How topics are grouped"
+    },
+    {
+      "tag": "A",
+      "id": "",
+      "name": null,
+      "type": null,
+      "text": "Capability Overhang Accelerator"
+    }
+  ]
+}
