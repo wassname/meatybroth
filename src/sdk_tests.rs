@@ -55,6 +55,45 @@ impl embed::Transport for FailingEmbedder {
 }
 
 #[derive(Clone)]
+struct BusyDuringSplitEmbedder {
+    space: embed::Space,
+    split_calls: Arc<AtomicUsize>,
+}
+
+impl embed::Transport for BusyDuringSplitEmbedder {
+    fn space(&self) -> &embed::Space {
+        &self.space
+    }
+
+    fn split(&self, text: &str) -> Result<Vec<String>, Error> {
+        match self.split_calls.fetch_add(1, Ordering::SeqCst) {
+            // The first is the preflight and the third is ordinary background embedding.
+            0 | 2 => Err(Box::new(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY),
+                None,
+            ))),
+            _ => Ok(embed::titan_chunks(text)),
+        }
+    }
+
+    fn embed<'a>(
+        &'a self,
+        text: &'a str,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<embed::Output, Error>> + Send + 'a>,
+    > {
+        Box::pin(async move {
+            let mut vector = vec![0.0; self.space.dimensions];
+            vector[0] = 1.0;
+            Ok(embed::Output {
+                vector,
+                input_tokens: i64::try_from(text.len()).unwrap(),
+            })
+        })
+    }
+}
+
+#[derive(Clone)]
 struct GoAwayOnceEmbedder {
     space: embed::Space,
     calls: Arc<AtomicUsize>,
@@ -954,7 +993,7 @@ async fn reviewed_aepiot_campaign_keeps_canonical_events_and_ledger_only() {
 }
 
 #[tokio::test]
-async fn transport_failure_disables_further_paid_calls_until_restart() {
+async fn non_lock_transport_failure_disables_further_embeddings_until_restart() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("events.sqlite");
     let sdk = collect::open(&path, collect::PRIMAL_AUTHOR).await.unwrap();
@@ -1014,6 +1053,112 @@ async fn transport_failure_disables_further_paid_calls_until_restart() {
     )
     .await;
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn transient_sqlite_locks_in_preflight_and_ordinary_embedding_retry_later() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("events.sqlite");
+    let sdk = collect::open(&path, collect::PRIMAL_AUTHOR).await.unwrap();
+    let keys = Keys::generate();
+    let now = Utc::now().timestamp() as u64;
+    sdk.save_event(&signed(
+        &keys,
+        1,
+        "preflight locks before embedding",
+        now,
+        vec![],
+    ))
+    .await
+    .unwrap();
+    let split_calls = Arc::new(AtomicUsize::new(0));
+    let transport: Arc<dyn embed::Transport> = Arc::new(BusyDuringSplitEmbedder {
+        space: embed::Space::titan_v2(),
+        split_calls: split_calls.clone(),
+    });
+    let (_sender, queries) = tokio::sync::mpsc::channel(1);
+    let error = Arc::new(Mutex::new(None));
+    let mut worker = collect::EmbeddingWorker {
+        transport,
+        budget: embed::Budget {
+            total_nusd: 1_000_000,
+            monthly_nusd: 1_000_000,
+        },
+        queries,
+        error: error.clone(),
+        disabled: false,
+        validated: false,
+        preflight_only: false,
+        shutdown: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        topic_rebuild: None,
+        topics_disabled: false,
+    };
+    let mut topics_dirty = false;
+
+    collect::service_embeddings(&path, &mut worker, &mut topics_dirty, Duration::ZERO).await;
+    assert!(!worker.disabled);
+    assert!(!worker.validated);
+    assert!(error
+        .lock()
+        .unwrap()
+        .as_deref()
+        .unwrap()
+        .contains("preflight deferred by transient SQLite lock"));
+    let conn = Connection::open(&path).unwrap();
+    assert_eq!(count(&conn, "SELECT count(*) FROM post_embeddings"), 0);
+    assert_eq!(count(&conn, "SELECT count(*) FROM embedding_requests"), 0);
+    drop(conn);
+
+    collect::service_embeddings(&path, &mut worker, &mut topics_dirty, Duration::ZERO).await;
+    assert!(!worker.disabled);
+    assert!(worker.validated);
+    let conn = Connection::open(&path).unwrap();
+    assert_eq!(count(&conn, "SELECT count(*) FROM post_embeddings"), 1);
+    drop(conn);
+
+    sdk.save_event(&signed(
+        &keys,
+        1,
+        "ordinary embedding locks after preflight",
+        Utc::now().timestamp() as u64,
+        vec![],
+    ))
+    .await
+    .unwrap();
+    collect::service_embeddings(
+        &path,
+        &mut worker,
+        &mut topics_dirty,
+        Duration::from_millis(1),
+    )
+    .await;
+    assert!(!worker.disabled);
+    assert!(worker.validated);
+    assert!(error
+        .lock()
+        .unwrap()
+        .as_deref()
+        .unwrap()
+        .contains("between completed SDK work deferred by transient SQLite lock"));
+
+    collect::service_embeddings(
+        &path,
+        &mut worker,
+        &mut topics_dirty,
+        Duration::from_millis(1),
+    )
+    .await;
+    assert!(!worker.disabled);
+    assert_eq!(split_calls.load(Ordering::SeqCst), 4);
+    let conn = Connection::open(&path).unwrap();
+    assert_eq!(count(&conn, "SELECT count(*) FROM post_embeddings"), 2);
+    assert_eq!(
+        count(
+            &conn,
+            "SELECT count(*) FROM embedding_requests WHERE status='succeeded'",
+        ),
+        2
+    );
 }
 
 #[tokio::test]

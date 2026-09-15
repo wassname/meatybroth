@@ -1199,6 +1199,15 @@ pub(crate) fn detach_topic_rebuild_at_shutdown(worker: &mut EmbeddingWorker) {
     }
 }
 
+fn defer_embedding_sqlite_lock(worker: &EmbeddingWorker, phase: &str, error: &Error) {
+    let message = format!(
+        "{} embedding {phase} deferred by transient SQLite lock: {error}",
+        worker.transport.space().backend
+    );
+    *worker.error.lock().unwrap() = Some(message.clone());
+    eprintln!("{message}; embedding remains enabled for the next service cycle");
+}
+
 pub(crate) async fn service_embeddings(
     path: &Path,
     worker: &mut EmbeddingWorker,
@@ -1232,6 +1241,10 @@ pub(crate) async fn service_embeddings(
                     return;
                 }
             }
+            Err(error) if transient_sqlite_lock(error.as_ref()) => {
+                defer_embedding_sqlite_lock(worker, "preflight", &error);
+                return;
+            }
             Err(error) => {
                 let message = format!(
                     "{} embedding preflight failed: {error}",
@@ -1242,7 +1255,7 @@ pub(crate) async fn service_embeddings(
                     eprintln!("{message}; HTTP/2 GoAway may be billed, this event remains uncertain and later work will continue");
                 } else {
                     worker.disabled = true;
-                    eprintln!("{message}; paid embedding is disabled until process restart");
+                    eprintln!("{message}; embedding is disabled until process restart");
                 }
                 return;
             }
@@ -1307,6 +1320,9 @@ pub(crate) async fn service_embeddings(
                 }
             }
         }
+        Err(error) if transient_sqlite_lock(error.as_ref()) => {
+            defer_embedding_sqlite_lock(worker, "between completed SDK work", &error);
+        }
         Err(error) => {
             let message = format!(
                 "{} embedding between completed SDK work failed: {error}",
@@ -1317,7 +1333,7 @@ pub(crate) async fn service_embeddings(
                 eprintln!("{message}; HTTP/2 GoAway may be billed, this event remains uncertain and later work will continue");
             } else {
                 worker.disabled = true;
-                eprintln!("{message}; paid embedding is disabled until process restart");
+                eprintln!("{message}; embedding is disabled until process restart");
             }
         }
     }
