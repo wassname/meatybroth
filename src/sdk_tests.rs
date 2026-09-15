@@ -1745,6 +1745,47 @@ async fn dbscan_preserves_noise_cores_and_assigns_new_vectors_to_core_points() {
 }
 
 #[test]
+fn locked_topic_rebuild_stays_enabled_and_dirty_for_retry() {
+    let mock = MockEmbedder::default();
+    let (_sender, queries) = tokio::sync::mpsc::channel(1);
+    let mut worker = collect::EmbeddingWorker {
+        transport: Arc::new(mock),
+        budget: embed::Budget {
+            total_nusd: 1,
+            monthly_nusd: 1,
+        },
+        queries,
+        error: Arc::new(Mutex::new(None)),
+        disabled: false,
+        validated: true,
+        preflight_only: false,
+        shutdown: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        topic_rebuild: Some(std::thread::spawn(|| {
+            Err::<(usize, usize), Error>(Box::new(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY),
+                None,
+            )))
+        })),
+        topics_disabled: false,
+    };
+    let mut topics_dirty = false;
+    while !worker.topic_rebuild.as_ref().unwrap().is_finished() {
+        std::thread::yield_now();
+    }
+    collect::settle_topic_rebuild(&mut worker, &mut topics_dirty);
+    assert!(worker.topic_rebuild.is_none());
+    assert!(!worker.topics_disabled);
+    assert!(topics_dirty);
+    assert!(worker
+        .error
+        .lock()
+        .unwrap()
+        .as_deref()
+        .unwrap()
+        .contains("transient SQLite lock"));
+}
+
+#[test]
 fn shutdown_does_not_wait_for_topic_rebuild() {
     let mock = MockEmbedder::default();
     let (_sender, queries) = tokio::sync::mpsc::channel(1);

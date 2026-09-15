@@ -19,7 +19,7 @@ use nostr_sdk::{
     },
 };
 use nostr_sqlite::store::NostrSqlite;
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::{Connection, ErrorCode, OptionalExtension};
 use std::{
     collections::BTreeSet,
     path::Path,
@@ -62,6 +62,8 @@ const COVERAGE_STEP: i64 = 300;
 const MODERATION_REFRESH: u64 = 3600;
 const RELAY_WORK_BUDGET: u64 = 120;
 const EMBEDDING_INTERLEAVE: u64 = 5;
+const SQLITE_LOCK_RETRY_BASE: Duration = Duration::from_secs(1);
+const SQLITE_LOCK_RETRY_MAX: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Copy)]
 struct Cursor {
@@ -78,6 +80,82 @@ fn admin(path: &Path) -> Result<Connection, Error> {
     let conn = Connection::open(path)?;
     conn.busy_timeout(Duration::from_secs(10))?;
     Ok(conn)
+}
+
+fn transient_sqlite_lock(error: &(dyn std::error::Error + 'static)) -> bool {
+    let mut current = Some(error);
+    while let Some(error) = current {
+        if let Some(rusqlite::Error::SqliteFailure(sqlite, _)) =
+            error.downcast_ref::<rusqlite::Error>()
+        {
+            return matches!(
+                sqlite.code,
+                ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked
+            );
+        }
+        current = error.source();
+    }
+    false
+}
+
+fn lock_retry_delay(base_delay: Duration, retries: u32) -> Duration {
+    base_delay
+        .saturating_mul(2_u32.saturating_pow(retries.saturating_sub(1).min(5)))
+        .min(SQLITE_LOCK_RETRY_MAX)
+}
+
+fn record_transient_lock(path: &Path, retries: u32, now: i64) -> Result<(), Error> {
+    record_gap(
+        path,
+        "collector",
+        now,
+        now,
+        &format!("transient SQLite lock; retry {retries} resumes durable collector state"),
+    )
+}
+
+#[derive(Debug)]
+enum CollectorSupervisor {
+    Retry,
+    Finished,
+    Shutdown,
+}
+
+/// Applies the one collector retry policy used by production and injected-lock tests.
+async fn supervise_collector_attempt(
+    path: &Path,
+    shutdown: &mut tokio::sync::watch::Receiver<bool>,
+    retries: &mut u32,
+    base_delay: Duration,
+    result: Result<(), Error>,
+) -> Result<CollectorSupervisor, Error> {
+    match result {
+        Ok(()) => Ok(CollectorSupervisor::Finished),
+        Err(error) if transient_sqlite_lock(error.as_ref()) => {
+            *retries += 1;
+            let delay = lock_retry_delay(base_delay, *retries);
+            eprintln!(
+                "Collector transient SQLite lock; retry {retries} in {}s; durable SDK/cursor state retained",
+                delay.as_secs()
+            );
+            tokio::select! {
+                _ = tokio::time::sleep(delay) => {}
+                changed = shutdown.changed() => {
+                    if changed.is_err() || *shutdown.borrow() {
+                        return Ok(CollectorSupervisor::Shutdown);
+                    }
+                }
+            }
+            let now = i64::try_from(Timestamp::now().as_secs())?;
+            if let Err(record_error) = record_transient_lock(path, *retries, now) {
+                eprintln!(
+                    "Collector SQLite lock retry {retries} could not update status: {record_error}"
+                );
+            }
+            Ok(CollectorSupervisor::Retry)
+        }
+        Err(error) => Err(error),
+    }
 }
 
 fn recover_interrupted(path: &Path, now: i64) -> Result<(), Error> {
@@ -1069,11 +1147,11 @@ pub struct EmbeddingWorker {
     pub validated: bool,
     pub preflight_only: bool,
     pub shutdown: Arc<AtomicBool>,
-    pub topic_rebuild: Option<std::thread::JoinHandle<Result<(usize, usize), String>>>,
+    pub topic_rebuild: Option<std::thread::JoinHandle<Result<(usize, usize), Error>>>,
     pub topics_disabled: bool,
 }
 
-fn settle_topic_rebuild(worker: &mut EmbeddingWorker, topics_dirty: &mut bool) {
+pub(crate) fn settle_topic_rebuild(worker: &mut EmbeddingWorker, topics_dirty: &mut bool) {
     let Some(task) = worker.topic_rebuild.as_ref() else {
         return;
     };
@@ -1089,6 +1167,12 @@ fn settle_topic_rebuild(worker: &mut EmbeddingWorker, topics_dirty: &mut bool) {
             );
             // Vectors may have arrived while the rebuild used its input snapshot. -- Pi/gpt-5.6-sol
             *topics_dirty = true;
+        }
+        Ok(Err(error)) if transient_sqlite_lock(error.as_ref()) => {
+            let message = format!("Topic rebuild deferred by transient SQLite lock: {error}");
+            *worker.error.lock().unwrap() = Some(message.clone());
+            *topics_dirty = true;
+            eprintln!("{message}; topic refresh remains enabled for the next service cycle");
         }
         Ok(Err(error)) => {
             let message = format!("Topic rebuild failed: {error}");
@@ -1183,7 +1267,7 @@ pub(crate) async fn service_embeddings(
                     let path = path.to_path_buf();
                     let space = worker.transport.space().clone();
                     worker.topic_rebuild = Some(std::thread::spawn(move || {
-                        embed::rebuild_topics(&path, &space, now).map_err(|error| error.to_string())
+                        embed::rebuild_topics(&path, &space, now)
                     }));
                     eprintln!("Topic rebuild started in the background");
                     Ok(())
@@ -1206,6 +1290,15 @@ pub(crate) async fn service_embeddings(
                     *worker.error.lock().unwrap() = None;
                 }
                 Ok(()) => {}
+                Err(error) if transient_sqlite_lock(error.as_ref()) => {
+                    let message =
+                        format!("Topic refresh deferred by transient SQLite lock: {error}");
+                    *worker.error.lock().unwrap() = Some(message.clone());
+                    *topics_dirty = true;
+                    eprintln!(
+                        "{message}; topic refresh remains enabled for the next service cycle"
+                    );
+                }
                 Err(error) => {
                     let message = format!("Topic refresh failed: {error}");
                     *worker.error.lock().unwrap() = Some(message.clone());
@@ -1230,6 +1323,8 @@ pub(crate) async fn service_embeddings(
     }
 }
 
+/// Restarts only SQLite busy/locked collector runs, retaining the SDK store and cursors.
+/// Other collector failures remain terminal so they cannot be mistaken for harmless contention.
 pub async fn run(
     path: &Path,
     sdk: NostrSqlite,
@@ -1237,6 +1332,48 @@ pub async fn run(
     profile_relays: Vec<String>,
     root: PublicKey,
     mut embedding: Option<EmbeddingWorker>,
+    mut shutdown: tokio::sync::watch::Receiver<bool>,
+) -> Result<(), Error> {
+    let mut retries = 0;
+    loop {
+        let result = run_once(
+            path,
+            sdk.clone(),
+            relays.clone(),
+            profile_relays.clone(),
+            root,
+            &mut embedding,
+            shutdown.clone(),
+        )
+        .await;
+        match supervise_collector_attempt(
+            path,
+            &mut shutdown,
+            &mut retries,
+            SQLITE_LOCK_RETRY_BASE,
+            result,
+        )
+        .await?
+        {
+            CollectorSupervisor::Retry => continue,
+            CollectorSupervisor::Finished => return Ok(()),
+            CollectorSupervisor::Shutdown => {
+                if let Some(worker) = embedding.as_mut() {
+                    detach_topic_rebuild_at_shutdown(worker);
+                }
+                return Ok(());
+            }
+        }
+    }
+}
+
+async fn run_once(
+    path: &Path,
+    sdk: NostrSqlite,
+    relays: Vec<String>,
+    profile_relays: Vec<String>,
+    root: PublicKey,
+    embedding: &mut Option<EmbeddingWorker>,
     mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) -> Result<(), Error> {
     let blocks = path.with_file_name("blocklist.txt");
@@ -1366,7 +1503,7 @@ pub async fn run(
             if *shutdown.borrow() {
                 break 'collector;
             }
-            if let Some(worker) = &mut embedding {
+            if let Some(worker) = embedding.as_mut() {
                 service_embeddings(
                     path,
                     worker,
@@ -1380,7 +1517,7 @@ pub async fn run(
             break;
         }
         let next_scan_at = tokio::time::Instant::now() + Duration::from_secs(30);
-        if let Some(worker) = &mut embedding {
+        if let Some(worker) = embedding.as_mut() {
             service_embeddings(
                 path,
                 worker,
@@ -1394,7 +1531,7 @@ pub async fn run(
             _ = shutdown.changed() => {}
         }
     }
-    if let Some(worker) = &mut embedding {
+    if let Some(worker) = embedding.as_mut() {
         detach_topic_rebuild_at_shutdown(worker);
     }
     Ok(())
@@ -1403,6 +1540,105 @@ pub async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn sqlite_error(code: std::os::raw::c_int) -> Error {
+        Box::new(rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(code),
+            None,
+        ))
+    }
+
+    fn busy_error() -> Error {
+        sqlite_error(rusqlite::ffi::SQLITE_BUSY)
+    }
+
+    #[tokio::test]
+    async fn collector_supervisor_retries_one_injected_busy_before_next_attempt() {
+        assert!(transient_sqlite_lock(busy_error().as_ref()));
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.sqlite");
+        let _sdk = open(&path, PRIMAL_AUTHOR).await.unwrap();
+        let (_shutdown_sender, mut shutdown) = tokio::sync::watch::channel(false);
+        let mut retries = 0;
+        assert!(matches!(
+            supervise_collector_attempt(
+                &path,
+                &mut shutdown,
+                &mut retries,
+                Duration::ZERO,
+                Err(busy_error()),
+            )
+            .await
+            .unwrap(),
+            CollectorSupervisor::Retry
+        ));
+        assert_eq!(retries, 1);
+        assert!(matches!(
+            supervise_collector_attempt(
+                &path,
+                &mut shutdown,
+                &mut retries,
+                Duration::ZERO,
+                Ok(()),
+            )
+            .await
+            .unwrap(),
+            CollectorSupervisor::Finished
+        ));
+        let reason: String = admin(&path)
+            .unwrap()
+            .query_row(
+                "SELECT reason FROM collection_gaps ORDER BY rowid DESC LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            reason,
+            "transient SQLite lock; retry 1 resumes durable collector state"
+        );
+    }
+
+    #[tokio::test]
+    async fn collector_retries_injected_locked_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.sqlite");
+        let _sdk = open(&path, PRIMAL_AUTHOR).await.unwrap();
+        let (_shutdown_sender, mut shutdown) = tokio::sync::watch::channel(false);
+        let mut retries = 0;
+        assert!(matches!(
+            supervise_collector_attempt(
+                &path,
+                &mut shutdown,
+                &mut retries,
+                Duration::ZERO,
+                Err(sqlite_error(rusqlite::ffi::SQLITE_LOCKED)),
+            )
+            .await
+            .unwrap(),
+            CollectorSupervisor::Retry
+        ));
+        assert_eq!(retries, 1);
+    }
+
+    #[tokio::test]
+    async fn collector_does_not_retry_non_lock_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.sqlite");
+        let (_shutdown_sender, mut shutdown) = tokio::sync::watch::channel(false);
+        let mut retries = 0;
+        let error = supervise_collector_attempt(
+            &path,
+            &mut shutdown,
+            &mut retries,
+            Duration::ZERO,
+            Err("relay protocol error".into()),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.to_string(), "relay protocol error");
+        assert_eq!(retries, 0);
+    }
 
     #[tokio::test]
     async fn coverage_cursor_survives_restart_and_interruption_becomes_gap() {

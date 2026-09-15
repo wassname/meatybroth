@@ -1320,24 +1320,31 @@ fn topic_label(
     let minimum_support = 3.max(member_indices.len().div_ceil(5));
     let minimum_representatives =
         (representative_indices.len().div_ceil(5) * 3).min(representative_indices.len());
+    let member_document_count = member_indices.len();
+    let other_document_count = documents.len().saturating_sub(member_document_count);
+    let member_count = member_document_count as f64;
+    let other_count = other_document_count as f64;
     let mut terms = cluster_frequencies
         .into_iter()
         .filter_map(|(term, cluster_frequency)| {
-            let corpus_frequency = corpus_frequencies[&term];
-            let cluster_rate = cluster_frequency as f64 / member_indices.len() as f64;
-            let corpus_rate = corpus_frequency as f64 / documents.len() as f64;
+            let other_frequency = corpus_frequencies[&term].saturating_sub(cluster_frequency);
+            // Each document contributes at most once. Beta(1,1) smoothing makes the
+            // transparent unique-tail score log p(term|topic)-log p(term|not-topic).
+            let topic_probability = (cluster_frequency as f64 + 1.0) / (member_count + 2.0);
+            let other_probability = (other_frequency as f64 + 1.0) / (other_count + 2.0);
+            let unique_tail = (topic_probability / other_probability).ln();
             let representative_frequency = representative_indices
                 .iter()
                 .filter(|index| documents[**index].contains(&term))
                 .count();
             (cluster_frequency >= minimum_support
-                && cluster_rate >= 1.5 * corpus_rate
+                // Do not let smoothing turn a term present in every document into a
+                // false topic tail merely because the two populations have different sizes.
+                && cluster_frequency * other_document_count
+                    > other_frequency * member_document_count
+                && unique_tail > 0.0
                 && representative_frequency >= minimum_representatives)
-                .then_some((
-                    term,
-                    cluster_frequency,
-                    cluster_rate * (1.0 / corpus_rate).ln(),
-                ))
+                .then_some((term, cluster_frequency, unique_tail))
         })
         .collect::<Vec<_>>();
     terms.sort_by(|left, right| {
@@ -2164,6 +2171,21 @@ mod label_tests {
         ];
         assert_eq!(label(&texts, &[0, 1], &[0, 1]), "Unlabelled topic");
         assert_eq!(label(&texts, &[2, 3, 4], &[2, 3, 4]), "rust · vector");
+        assert_eq!(
+            label(
+                &[
+                    "market privacy wallet",
+                    "market privacy protocol",
+                    "market privacy lightning",
+                    "market garden fruit",
+                    "market birds trees",
+                    "market ocean waves",
+                ],
+                &[0, 1, 2],
+                &[0, 1, 2],
+            ),
+            "privacy"
+        );
         assert_eq!(
             label(
                 &[
