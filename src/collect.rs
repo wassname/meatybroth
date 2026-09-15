@@ -1151,8 +1151,12 @@ pub(crate) async fn service_embeddings(
                     worker.transport.space().backend
                 );
                 *worker.error.lock().unwrap() = Some(message.clone());
-                worker.disabled = true;
-                eprintln!("{message}; paid embedding is disabled until process restart");
+                if embed::is_relay_goaway(&error) {
+                    eprintln!("{message}; relay closed the cycle, embedding will retry");
+                } else {
+                    worker.disabled = true;
+                    eprintln!("{message}; paid embedding is disabled until process restart");
+                }
                 return;
             }
         }
@@ -1213,8 +1217,12 @@ pub(crate) async fn service_embeddings(
                 worker.transport.space().backend
             );
             *worker.error.lock().unwrap() = Some(message.clone());
-            worker.disabled = true;
-            eprintln!("{message}; paid embedding is disabled until process restart");
+            if embed::is_relay_goaway(&error) {
+                eprintln!("{message}; relay closed the cycle, embedding will retry");
+            } else {
+                worker.disabled = true;
+                eprintln!("{message}; paid embedding is disabled until process restart");
+            }
         }
     }
 }

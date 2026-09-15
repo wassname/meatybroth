@@ -934,7 +934,7 @@ fn status_uncached(app: &App, db: &Connection, now: i64) -> Result<String, Error
             json!({"backend":status.backend,"model":status.model,"dimensions":status.dimensions,
                 "revision":status.revision,"model_sha256":status.model_sha256,
                 "tokenizer_sha256":status.tokenizer_sha256,"vectors":status.vectors,
-                "eligible_vectors":status.eligible_vectors,"pending":status.pending,
+                "eligible_vectors":status.eligible_vectors,"pending":status.pending,"rejected":status.rejected,
                 "requests":status.requests,"tokens":status.tokens,"cost_usd":cost_usd,
                 "monthly_cost_usd":monthly_cost_usd,"uncertain":status.uncertain,
                 "reserved":status.reserved,

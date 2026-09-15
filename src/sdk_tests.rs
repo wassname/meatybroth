@@ -55,6 +55,41 @@ impl embed::Transport for FailingEmbedder {
 }
 
 #[derive(Clone)]
+struct GoAwayOnceEmbedder {
+    space: embed::Space,
+    calls: Arc<AtomicUsize>,
+}
+
+impl embed::Transport for GoAwayOnceEmbedder {
+    fn space(&self) -> &embed::Space {
+        &self.space
+    }
+
+    fn split(&self, text: &str) -> Result<Vec<String>, Error> {
+        Ok(embed::titan_chunks(text))
+    }
+
+    fn embed<'a>(
+        &'a self,
+        text: &'a str,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<embed::Output, Error>> + Send + 'a>,
+    > {
+        Box::pin(async move {
+            if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                return Err("relay GoAway: retry this cycle".into());
+            }
+            let mut vector = vec![0.0; self.space.dimensions];
+            vector[0] = 1.0;
+            Ok(embed::Output {
+                vector,
+                input_tokens: i64::try_from(text.len()).unwrap(),
+            })
+        })
+    }
+}
+
+#[derive(Clone)]
 struct SlowEmbedder {
     space: embed::Space,
     calls: Arc<AtomicUsize>,
@@ -971,6 +1006,79 @@ async fn transport_failure_disables_further_paid_calls_until_restart() {
     )
     .await;
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn blank_input_and_goaway_do_not_stop_a_later_valid_embedding() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("events.sqlite");
+    let sdk = collect::open(&path, collect::PRIMAL_AUTHOR).await.unwrap();
+    let keys = Keys::generate();
+    let now = Utc::now().timestamp() as u64;
+    let blank = signed(&keys, 1, "\u{2003}", now - 1, vec![]);
+    let valid = signed(&keys, 1, "valid after GoAway", now, vec![]);
+    sdk.save_event(&blank).await.unwrap();
+    sdk.save_event(&valid).await.unwrap();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let transport: Arc<dyn embed::Transport> = Arc::new(GoAwayOnceEmbedder {
+        space: embed::Space::titan_v2(),
+        calls: calls.clone(),
+    });
+    let (_sender, queries) = tokio::sync::mpsc::channel(1);
+    let mut worker = collect::EmbeddingWorker {
+        transport: transport.clone(),
+        budget: embed::Budget {
+            total_nusd: 1_000_000,
+            monthly_nusd: 1_000_000,
+        },
+        queries,
+        error: Arc::new(Mutex::new(None)),
+        disabled: false,
+        validated: false,
+        preflight_only: false,
+        shutdown: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        topic_rebuild: None,
+        topics_disabled: false,
+    };
+    let mut topics_dirty = false;
+    collect::service_embeddings(
+        &path,
+        &mut worker,
+        &mut topics_dirty,
+        Duration::from_secs(1),
+    )
+    .await;
+    assert!(!worker.disabled);
+    collect::service_embeddings(
+        &path,
+        &mut worker,
+        &mut topics_dirty,
+        Duration::from_secs(1),
+    )
+    .await;
+    assert!(!worker.disabled);
+    assert!(
+        embed::event_vector(&path, transport.space(), valid.id.as_bytes())
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        embed::event_vector(&path, transport.space(), blank.id.as_bytes())
+            .unwrap()
+            .is_none()
+    );
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    assert_eq!(count(&conn, "SELECT count(*) FROM embedding_requests WHERE event_id=(SELECT id FROM events WHERE content=' ')"), 0);
+    assert_eq!(
+        count(&conn, "SELECT count(*) FROM embedding_input_rejections"),
+        1
+    );
+    assert_eq!(
+        embed::cache_status(&conn, i64::try_from(now).unwrap()).unwrap()[0].rejected,
+        1
+    );
+    assert!(count(&conn, "SELECT count(*) FROM events WHERE content=' '") == 1);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
 }
 
 #[tokio::test]

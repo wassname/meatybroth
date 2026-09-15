@@ -26,6 +26,13 @@ CREATE TABLE IF NOT EXISTS embedding_requests (
 );
 CREATE INDEX IF NOT EXISTS embedding_request_budget
 ON embedding_requests(requested_at, status);
+CREATE TABLE IF NOT EXISTS embedding_input_rejections (
+    event_id BLOB NOT NULL,
+    space_id TEXT NOT NULL REFERENCES embedding_spaces(id),
+    rejected_at INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    PRIMARY KEY(event_id, space_id)
+);
 CREATE TABLE IF NOT EXISTS embedding_preflight_failures (
     request_id INTEGER PRIMARY KEY,
     event_id BLOB NOT NULL,

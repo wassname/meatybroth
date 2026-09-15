@@ -28,7 +28,7 @@
 <h3>Related-post index</h3>
 {% if embedding_error %}<p class="error">Latest indexing problem: {{ embedding_error }}</p>{% endif %}
 {% for e in embedding_spaces %}
-<p>{% if e.backend == 'bedrock' %}Titan{% elif e.backend == 'minilm' %}MiniLM{% else %}{{ e.backend }}{% endif %}: {{ e.eligible_vectors }} posts ready, {{ e.pending }} waiting.</p>
+<p>{% if e.backend == 'bedrock' %}Titan{% elif e.backend == 'minilm' %}MiniLM{% else %}{{ e.backend }}{% endif %}: {{ e.eligible_vectors }} posts ready, {{ e.pending }} waiting{% if e.rejected %}, {{ e.rejected }} blank-text posts excluded{% endif %}.</p>
 <p>Newest ready post {% if e.newest_embedded %}{{ e.newest_embedded }}{% else %}none{% endif %}. Oldest waiting post {% if e.oldest_pending %}{{ e.oldest_pending }}{% else %}none{% endif %}.</p>
 <details><summary>Model and usage details</summary>
 <p>{{ e.model }}, {{ e.dimensions }} dimensions. {{ e.requests }} completed requests, {{ e.tokens }} input tokens, US${{ e.cost_usd }} recorded, US${{ e.monthly_cost_usd }} this month. {{ e.uncertain }} uncertain and {{ e.reserved }} reserved requests.</p>

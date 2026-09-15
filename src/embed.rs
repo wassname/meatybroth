@@ -505,6 +505,9 @@ fn pending(
          LEFT JOIN embedding_admissions admission ON admission.event_id=e.id
          WHERE e.kind=1 AND e.created_at BETWEEN ?1 AND ?2 AND trim(e.content)!=''
            AND NOT EXISTS (
+             SELECT 1 FROM embedding_input_rejections rejection
+             WHERE rejection.event_id=e.id AND rejection.space_id=?3)
+           AND NOT EXISTS (
              SELECT 1 FROM post_embeddings v WHERE v.event_id=e.id AND v.space_id=?3)
            AND NOT EXISTS (
              SELECT 1 FROM embedding_requests request
@@ -524,9 +527,31 @@ fn pending(
             &space.backend,
             i64::try_from(limit)?,
         ),
-        |row| Ok((row.get(0)?, row.get(1)?)),
+        |row| Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, String>(1)?)),
     )?;
-    rows.collect::<Result<_, _>>().map_err(Into::into)
+    let rows = rows.collect::<Result<Vec<_>, _>>()?;
+    let rejected = rows
+        .iter()
+        .filter(|(_, text)| text.trim().is_empty())
+        .map(|(event_id, _)| event_id)
+        .collect::<Vec<_>>();
+    if !rejected.is_empty() {
+        let mut conn = db(path)?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        for event_id in rejected {
+            tx.execute(
+                "INSERT INTO embedding_input_rejections(event_id,space_id,rejected_at,reason)
+                 VALUES(?1,?2,?3,'blank text')
+                 ON CONFLICT(event_id,space_id) DO NOTHING",
+                (event_id, &space.id, now),
+            )?;
+        }
+        tx.commit()?;
+    }
+    Ok(rows
+        .into_iter()
+        .filter(|(_, text)| !text.trim().is_empty())
+        .collect())
 }
 
 fn request_status(
@@ -718,6 +743,18 @@ fn archive_preflight_failure(
     Ok(())
 }
 
+pub(crate) fn is_relay_goaway(error: &Error) -> bool {
+    error.to_string().to_ascii_lowercase().contains("goaway")
+}
+
+fn release_unstarted_request(path: &Path, request_id: i64) -> Result<(), Error> {
+    db(path)?.execute(
+        "DELETE FROM embedding_requests WHERE id=?1 AND status='reserved'",
+        [request_id],
+    )?;
+    Ok(())
+}
+
 fn mark_uncertain(path: &Path, request_id: i64, error: &str) -> Result<(), Error> {
     db(path)?.execute(
         "UPDATE embedding_requests SET status='uncertain',error=?1 WHERE id=?2",
@@ -827,7 +864,9 @@ async fn embed_event(
             Ok(output) => output,
             Err(error) => {
                 let message = error.to_string();
-                if message.starts_with("preflight:") {
+                if is_relay_goaway(&error) {
+                    release_unstarted_request(path, request_id)?;
+                } else if message.starts_with("preflight:") {
                     archive_preflight_failure(path, request_id, &message, now)?;
                 } else {
                     mark_uncertain(path, request_id, &message)?;
@@ -951,7 +990,9 @@ pub async fn cache_query(
         Ok(output) => output,
         Err(error) => {
             let message = error.to_string();
-            if message.starts_with("preflight:") {
+            if is_relay_goaway(&error) {
+                release_unstarted_request(path, request_id)?;
+            } else if message.starts_with("preflight:") {
                 archive_preflight_failure(path, request_id, &message, now)?;
             } else {
                 mark_uncertain(path, request_id, &message)?;
@@ -1018,6 +1059,7 @@ pub struct CacheStatus {
     pub vectors: i64,
     pub eligible_vectors: i64,
     pub pending: i64,
+    pub rejected: i64,
     pub requests: i64,
     pub tokens: i64,
     pub cost_nusd: i64,
@@ -1057,7 +1099,11 @@ pub fn cache_status(db: &Connection, now: i64) -> Result<Vec<CacheStatus>, Error
              JOIN eligible ON eligible.id=post.event_id WHERE post.space_id=space.id),
            (SELECT count(*) FROM eligible
              WHERE NOT EXISTS (SELECT 1 FROM post_embeddings post
-               WHERE post.event_id=eligible.id AND post.space_id=space.id)),
+               WHERE post.event_id=eligible.id AND post.space_id=space.id)
+               AND NOT EXISTS (SELECT 1 FROM embedding_input_rejections rejection
+                 WHERE rejection.event_id=eligible.id AND rejection.space_id=space.id)),
+           (SELECT count(*) FROM embedding_input_rejections rejection
+             JOIN eligible ON eligible.id=rejection.event_id WHERE rejection.space_id=space.id),
            (SELECT count(*) FROM embedding_requests request
              WHERE request.space_id=space.id AND request.status='succeeded'),
            (SELECT coalesce(sum(request.actual_tokens),0) FROM embedding_requests request
@@ -1091,14 +1137,15 @@ pub fn cache_status(db: &Connection, now: i64) -> Result<Vec<CacheStatus>, Error
                 vectors: row.get(6)?,
                 eligible_vectors: row.get(7)?,
                 pending: row.get(8)?,
-                requests: row.get(9)?,
-                tokens: row.get(10)?,
-                cost_nusd: row.get(11)?,
-                monthly_cost_nusd: row.get(12)?,
-                uncertain: row.get(13)?,
-                reserved: row.get(14)?,
-                newest_embedded_at: row.get(15)?,
-                oldest_pending_at: row.get(16)?,
+                rejected: row.get(9)?,
+                requests: row.get(10)?,
+                tokens: row.get(11)?,
+                cost_nusd: row.get(12)?,
+                monthly_cost_nusd: row.get(13)?,
+                uncertain: row.get(14)?,
+                reserved: row.get(15)?,
+                newest_embedded_at: row.get(16)?,
+                oldest_pending_at: row.get(17)?,
             })
         })?
         .collect::<Result<_, _>>()?;
