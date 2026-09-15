@@ -19,32 +19,44 @@
     <fieldset class="control-set">
       <legend>View</legend>
       {% if mode == 'similar' %}<span>Related posts</span>{% else %}
-      {% for m in feed_modes %}<label><input type="radio" name="mode" value="{{ m }}" data-submit {% if m == mode or (mode not in feed_modes and m == 'new') %}checked{% endif %}> {{ mode_labels[m] }}</label>{% endfor %}
+      <label class="sr-only" for="mode-select">View</label>
+      <select id="mode-select" name="mode" data-submit>
+        {% for m in feed_modes %}<option value="{{ m }}" {% if m == mode or (mode not in feed_modes and m == 'new') %}selected{% endif %}>{{ mode_labels[m] }}</option>{% endfor %}
+      </select>
       {% endif %}
     </fieldset>
     <fieldset class="control-set search-controls">
       <legend>Search</legend>
-      <label for="q-input">Query</label>
-      <input id="q-input" type="search" name="q" value="{{ q or '' }}" placeholder='words, "exact phrase"'>
-      <span class="field"><label for="search-method">Method</label>
-      <select id="search-method" name="search" data-submit {% if not meaning_available %}title="Meaning search is unavailable right now."{% endif %}>
-        <option value="relevance" {% if mode != 'meaning' %}selected{% endif %}>Words</option>
-        <option value="meaning" {% if mode == 'meaning' %}selected{% endif %} {% if not meaning_available %}disabled{% endif %}>Meaning</option>
-      </select></span>
-      {% if mode == 'relevance' %}<label for="search-order">Order</label>
-      <select id="search-order" name="order"><option value="relevance" {% if order != 'newest' %}selected{% endif %}>Relevance</option><option value="newest" {% if order == 'newest' %}selected{% endif %}>Newest</option></select>{% endif %}
-      <button type="submit" name="go" value="1">Search</button>
+      <label class="sr-only" for="q-input">Search posts</label>
+      <input id="q-input" type="search" name="q" value="{{ q or '' }}" placeholder='words or "exact phrase"' aria-label="Search posts">
+      {% if mode == 'meaning' and meaning_available %}
+      <button class="search-action" type="submit" name="search" value="meaning" aria-pressed="true">Meaning</button>
+      <button class="search-action" type="submit" name="search" value="relevance" aria-pressed="false">Words</button>
+      {% elif mode == 'meaning' %}
+      <button class="search-action" type="submit" name="search" value="relevance" aria-pressed="false">Words</button>
+      <button class="search-action" type="submit" name="search" value="meaning" aria-pressed="true" disabled title="Meaning search is unavailable right now.">Meaning</button>
+      {% else %}
+      <button class="search-action" type="submit" name="search" value="relevance" aria-pressed="true">Words</button>
+      <button class="search-action" type="submit" name="search" value="meaning" aria-pressed="false" {% if not meaning_available %}disabled title="Meaning search is unavailable right now."{% endif %}>Meaning</button>
+      {% endif %}
+      {% if mode == 'relevance' %}<label class="sr-only" for="search-order">Result order</label>
+      <select id="search-order" name="order" aria-label="Result order"><option value="relevance" {% if order != 'newest' %}selected{% endif %}>Relevance</option><option value="newest" {% if order == 'newest' %}selected{% endif %}>Newest</option></select>{% endif %}
     </fieldset>
     {% if mode == 'topics' %}
-    <fieldset class="control-set">
+    <fieldset class="control-set topic-controls">
       <legend>Topics</legend>
+      <label for="embedding-select">Embedding</label>
+      <select id="embedding-select" name="embedding" data-submit data-clear-topics>
+        {% if minilm_available %}<option value="minilm" {% if embedding != 'titan' %}selected{% endif %}>MiniLM</option>{% endif %}
+        <option value="titan" {% if embedding == 'titan' or not minilm_available %}selected{% endif %}>Titan</option>
+      </select>
       <label for="clustering-select">Group by</label>
       <select id="clustering-select" name="clustering" data-submit data-clear-topics>
         <option value="kmeans" {% if clustering != 'dbscan' %}selected{% endif %}>K-means</option>
         <option value="dbscan" {% if clustering == 'dbscan' %}selected{% endif %}>DBSCAN</option>
       </select>
       <details class="topic-picker">
-        <summary>Choose{% if selected_topics %} ({{ selected_topics|length }}){% elif include_unsorted %} (Unsorted){% endif %}</summary>
+        <summary><strong>Topics</strong> — {% if selected_topic_labels %}{{ selected_topic_labels|join(', ') }}{% elif include_unsorted %}Unsorted{% else %}All topics{% endif %}</summary>
         <fieldset class="topic-options">
           <legend class="sr-only">Topics</legend>
           {% for topic in topics %}<label><input type="checkbox" name="topics" value="{{ topic.id }}" {% if topic.id in selected_topics %}checked{% endif %}> {{ topic.label }} <small>({{ topic.post_count }}, {{ topic.percent }}%)</small></label>{% endfor %}
@@ -53,12 +65,11 @@
         </fieldset>
       </details>
     </fieldset>
-    {% endif %}
-    {% if mode in ['meaning', 'similar', 'topics'] %}
+    {% elif mode in ['meaning', 'similar'] %}
     <fieldset class="control-set">
       <legend>Model</legend>
       <label for="embedding-select">Embedding</label>
-      <select id="embedding-select" name="embedding" data-submit data-clear-topics>
+      <select id="embedding-select" name="embedding" data-submit>
         {% if minilm_available %}<option value="minilm" {% if embedding != 'titan' %}selected{% endif %}>MiniLM</option>{% endif %}
         <option value="titan" {% if embedding == 'titan' or not minilm_available %}selected{% endif %}>Titan</option>
       </select>
@@ -84,15 +95,16 @@ if (controls) {
     controls.setAttribute('aria-busy', 'true');
     loading.hidden = false;
   };
-  controls.addEventListener('submit', startLoading);
+  controls.addEventListener('submit', (event) => {
+    if (event.submitter && event.submitter.name === 'search') controls.querySelector('[name=go]').value = '1';
+    startLoading();
+  });
   controls.addEventListener('change', (event) => {
     const input = event.target;
     if (!input.matches('[data-submit]')) return;
     if (input.dataset.clearTopics !== undefined) {
       controls.querySelectorAll('[name=topics],[name=unsorted]').forEach((topic) => topic.disabled = true);
     }
-    if (input.name === 'search') controls.querySelector('[name=go]').value = '1';
-    startLoading();
     controls.requestSubmit();
   });
 }

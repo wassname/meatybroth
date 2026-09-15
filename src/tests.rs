@@ -218,6 +218,14 @@ fn topic_selection_preserves_repeated_and_noise_ids() {
     assert!(!shown.hide_flagged_spam);
     assert!(shown.query_string().contains("show_spam=true"));
     assert!(!Search::parse("mode=new&hide_spam=false", 1_000, "minilm").hide_flagged_spam);
+    assert_eq!(
+        Search::parse("q=vector&search=meaning", 1_000, "minilm").mode,
+        "meaning"
+    );
+    assert_eq!(
+        Search::parse("q=vector&search=relevance", 1_000, "minilm").mode,
+        "relevance"
+    );
 }
 
 #[test]
@@ -260,11 +268,23 @@ async fn pages_query_state_and_invalid_requests_use_real_handlers() {
     assert_eq!(ids(&html)[0], cid(100));
     assert_eq!(ids(&f.request("/?mode=relevance").await.1), ids(&html));
     assert!(html.contains("<legend>View</legend>"));
+    assert!(html.contains("<select id=\"mode-select\" name=\"mode\" data-submit>"));
+    assert!(!html.contains("type=\"radio\" name=\"mode\""));
     assert!(html.contains("<legend>Search</legend>"));
-    assert!(html.contains("type=\"radio\" name=\"mode\""));
+    assert!(html.contains("placeholder='words or"));
+    assert!(html.contains("aria-label=\"Search posts\""));
+    assert!(html.contains("name=\"search\" value=\"relevance\" aria-pressed=\"true\""));
+    assert!(html.contains("name=\"search\" value=\"meaning\" aria-pressed=\"false\" disabled"));
+    assert!(!html.contains("search-method"));
     assert!(html.contains("id=\"loading\" role=\"status\""));
     assert!(html.contains("<a class=\"help\" href=\"/about#reader-controls\">Help</a>"));
     assert!(!html.contains("<button type=\"button\" class=\"tipbtn\""));
+    let (_, topic_controls) = f.request("/?mode=topics").await;
+    let embedding = topic_controls.find("id=\"embedding-select\"").unwrap();
+    let grouping = topic_controls.find("id=\"clustering-select\"").unwrap();
+    let picker = topic_controls.find("<strong>Topics</strong>").unwrap();
+    assert!(embedding < grouping && grouping < picker);
+    assert!(topic_controls.contains("Topics</strong> — All topics"));
     let (_, second) = f.request("/?mode=new&page=1").await;
     assert_eq!(ids(&second), (200..205).map(cid).collect::<Vec<_>>());
     assert!(!second.contains("older &rarr;"));

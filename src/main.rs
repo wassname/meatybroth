@@ -130,7 +130,7 @@ impl Search {
         if mode == "recent" {
             mode = "new";
         }
-        if !q.is_empty() && arg("go") == "1" {
+        if !q.is_empty() && (arg("go") == "1" || matches!(arg("search"), "relevance" | "meaning")) {
             mode = match arg("search") {
                 "meaning" => "meaning",
                 _ => "relevance",
@@ -735,6 +735,7 @@ fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, 
         "spam_filter_available":true,"hide_flagged_spam":search.hide_flagged_spam,
         "now":now,"before":search.before,"similar":search.similar,
         "similar_context":similar_context,"topics":topics,"selected_topics":search.topics,
+        "selected_topic_labels":topics.iter().filter(|topic| search.topics.contains(&topic.id)).map(|topic| topic.label.clone()).collect::<Vec<_>>(),
         "include_unsorted":search.include_unsorted,"unsorted_count":unsorted_count,"unsorted_percent":unsorted_percent,
         "topic_settings":topic_settings,"topic_epsilon":topic_epsilon,
         "meaning_available":app.embedding.is_some() || app.embedding_queries.is_some(),"minilm_available":app.embedding.is_some() || app.cached_minilm.is_some(),

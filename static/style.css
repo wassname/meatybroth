@@ -96,3 +96,15 @@ form.controls[aria-busy="true"] { opacity: 0.72; }
   .topic-options { position: fixed; left: 0.5rem; right: 0.5rem; width: auto; }
 }
 /* Pi/gpt-5.6-sol */
+
+.search-controls { gap: 0.2rem; }
+.search-controls input[type=search] { min-width: min(16rem, 70vw); }
+.search-action { padding-inline: 0.45rem; }
+.search-action[aria-pressed="true"] { background: #e7dece; border-color: #9e907d; font-weight: 600; }
+.search-action:disabled { color: var(--muted); cursor: not-allowed; }
+.topic-controls { align-items: center; }
+.topic-picker > summary { display: inline-block; max-width: min(26rem, 72vw); overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; white-space: nowrap; }
+@media (max-width: 480px) {
+  .search-controls input[type=search] { flex-basis: 100%; min-width: 0; width: 100%; }
+  .topic-controls { align-items: baseline; }
+}

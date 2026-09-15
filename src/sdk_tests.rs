@@ -1724,7 +1724,24 @@ async fn dbscan_preserves_noise_cores_and_assigns_new_vectors_to_core_points() {
     }
     collect::service_embeddings(&path, &mut worker, &mut topics_dirty, Duration::ZERO).await;
     assert!(worker.topic_rebuild.is_none());
-    assert!(!embed::topics_due(&path, &mock.space, Utc::now().timestamp()).unwrap());
+    let rebuilt_at = Utc::now().timestamp();
+    assert!(!embed::topics_due(&path, &mock.space, rebuilt_at).unwrap());
+    conn.execute(
+        "UPDATE embedding_topics SET label='mixed' WHERE space_id=?1",
+        [&mock.space.id],
+    )
+    .unwrap();
+    assert!(embed::topics_due(&path, &mock.space, rebuilt_at).unwrap());
+    assert!(embed::topics(&path, &mock.space, "kmeans")
+        .unwrap()
+        .iter()
+        .any(|topic| topic.label == "mixed"));
+    embed::rebuild_topics(&path, &mock.space, rebuilt_at).unwrap();
+    assert!(!embed::topics(&path, &mock.space, "kmeans")
+        .unwrap()
+        .iter()
+        .any(|topic| topic.label == "mixed"));
+    assert!(!embed::topics_due(&path, &mock.space, rebuilt_at).unwrap());
 }
 
 #[test]

@@ -1814,6 +1814,18 @@ pub fn topics_due(path: &Path, space: &Space, now: i64) -> Result<bool, Error> {
     if !matching_kmeans || !matching_dbscan {
         return Ok(true);
     }
+    let obsolete_label: bool = conn.query_row(
+        "SELECT EXISTS(
+           SELECT 1 FROM embedding_topics WHERE space_id=?1 AND label='mixed'
+           UNION ALL
+           SELECT 1 FROM embedding_dbscan_topics WHERE space_id=?1 AND label='mixed'
+         )",
+        [&space.id],
+        |row| row.get(0),
+    )?;
+    if obsolete_label {
+        return Ok(true);
+    }
     let kmeans_at: Option<i64> = conn.query_row(
         "SELECT max(created_at) FROM embedding_topics WHERE space_id=?1",
         [&space.id],
