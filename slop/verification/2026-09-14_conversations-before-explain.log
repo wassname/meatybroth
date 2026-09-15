@@ -1,0 +1,38 @@
+47719
+Run Time: real 0.038 user 0.025091 sys 0.012541
+39601
+Run Time: real 0.122 user 0.090002 sys 0.031852
+10685
+Run Time: real 0.044 user 0.034818 sys 0.008898
+QUERY PLAN
+|--CO-ROUTINE cards
+|  |--CO-ROUTINE (subquery-27)
+|  |  |--MATERIALIZE eligible
+|  |  |  |--SEARCH event USING INDEX idx_events_created_at (created_at>? AND created_at<?)
+|  |  |  |--SEARCH event USING PRIMARY KEY (id=?)
+|  |  |  |--CORRELATED SCALAR SUBQUERY 8
+|  |  |  |  `--SCAN json_each VIRTUAL TABLE INDEX 1:
+|  |  |  |--CORRELATED SCALAR SUBQUERY 9
+|  |  |  |  `--SEARCH exclusion USING COVERING INDEX sqlite_autoindex_policy_exclusions_1 (event_id=?)
+|  |  |  |--LIST SUBQUERY 10
+|  |  |  |  |--SEARCH e USING INDEX idx_events_kind_created_at (kind=?)
+|  |  |  |  |--SEARCH r USING COVERING INDEX sqlite_autoindex_reader_events_1 (event_id=?)
+|  |  |  |  |--SCAN d VIRTUAL TABLE INDEX 1:
+|  |  |  |  |--SCAN member VIRTUAL TABLE INDEX 1:
+|  |  |  |  `--CORRELATED SCALAR SUBQUERY 12
+|  |  |  |     `--SCAN p VIRTUAL TABLE INDEX 1:
+|  |  |  `--SEARCH reader USING INDEX sqlite_autoindex_reader_events_1 (event_id=?)
+|  |  |--SCAN eligible
+|  |  `--USE TEMP B-TREE FOR ORDER BY
+|  `--SCAN (subquery-27)
+|--MATERIALIZE stats
+|  |--SCAN eligible
+|  |--BLOOM FILTER ON r (canonical_id=?)
+|  |--SEARCH r USING AUTOMATIC COVERING INDEX (canonical_id=?) LEFT-JOIN
+|  |--USE TEMP B-TREE FOR GROUP BY
+|  `--USE TEMP B-TREE FOR count(DISTINCT)
+|--SCAN s
+|--BLOOM FILTER ON c (position=? AND thread=?)
+|--SEARCH c USING AUTOMATIC PARTIAL COVERING INDEX (position=? AND thread=?)
+`--USE TEMP B-TREE FOR ORDER BY
+Run Time: real 0.001 user 0.000804 sys 0.000000

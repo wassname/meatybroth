@@ -1141,6 +1141,50 @@ impl TopicSettings {
     }
 }
 
+pub fn stored_topic_settings(path: &Path, space: &Space) -> Result<Option<TopicSettings>, Error> {
+    let conn = db(path)?;
+    let kmeans_k: Option<usize> = conn
+        .query_row(
+            "SELECT kmeans_k FROM embedding_topic_builds WHERE space_id=?1 AND method='kmeans'",
+            [&space.id],
+            |row| row.get::<_, Option<i64>>(0),
+        )
+        .optional()?
+        .flatten()
+        .map(usize::try_from)
+        .transpose()?;
+    let legacy_kmeans_k: usize = conn
+        .query_row(
+            "SELECT count(*) FROM embedding_topics WHERE space_id=?1",
+            [&space.id],
+            |row| row.get::<_, i64>(0),
+        )?
+        .try_into()?;
+    let dbscan: Option<(f32, usize)> = conn.query_row(
+        "SELECT epsilon_cosine,min_samples FROM embedding_topic_builds WHERE space_id=?1 AND method='dbscan'",
+        [&space.id],
+        |row| Ok((row.get::<_, f32>(0)?, usize::try_from(row.get::<_, i64>(1)?).map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?)),
+    ).optional()?;
+    let legacy_dbscan: Option<(f32, usize)> = conn.query_row(
+        "SELECT epsilon_cosine,min_samples FROM embedding_dbscan_topics WHERE space_id=?1 LIMIT 1",
+        [&space.id],
+        |row| Ok((row.get::<_, f32>(0)?, usize::try_from(row.get::<_, i64>(1)?).map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?)),
+    ).optional()?;
+    match (
+        kmeans_k.or((legacy_kmeans_k > 0).then_some(legacy_kmeans_k)),
+        dbscan.or(legacy_dbscan),
+    ) {
+        (Some(kmeans_k), Some((dbscan_epsilon_cosine, dbscan_min_samples))) => {
+            Ok(Some(TopicSettings {
+                kmeans_k,
+                dbscan_epsilon_cosine,
+                dbscan_min_samples,
+            }))
+        }
+        _ => Ok(None),
+    }
+}
+
 /// One keyword-labelled cluster in an exact embedding space.
 #[derive(Debug, serde::Serialize)]
 pub struct Topic {
@@ -1179,6 +1223,7 @@ fn document_terms(text: &str) -> std::collections::HashSet<String> {
         .map(|word| word.as_str().to_lowercase())
         .filter(|word| {
             word.chars().count() <= 40
+                && (word.is_ascii() || word.chars().count() <= 16)
                 && word.chars().any(char::is_alphabetic)
                 && !(word.is_ascii() && STOP.contains(word.as_str()))
         })
@@ -1197,6 +1242,29 @@ fn document_frequencies(
     frequencies
 }
 
+fn script_fallback(frequencies: &std::collections::HashMap<String, usize>) -> Option<&'static str> {
+    let mut alphabetic = 0_usize;
+    let mut japanese = 0_usize;
+    let mut arabic = 0_usize;
+    for (term, frequency) in frequencies {
+        for character in term.chars().filter(|character| character.is_alphabetic()) {
+            alphabetic += frequency;
+            let code = character as u32;
+            if (0x3040..=0x30ff).contains(&code) || (0x4e00..=0x9fff).contains(&code) {
+                japanese += frequency;
+            }
+            if (0x0600..=0x06ff).contains(&code) {
+                arabic += frequency;
+            }
+        }
+    }
+    (alphabetic > 0 && japanese * 5 >= alphabetic * 3)
+        .then_some("Japanese-script text")
+        .or_else(|| {
+            (alphabetic > 0 && arabic * 5 >= alphabetic * 3).then_some("Arabic-script text")
+        })
+}
+
 fn topic_label(
     member_indices: &[usize],
     representative_indices: &[usize],
@@ -1209,8 +1277,12 @@ fn topic_label(
             *cluster_frequencies.entry(term.clone()).or_default() += 1;
         }
     }
-    let minimum_support = 2.max(member_indices.len().div_ceil(10));
-    let minimum_representatives = representative_indices.len().min(2);
+    if let Some(label) = script_fallback(&cluster_frequencies) {
+        return label.into();
+    }
+    let minimum_support = 3.max(member_indices.len().div_ceil(5));
+    let minimum_representatives =
+        (representative_indices.len().div_ceil(5) * 3).min(representative_indices.len());
     let mut terms = cluster_frequencies
         .into_iter()
         .filter_map(|(term, cluster_frequency)| {
@@ -1300,10 +1372,20 @@ pub fn cluster_topics(path: &Path, space: &Space, now: i64) -> Result<usize, Err
     let mut conn = db(path)?;
     let rows = cluster_input(&conn, space, now)?;
     if rows.is_empty() {
-        conn.execute(
+        let settings = TopicSettings::from_env()?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        tx.execute(
             "DELETE FROM embedding_topics WHERE space_id=?1",
             [&space.id],
         )?;
+        tx.execute(
+            "INSERT INTO embedding_topic_builds(space_id,method,kmeans_k,epsilon_cosine,min_samples,built_at)
+             VALUES(?1,'kmeans',?2,NULL,NULL,?3)
+             ON CONFLICT(space_id,method) DO UPDATE SET kmeans_k=excluded.kmeans_k,
+               epsilon_cosine=NULL,min_samples=NULL,built_at=excluded.built_at",
+            rusqlite::params![space.id, i64::try_from(settings.kmeans_k)?, now],
+        )?;
+        tx.commit()?;
         return Ok(0);
     }
     let cluster_count = TopicSettings::from_env()?.kmeans_k.min(rows.len());
@@ -1450,6 +1532,13 @@ pub fn cluster_topics(path: &Path, space: &Space, now: i64) -> Result<usize, Err
             )?;
         }
     }
+    tx.execute(
+        "INSERT INTO embedding_topic_builds(space_id,method,kmeans_k,epsilon_cosine,min_samples,built_at)
+         VALUES(?1,'kmeans',?2,NULL,NULL,?3)
+         ON CONFLICT(space_id,method) DO UPDATE SET kmeans_k=excluded.kmeans_k,
+           epsilon_cosine=NULL,min_samples=NULL,built_at=excluded.built_at",
+        rusqlite::params![space.id, i64::try_from(TopicSettings::from_env()?.kmeans_k)?, now],
+    )?;
     tx.commit()?;
     Ok(stored_topics)
 }
@@ -1471,10 +1560,19 @@ pub fn cluster_dbscan_topics(
     let mut conn = db(path)?;
     let rows = cluster_input(&conn, space, now)?;
     if rows.is_empty() {
-        conn.execute(
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        tx.execute(
             "DELETE FROM embedding_dbscan_topics WHERE space_id=?1",
             [&space.id],
         )?;
+        tx.execute(
+            "INSERT INTO embedding_topic_builds(space_id,method,kmeans_k,epsilon_cosine,min_samples,built_at)
+             VALUES(?1,'dbscan',NULL,?2,?3,?4)
+             ON CONFLICT(space_id,method) DO UPDATE SET kmeans_k=NULL,
+               epsilon_cosine=excluded.epsilon_cosine,min_samples=excluded.min_samples,built_at=excluded.built_at",
+            rusqlite::params![space.id, epsilon_cosine, i64::try_from(min_samples)?, now],
+        )?;
+        tx.commit()?;
         return Ok(0);
     }
     let matrix = Array2::from_shape_vec(
@@ -1633,6 +1731,13 @@ pub fn cluster_dbscan_topics(
             )?;
         }
     }
+    transaction.execute(
+        "INSERT INTO embedding_topic_builds(space_id,method,kmeans_k,epsilon_cosine,min_samples,built_at)
+         VALUES(?1,'dbscan',NULL,?2,?3,?4)
+         ON CONFLICT(space_id,method) DO UPDATE SET kmeans_k=NULL,
+           epsilon_cosine=excluded.epsilon_cosine,min_samples=excluded.min_samples,built_at=excluded.built_at",
+        rusqlite::params![space.id, epsilon_cosine, i64::try_from(min_samples)?, now],
+    )?;
     transaction.commit()?;
     Ok(stored_topics)
 }
@@ -1651,7 +1756,27 @@ pub fn rebuild_topics(path: &Path, space: &Space, now: i64) -> Result<(usize, us
 }
 
 pub fn topics_due(path: &Path, space: &Space, now: i64) -> Result<bool, Error> {
+    let settings = TopicSettings::from_env()?;
     let conn = db(path)?;
+    let matching_kmeans: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM embedding_topic_builds
+          WHERE space_id=?1 AND method='kmeans' AND kmeans_k=?2)",
+        rusqlite::params![space.id, i64::try_from(settings.kmeans_k)?],
+        |row| row.get(0),
+    )?;
+    let matching_dbscan: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM embedding_topic_builds
+          WHERE space_id=?1 AND method='dbscan' AND epsilon_cosine=?2 AND min_samples=?3)",
+        rusqlite::params![
+            space.id,
+            settings.dbscan_epsilon_cosine,
+            i64::try_from(settings.dbscan_min_samples)?
+        ],
+        |row| row.get(0),
+    )?;
+    if !matching_kmeans || !matching_dbscan {
+        return Ok(true);
+    }
     let kmeans_at: Option<i64> = conn.query_row(
         "SELECT max(created_at) FROM embedding_topics WHERE space_id=?1",
         [&space.id],
@@ -2005,17 +2130,19 @@ mod label_tests {
             ),
             "Unlabelled topic"
         );
-        assert!(label(
-            &[
-                "東京経済 ニュース",
-                "東京経済 市場",
-                "rust code",
-                "garden soil"
-            ],
-            &[0, 1],
-            &[0]
-        )
-        .contains("東京経済"));
+        assert_eq!(
+            label(
+                &[
+                    "東京経済 ニュース",
+                    "東京経済 市場",
+                    "rust code",
+                    "garden soil"
+                ],
+                &[0, 1],
+                &[0]
+            ),
+            "Japanese-script text"
+        );
         assert_eq!(
             label(
                 &[

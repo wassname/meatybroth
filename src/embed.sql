@@ -76,6 +76,16 @@ CREATE TABLE IF NOT EXISTS post_embeddings (
     embedded_at INTEGER NOT NULL,
     PRIMARY KEY(event_id, space_id)
 );
+CREATE TABLE IF NOT EXISTS embedding_topic_builds (
+    space_id TEXT NOT NULL REFERENCES embedding_spaces(id),
+    method TEXT NOT NULL CHECK(method IN ('kmeans', 'dbscan')),
+    kmeans_k INTEGER,
+    epsilon_cosine REAL,
+    min_samples INTEGER,
+    built_at INTEGER NOT NULL,
+    PRIMARY KEY(space_id, method)
+);
+
 CREATE TABLE IF NOT EXISTS embedding_topics (
     space_id TEXT NOT NULL REFERENCES embedding_spaces(id),
     topic_id INTEGER NOT NULL,

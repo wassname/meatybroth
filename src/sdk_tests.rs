@@ -542,7 +542,7 @@ async fn sdk_relay_to_atomic_fts_http_policy_and_expiry() {
         .unwrap(),
         format!("nostr:{}", parent.id)
     );
-    let (code, body) = html(&path, "/?q=bridgeword").await;
+    let (code, body) = html(&path, "/?q=bridgeword&show_spam=true").await;
     assert_eq!(code, StatusCode::OK);
     for value in [
         "Bridge Name",
@@ -554,7 +554,7 @@ async fn sdk_relay_to_atomic_fts_http_policy_and_expiry() {
     let (_, body) = html(&path, &format!("/context/nostr/{}", note.id)).await;
     assert!(body.contains("parent anchorword"));
     assert!(!body.contains("bad-id"));
-    let (_, body) = html(&path, "/?q=warningword").await;
+    let (_, body) = html(&path, "/?q=warningword&show_spam=true").await;
     assert!(body.contains("class=\"warning\""));
     assert!(body.contains("auto-flagged: explicit"));
     assert_eq!(queries::count(&db, now as i64, None).unwrap(), 6);
@@ -1247,8 +1247,7 @@ async fn dbscan_preserves_noise_cores_and_assigns_new_vectors_to_core_points() {
         embed::cluster_dbscan_topics(&path, &mock.space, now, 0.01, 2).unwrap(),
         2
     );
-    assert!(!embed::topics_due(&path, &mock.space, now + 6 * 3600 - 1).unwrap());
-    assert!(embed::topics_due(&path, &mock.space, now + 6 * 3600).unwrap());
+    assert!(embed::topics_due(&path, &mock.space, now + 6 * 3600 - 1).unwrap());
     let dbscan_topics = embed::topics(&path, &mock.space, "dbscan").unwrap();
     assert!(dbscan_topics
         .iter()
@@ -1467,6 +1466,26 @@ async fn dbscan_preserves_noise_cores_and_assigns_new_vectors_to_core_points() {
         })
         .unwrap()
     );
+    let memberships_before: i64 = conn
+        .query_row("SELECT count(*) FROM post_topics", [], |row| row.get(0))
+        .unwrap();
+    conn.execute(
+        "UPDATE embedding_topic_builds SET kmeans_k=12 WHERE space_id=?1 AND method='kmeans'",
+        [&mock.space.id],
+    )
+    .unwrap();
+    assert!(embed::topics_due(&path, &mock.space, now + 2).unwrap());
+    assert_eq!(
+        conn.query_row("SELECT count(*) FROM post_topics", [], |row| row
+            .get::<_, i64>(0))
+            .unwrap(),
+        memberships_before
+    );
+    conn.execute(
+        "UPDATE embedding_topic_builds SET kmeans_k=24 WHERE space_id=?1 AND method='kmeans'",
+        [&mock.space.id],
+    )
+    .unwrap();
 
     conn.execute_batch("BEGIN IMMEDIATE").unwrap();
     let rebuild_path = path.clone();
@@ -1859,7 +1878,8 @@ async fn incremental_embeddings_reuse_delete_and_budget_after_sdk_drain() {
     assert_eq!(status, StatusCode::OK);
     assert!(titan_topic.contains("<article"));
     assert!(titan_topic.contains("embedding=titan"));
-    assert!(titan_topic.contains("Meaning unavailable"));
+    assert!(titan_topic.contains("value=\"meaning\""));
+    assert!(titan_topic.contains("disabled"));
     assert!(!titan_topic.contains("cached posts"));
     assert!(!titan_topic.contains("proof-of-work"));
     assert!(titan_topic.contains(">MiniLM</option>"));

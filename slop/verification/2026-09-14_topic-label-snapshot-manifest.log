@@ -1,0 +1,13 @@
+Frozen topic-label snapshots removed from source control; reproduce from the retained SQLite snapshots with the candidate release.
+Files removed after review:
+d49eaa7d80261e3d7de6133b3493b428a2f2e551b3af0905da0ee0c79edebd0d  slop/verification/2026-09-14_topic-labels-after-current-dbscan.json
+05a1a78911602e4846c79cb3ac8f8eb1676ef3848990f9a926ebf55f3546fdc3  slop/verification/2026-09-14_topic-labels-after-current-kmeans.json
+c2487889ec645259efc136e76635b1dd56165c0a1a25e3975dee2bae7f719edf  slop/verification/2026-09-14_topic-labels-after-dbscan.json
+7c6087983d54da0fe078ead73fea939156628800d825a6e679193893c1bef469  slop/verification/2026-09-14_topic-labels-after-kmeans.json
+8321ff93deed0934b2a26b1b1df93d0034e515863cf2e73b721d6c3bfaedd93e  slop/verification/2026-09-14_topic-labels-before-dbscan.json
+989f9fab4eb5d64def2e7358f23d87235b7b0d975d8829af48ea34f0b5c79d09  slop/verification/2026-09-14_topic-labels-before-kmeans.json
+
+Bounded review evidence:
+a871d0bda681e9d01c43f72f28cfa46eabb95b3d6cb813ffae87aaf6f5022a42  slop/verification/2026-09-14_topic-label-summary.log
+0ee4685396055757b41676aec4aad8a92b863c4a54e44bf7b086de3a3714fa50  slop/verification/2026-09-14_topic-label-examples.log
+7e561a2303ad2e5120c07b3b4f7a7760d6468a71205110227e96d42c74526614  slop/verification/2026-09-14_topic-label-anchor-review.log

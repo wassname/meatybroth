@@ -42,13 +42,13 @@ Positive fixed-k checks from the protocol anchors:
 
 A counterexample remains: the English trending-template anchor `385b…` is in `news · photo · scene` (topic 11). The label is supported by its five nearest representatives but reflects template vocabulary rather than a useful human topic. DBSCAN also splits the trading and Bitcoin templates across several tighter groups and leaves many protocol anchors as `Noise / unmatched`; that behavior is not claimed as an improvement here.
 
-Artifacts:
+Bounded artifacts:
 
-- `slop/verification/2026-09-14_topic-labels-before-{kmeans,dbscan}.json`
-- `slop/verification/2026-09-14_topic-labels-after-{kmeans,dbscan}.json` — controlled 22,210-post comparison
-- `slop/verification/2026-09-14_topic-labels-after-current-{kmeans,dbscan}.json` — normal 22,211-vector rebuild
+- `slop/verification/2026-09-14_topic-label-snapshot-manifest.log` — removed full-dump hashes plus retained evidence hashes
 - `slop/verification/2026-09-14_topic-label-summary.log`
 - `slop/verification/2026-09-14_topic-label-examples.log`
 - `slop/verification/2026-09-14_topic-label-anchor-review.log`
+
+The full JSON dumps and the temporary Python snapshot tool were removed. The controlled SQLite copy remains machine-local; the bounded evidence above records the claims needed for review without turning the Rust repository into a data-export store.
 
 -- Pi/gpt-5.6-terra
