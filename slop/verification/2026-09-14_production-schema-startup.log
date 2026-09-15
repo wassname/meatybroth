@@ -1,0 +1,14 @@
+candidate=a252d0a568c876f260839c62cb6eb5dc73d0a295
+backup_archive_sha256=89d6ec40ebcefb9c7772236aaf3362cf45cdbdd5d068722e0dd5fa3685948a16
+backup=/workspace/meatybroth/.local/production-backups/2026-09-14T104300Z-5b8ddd4/file-set/events.sqlite
+writable_copy=/workspace/.worktrees/meatybroth-sla/.local/production-schema-startup/2026-09-14T104300Z-a252d0a/events.sqlite
+initial_integrity_check=ok
+startup_listener=http://127.0.0.1:8091
+status_http=200 ttfb_s=0.000505 total_s=0.000636
+post_startup_quick_check=ok
+schema_tables=31
+events=49173
+embedding_spaces=2
+foreign_key_violations=0
+full_foreign_key_check_elapsed_s=131
+copy_sha256=f1b52df42e4b1f815925ba0d7e79dbf76438bf16dadb8855cbf338bf53147b96

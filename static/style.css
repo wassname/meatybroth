@@ -1,41 +1,47 @@
-:root { --ink: #2b2622; --paper: #f6f2ea; --rust: #a4451f; --rule: #ded5c6; --muted: #6b5f52; }
-body { font: 15px/1.55 system-ui, "DejaVu Sans", sans-serif;
-       max-width: 46rem; margin: 1.2rem auto; padding: 0 1rem;
+:root { --ink: #2b2622; --paper: #f6f2ea; --link: #0645ad; --visited: #0b0080; --rule: #ded5c6; --muted: #6b5f52; }
+body { font: 14px/1.4 system-ui, "DejaVu Sans", sans-serif;
+       max-width: 64rem; margin: 0.8rem auto; padding: 0 0.8rem;
        color: var(--ink); background: var(--paper); overflow-wrap: anywhere; }
-a { color: var(--rust); }
-h1 a { text-decoration: none; color: inherit; }
-h1 { font-size: 1.3em; display: inline; }
+a { color: var(--link); text-decoration: underline; }
+a:visited { color: var(--visited); }
+a:hover, a:focus-visible, summary:hover, summary:focus-visible { color: var(--visited); }
+a:focus-visible, summary:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+h1 { font-size: 1.25em; display: inline; }
+.soup-icon { width: 1em; height: 1em; margin-right: 0.15em; vertical-align: -0.15em; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
 nav { display: inline; }
 pre, code { background: #ece5d8; }
 pre { overflow-x: auto; padding: 0.6rem; }
-article.post { border-top: 1px solid var(--rule); padding: 0.7rem 0; }
-article.post .meta { color: var(--muted); margin: 0 0 0.35rem; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.4rem; border-bottom: 1px dotted var(--rule); padding-bottom: 0.3rem; }
-/* identity left, age/score/navigation pushed right; wraps cleanly when narrow */
+article.post { border-top: 1px solid var(--rule); padding: 0.45rem 0; }
+article.post .meta { color: var(--muted); font-size: 0.9em; margin: 0 0 0.2rem; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.15rem 0.4rem; }
+/* Identity stays left; time and actions wrap from the right. -- Pi/gpt-5.6-sol */
 article.post .meta .meta-right { margin-left: auto; display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.4rem; min-width: 0; }
-article.post .meta a.author { font-weight: 600; color: var(--ink); text-decoration: none; }
-article.post .meta a.author:hover { text-decoration: underline; }
+article.post .meta a.author { font-weight: 600; color: var(--ink); text-decoration: underline; }
 article.post .meta .address { color: var(--muted); font-size: 0.9em; max-width: 16ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 article.post .meta .score { color: var(--muted); font-size: 0.85em; }
-a.score.textlabel { text-decoration: none; }
-a.score.textlabel:hover, a.score.textlabel:focus-visible { text-decoration: underline; }
+article.post .meta a, article.post .meta a.score { color: var(--muted); text-decoration: underline; }
+details > summary { color: var(--link); text-decoration: underline; cursor: pointer; }
 article.post .meta time { color: var(--muted); }
 article.post .meta .icon { text-decoration: none; }
 article.post .meta details.more { display: inline; }
-article.post .meta details.more summary { display: inline-flex; list-style: none; cursor: pointer; color: var(--muted); padding: 0 0.2rem; }
+article.post .meta details.more summary { display: inline-flex; list-style: none; cursor: pointer; color: var(--link); text-decoration: underline; padding: 0 0.2rem; }
 article.post .meta details.more summary::-webkit-details-marker { display: none; }
 article.post .meta details.more summary::marker { content: ""; }
 article.post .meta details.more[open] dl { position: absolute; z-index: 2; background: var(--paper); border: 1px solid var(--rule); padding: 0.5rem; margin: 0.3rem 0; max-width: 40rem; }
 article.post .meta details.more dt { font-weight: 600; font-size: 0.85em; color: var(--muted); }
 article.post .meta details.more dd { margin: 0 0 0.4rem; font-size: 0.9em; word-break: break-all; }
-article.post .body p { margin: 0.35rem 0; font-size: 1.02em; }
+article.post .body p { margin: 0.25rem 0; font-size: 1.06em; }
 /* expanded state shows the complete body once: the leading preview hides */
 article.post .body:has(details.rest[open]) .preview { display: none; }
-article.post details.rest summary { display: inline-flex; cursor: pointer; color: var(--rust); list-style: none; padding: 0.15rem 0; }
+article.post details.rest summary { display: inline-flex; cursor: pointer; color: var(--link); text-decoration: underline; list-style: none; padding: 0.1rem 0; }
 article.post details.rest summary::-webkit-details-marker { display: none; }
 .scope-note, .hint { color: var(--muted); }
-.topics { display: flex; flex-wrap: wrap; gap: 0.45rem; margin: 0 0 1rem; }
-.topics a { background: var(--panel); border-radius: 0.35rem; padding: 0.3rem 0.55rem; text-decoration: none; }
-.topics a[aria-current="page"] { font-weight: 700; outline: 1px solid var(--rust); }
+.topic-picker { position: relative; }
+.topic-picker > summary { color: var(--link); text-decoration: underline; cursor: pointer; }
+.topic-options { position: absolute; z-index: 4; width: min(28rem, 85vw); max-height: 22rem; overflow-y: auto; background: var(--paper); border: 1px solid var(--rule); padding: 0.5rem; margin: 0; box-shadow: 0 0.25rem 0.8rem #0002; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.topic-options > label { display: block; color: var(--ink); padding: 0.15rem; }
+.topic-options small { color: var(--muted); }
+.topic-actions { position: sticky; bottom: -0.5rem; display: flex; gap: 0.6rem; align-items: center; background: var(--paper); border-top: 1px solid var(--rule); padding: 0.5rem 0 0; }
 .pagination { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.3rem 0.8rem; margin-top: 1rem; }
 .pagination form { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 0.3rem; }
 .pagination label { color: var(--muted); }
@@ -48,33 +54,21 @@ table { border-collapse: collapse; }
 th, td { padding: 0.4rem; border-bottom: 1px solid var(--rule); text-align: left; }
 blockquote { margin-left: 0; padding-left: 1rem; border-left: 2px solid var(--rule); }
 footer { border-top: 1px solid var(--rule); margin-top: 1.5rem; padding-top: 0.6rem; }
-.textlabel { color: var(--rust); }
+a.textlabel { color: var(--muted); text-decoration: underline; }
+span.textlabel { color: var(--muted); }
 
-/* lr-check2 */
-
-/* feed tooltip: hover, keyboard focus, or tap on the ? button */
-.tipwrap { position: relative; display: inline-flex; }
-.tipbtn { border-radius: 50%; width: 1.4em; height: 1.4em; line-height: 1; padding: 0; color: var(--muted); }
-.tip { display: none; position: absolute; top: 1.6em; left: 50%; transform: translateX(-50%);
-       z-index: 3; width: min(22rem, 60vw); background: var(--paper); border: 1px solid var(--rule);
-       padding: 0.4rem 0.6rem; color: var(--muted); font-size: 0.9em; }
-.tipwrap:hover .tip, .tipwrap:focus-within .tip { display: block; }
-/* narrow screens: show the explanation in flow so it can never overflow */
-@media (max-width: 480px) {
-  .tipwrap { flex-basis: 100%; }
-  .tip { position: static; transform: none; width: auto; }
-}
-
-/* content warnings: CW/explicit gate the body; spam is a small label */
+/* Keep app flags visually separate from unmodified post text. -- Pi/gpt-5.6-sol */
 article.post details.warning > summary { color: #8a6d1a; cursor: pointer; margin-bottom: 0.3rem; }
 article.post details.warning[open] > summary { margin-bottom: 0.3rem; }
 article.post .flag { color: #8a6d1a; font-size: 0.85em; margin: 0 0 0.3rem; }
-.parent-excerpt { display: block; color: var(--muted); font-size: 0.9em; margin: 0 0 0.35rem;
-                  overflow-wrap: anywhere; text-decoration: none; }
-.parent-excerpt:hover, .parent-excerpt:focus-visible { text-decoration: underline; }
+article.post .spam-flag { border-left: 3px solid #8a6d1a; color: #6b4f08; font-size: 0.85em; font-weight: 600; margin: 0.2rem 0 0.35rem; padding: 0.15rem 0.4rem; }
+.parent-relation { font-size: 0.9em; margin: 0 0 0.25rem; overflow-wrap: anywhere; }
+.parent-relation .relation-label { color: var(--muted); font-weight: 600; }
+.parent-excerpt { color: var(--link); text-decoration: underline; }
 .reply-tree .reply-node { margin-left: min(calc(var(--tree-depth) * 1.25rem), 7.5rem);
                           border-left: 1px solid var(--rule); padding-left: 0.6rem; }
 .context-ancestor { border-left: 2px solid var(--rule); padding-left: 0.6rem; }
+.similar-replies { border-top: 1px solid var(--rule); margin-top: 1rem; padding-top: 0.5rem; }
 @media (max-width: 480px) {
   .reply-tree .reply-node { margin-left: min(calc(var(--tree-depth) * 0.75rem), 4.5rem); padding-left: 0.4rem; }
 }
@@ -83,9 +77,22 @@ article.post .flag { color: #8a6d1a; font-size: 0.85em; margin: 0 0 0.3rem; }
 details.rest[open] .when-closed { display: none; }
 details.rest:not([open]) .when-open { display: none; }
 
-
+/* Compact card hierarchy from old Reddit; links remain explicit. -- Pi/gpt-5.6-sol */
 /* header rows: site+nav / italic tagline / search+go+feed */
 .siterow { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; }
 .tagline { color: var(--muted); margin: 0.2rem 0 0.5rem; }
-form.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; }
-form.controls label { color: var(--muted); }
+form.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.6rem; }
+.control-set { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; border: 0; margin: 0; padding: 0; min-width: 0; }
+.control-set legend { color: var(--muted); font-size: 0.85em; padding: 0; }
+.control-set label { color: var(--muted); white-space: nowrap; }
+.field { display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap; }
+@media (max-width: 480px) {
+  .search-controls { flex-basis: 100%; }
+}
+.control-set input[type=search] { min-width: min(14rem, 70vw); }
+.help, .spam-toggle { color: var(--muted); font-size: 0.9em; }
+form.controls[aria-busy="true"] { opacity: 0.72; }
+@media (max-width: 480px) {
+  .topic-options { position: fixed; left: 0.5rem; right: 0.5rem; width: auto; }
+}
+/* Pi/gpt-5.6-sol */

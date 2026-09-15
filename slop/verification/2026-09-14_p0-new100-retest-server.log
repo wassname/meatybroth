@@ -1,0 +1,3 @@
+Startup stage embedding_setup_ms=0
+Rust reader listening on http://127.0.0.1:8093
+Slow reader mode=new rows=100 rank_ms=348 total_ms=1397

@@ -1,0 +1,9 @@
+Final integrated local service
+new code=200 ttfb=0.074823 total=0.074969
+meaning code=200 ttfb=0.400637 total=0.401155
+target_vectors  embedded_at  same_embedded_at
+--------------  -----------  ----------------
+1               1789359643   1789359643
+quick_check
+-----------
+ok

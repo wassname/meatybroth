@@ -4,8 +4,8 @@
 //! -- Pi/gpt-5.6-sol
 
 use crate::{Error, Search};
-use rusqlite::{named_params, Connection, Row};
-use serde::Serialize;
+use rusqlite::{named_params, Connection, OptionalExtension, Row};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Reader retention window in seconds.
@@ -82,6 +82,13 @@ pub fn feed(db: &Connection, search: &Search, root: &str, now: i64) -> Result<Ve
     };
     let prefix = format!("{ELIGIBLE}, matches AS MATERIALIZED ({matches})");
     let sql = match search.mode.as_str() {
+        "new" | "relevance" if search.expression.is_none() => format!(
+            "{ELIGIBLE}
+             SELECT p.*,NULL AS bm25,{CARD_DEFAULTS}
+             FROM eligible p
+             WHERE :expression IS NULL
+             ORDER BY p.created_at DESC,p.canonical_id ASC"
+        ),
         // Group each stored root with its replies before ranking recent distinct repliers. -- Pi/gpt-5.6-sol
         "conversations" => format!(
             "{prefix}, members AS (
@@ -254,17 +261,38 @@ pub fn eligible_map_for(
     now: i64,
     canonical_ids: Option<&[String]>,
 ) -> Result<HashMap<String, Post>, Error> {
-    let id_filter = canonical_ids
-        .map(|_| "WHERE canonical_id IN (SELECT value FROM json_each(:ids))")
-        .unwrap_or("");
-    let mut statement = db.prepare(&format!(
-        "{ELIGIBLE}
-         SELECT
-           *,
-           NULL AS bm25,
-           {CARD_DEFAULTS}
-         FROM eligible {id_filter}"
-    ))?;
+    let indexed_reader: bool = canonical_ids.is_some()
+        && db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='reader_events')",
+            [],
+            |row| row.get(0),
+        )?;
+    let query = if indexed_reader {
+        format!(
+            "SELECT
+               post.*,
+               NULL AS bm25,
+               {CARD_DEFAULTS}
+             FROM json_each(:ids) wanted
+             JOIN reader_post_events reader
+               ON reader.event_id=unhex(substr(wanted.value,7))
+             JOIN posts post ON post.rowid=reader.id
+             WHERE post.created_at BETWEEN :since AND :until"
+        )
+    } else {
+        let id_filter = canonical_ids
+            .map(|_| "WHERE canonical_id IN (SELECT value FROM json_each(:ids))")
+            .unwrap_or("");
+        format!(
+            "{ELIGIBLE}
+             SELECT
+               *,
+               NULL AS bm25,
+               {CARD_DEFAULTS}
+             FROM eligible {id_filter}"
+        )
+    };
+    let mut statement = db.prepare(&query)?;
     statement.raw_bind_parameter(statement.parameter_index(":since")?.unwrap(), now - WINDOW)?;
     statement.raw_bind_parameter(statement.parameter_index(":until")?.unwrap(), now)?;
     let ids_json;
@@ -339,6 +367,64 @@ pub fn count(db: &Connection, now: i64, parent: Option<&str>) -> Result<i64, Err
         named_params! {":since": now - WINDOW, ":until": now, ":parent": parent},
         |r| r.get(0),
     )?)
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct ConversationRank {
+    pub canonical_id: String,
+    pub n_reply_authors: i64,
+    pub n_replies: i64,
+    pub latest_activity: i64,
+    pub root_present: bool,
+}
+
+#[derive(Deserialize)]
+pub struct ConversationCache {
+    pub generated_at: i64,
+    pub rows: Vec<ConversationRank>,
+    pub last_attempt: i64,
+    pub last_error: Option<String>,
+}
+
+const CONVERSATION_CACHE_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS conversation_page_cache (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1), generated_at INTEGER NOT NULL,
+    rows_json TEXT NOT NULL, last_attempt INTEGER NOT NULL, last_error TEXT
+);";
+
+pub fn conversation_cache(db: &Connection) -> Result<Option<ConversationCache>, Error> {
+    let exists: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='conversation_page_cache')",
+        [],
+        |row| row.get(0),
+    )?;
+    if !exists {
+        return Ok(None);
+    }
+    Ok(db.query_row("SELECT generated_at,rows_json,last_attempt,last_error FROM conversation_page_cache WHERE singleton=1", [], |row| {
+        Ok(ConversationCache { generated_at: row.get(0)?, rows: serde_json::from_str(&row.get::<_, String>(1)?).map_err(|error| rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, Box::new(error)))?, last_attempt: row.get(2)?, last_error: row.get(3)? })
+    }).optional()?)
+}
+
+pub fn store_conversation_cache(
+    path: &std::path::Path,
+    now: i64,
+    rows: &[Post],
+    error: Option<&str>,
+) -> Result<(), Error> {
+    let db = Connection::open(path)?;
+    db.execute_batch(CONVERSATION_CACHE_SCHEMA)?;
+    let ranks = rows
+        .iter()
+        .map(|post| ConversationRank {
+            canonical_id: post.canonical_id.clone(),
+            n_reply_authors: post.n_reply_authors,
+            n_replies: post.n_replies,
+            latest_activity: post.latest_activity,
+            root_present: post.root_present,
+        })
+        .collect::<Vec<_>>();
+    db.execute("INSERT INTO conversation_page_cache(singleton,generated_at,rows_json,last_attempt,last_error) VALUES(1,?1,?2,?1,?3) ON CONFLICT(singleton) DO UPDATE SET generated_at=CASE WHEN excluded.last_error IS NULL THEN excluded.generated_at ELSE generated_at END,rows_json=CASE WHEN excluded.last_error IS NULL THEN excluded.rows_json ELSE rows_json END,last_attempt=excluded.last_attempt,last_error=excluded.last_error", rusqlite::params![now, serde_json::to_string(&ranks)?, error])?;
+    Ok(())
 }
 
 /// Returns direct replies in deterministic chronological order.

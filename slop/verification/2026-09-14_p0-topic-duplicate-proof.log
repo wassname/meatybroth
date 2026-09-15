@@ -1,0 +1,6 @@
+backend  clustering  rows   count_distinct  duplicates
+-------  ----------  -----  --------------  ----------
+bedrock  kmeans      8085   8085            0
+minilm   kmeans      22210  22210           0
+bedrock  dbscan      8085   8085            0
+minilm   dbscan      22210  22210           0

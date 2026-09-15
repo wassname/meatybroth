@@ -1,0 +1,13 @@
+URL: http://127.0.0.1:8088/context/nostr/706dde9e7d8edaff10115f5685f7d7d40c07b2526fc58d24cd6c8ee5f0e9c5b5?embedding=titan
+Release binary; frozen copied corpus /tmp/meatybroth-dbscan-release.sqlite
+actual_before_heading=1
+similar_after_heading=5
+unique_all=true
+heading=<h3>Similar replies:</h3>
+similar_ids:
+nostr:44fa12f3c968a8705a1e160203176383fd441e9d4b7bb9cfe1c9fafa97c36766
+nostr:37392339d8e6f68bac076d6da17f71d8211b732e38fb7e6a44228e2a109662e7
+nostr:7cf216256495f4bbef1dde76f827d3931eac729a90ba7e41b68b778bd260f237
+nostr:78a7b2b505c76e978e6b8b4398d0c86132f08c0533d041eeb0ee40e1895c324d
+nostr:000006c81c9b080c47ce586ec03dafff512a20e6e9f0044652f624a10a0647d5
+-- Pi/gpt-5.6-sol

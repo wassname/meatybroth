@@ -1,0 +1,22 @@
+after hydration bounded db=/tmp/meatybroth-dbscan-release.sqlite query=/?mode=new
+run=1 code=200 ttfb=0.287653 total=0.288231 bytes=249013
+run=2 code=200 ttfb=0.286974 total=0.287476 bytes=249013
+run=3 code=200 ttfb=0.315308 total=0.315795 bytes=249013
+run=4 code=200 ttfb=0.284186 total=0.284586 bytes=249013
+run=5 code=200 ttfb=0.285179 total=0.285628 bytes=249013
+820645b8e80b69369a4ba6ca54f81ad047b651c1e04722afe969889315ccd561  ordered_ids
+full_html_equal=no
+--- /tmp/hydration-before-5.html	2026-09-14 11:39:20.821195684 +0800
++++ /tmp/hydration-after-5.html	2026-09-14 11:49:22.637293859 +0800
+@@ -4450,8 +4450,8 @@
+
+
+     <label>Before</label>
+-    <button type="submit" name="before" value="1789270759">1 day</button>
+-    <button type="submit" name="before" value="1788925159">5 days</button>
++    <button type="submit" name="before" value="1789271362">1 day</button>
++    <button type="submit" name="before" value="1788925762">5 days</button>
+     <input type="date" name="date" aria-label="jump to date">
+     <button type="submit">Go</button>
+   </form>
+normalized_full_html_equal=yes

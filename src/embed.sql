@@ -36,6 +36,13 @@ CREATE TABLE IF NOT EXISTS embedding_preflight_failures (
     error TEXT NOT NULL,
     archived_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS embedding_admissions (
+    event_id BLOB PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
+    admitted_at INTEGER NOT NULL,
+    live INTEGER NOT NULL CHECK(live IN (0,1))
+);
+CREATE INDEX IF NOT EXISTS embedding_admissions_queue
+ON embedding_admissions(live, admitted_at, event_id);
 -- Chunk and aggregate vectors follow SDK event deletion through foreign keys. -- Pi/gpt-5.6-sol
 CREATE TABLE IF NOT EXISTS embedding_chunks (
     event_id BLOB NOT NULL REFERENCES events(id) ON DELETE CASCADE,
@@ -69,6 +76,16 @@ CREATE TABLE IF NOT EXISTS post_embeddings (
     embedded_at INTEGER NOT NULL,
     PRIMARY KEY(event_id, space_id)
 );
+CREATE TABLE IF NOT EXISTS embedding_topic_builds (
+    space_id TEXT NOT NULL REFERENCES embedding_spaces(id),
+    method TEXT NOT NULL CHECK(method IN ('kmeans', 'dbscan')),
+    kmeans_k INTEGER,
+    epsilon_cosine REAL,
+    min_samples INTEGER,
+    built_at INTEGER NOT NULL,
+    PRIMARY KEY(space_id, method)
+);
+
 CREATE TABLE IF NOT EXISTS embedding_topics (
     space_id TEXT NOT NULL REFERENCES embedding_spaces(id),
     topic_id INTEGER NOT NULL,
@@ -87,4 +104,27 @@ CREATE TABLE IF NOT EXISTS post_topics (
 );
 CREATE INDEX IF NOT EXISTS post_topics_space_topic
 ON post_topics(space_id, topic_id, event_id);
+
+CREATE TABLE IF NOT EXISTS embedding_dbscan_topics (
+    space_id TEXT NOT NULL REFERENCES embedding_spaces(id),
+    topic_id INTEGER NOT NULL,
+    label TEXT NOT NULL,
+    post_count INTEGER NOT NULL,
+    epsilon_cosine REAL NOT NULL,
+    min_samples INTEGER NOT NULL,
+    centroid BLOB,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY(space_id, topic_id)
+);
+CREATE TABLE IF NOT EXISTS post_dbscan_topics (
+    event_id BLOB NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    space_id TEXT NOT NULL,
+    topic_id INTEGER NOT NULL,
+    is_core INTEGER NOT NULL CHECK(is_core IN (0,1)),
+    assigned_at INTEGER NOT NULL,
+    PRIMARY KEY(event_id, space_id),
+    FOREIGN KEY(space_id, topic_id) REFERENCES embedding_dbscan_topics(space_id, topic_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS post_dbscan_topics_space_topic
+ON post_dbscan_topics(space_id, topic_id, is_core, event_id);
 COMMIT;

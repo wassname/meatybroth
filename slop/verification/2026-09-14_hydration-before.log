@@ -1,0 +1,7 @@
+before commit=ff0554d db=/tmp/meatybroth-dbscan-release.sqlite query=/?mode=new
+run=1 code=200 ttfb=0.940861 total=0.941323 bytes=249013
+run=2 code=200 ttfb=0.817212 total=0.817847 bytes=249013
+run=3 code=200 ttfb=0.822707 total=0.823225 bytes=249013
+run=4 code=200 ttfb=0.865564 total=0.865981 bytes=249013
+run=5 code=200 ttfb=0.908893 total=0.909333 bytes=249013
+820645b8e80b69369a4ba6ca54f81ad047b651c1e04722afe969889315ccd561  ordered_ids

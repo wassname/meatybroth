@@ -1,0 +1,4 @@
+before kmeans: population=22210; topics=12; labelled=12; unlabelled=0; membership_total=22210
+before dbscan: population=22210; topics=137; labelled=136; unlabelled=0; membership_total=22210
+after kmeans: population=22210; topics=24; labelled=18; unlabelled=6; membership_total=22210
+after dbscan: population=22210; topics=202; labelled=191; unlabelled=10; membership_total=22210

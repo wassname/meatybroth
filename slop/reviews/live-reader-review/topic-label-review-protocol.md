@@ -4,7 +4,7 @@ Read-only review of the current label path in `62a48237` and the frozen controll
 
 ## Current path and its limit
 
-`src/embed.rs:1167-1207` labels each K-means/DBSCAN cluster from its five nearest-centroid texts only. It removes URLs, accepts only ASCII tokens, removes English stopwords, deduplicates a token within each text, and requires support in `max(2, ceil(3 × 5 / 5)) = 3` representatives. The current fallback is `mixed`; the approved reader-facing fallback for the feature review is `Unlabelled topic`.
+`src/embed.rs:1167-1207` labels each K-means/DBSCAN cluster from its five nearest-centroid texts only. It removes URLs, accepts only ASCII tokens, removes English stopwords, deduplicates a token within each text, and requires support in `max(2, ceil(3 × 5 / 5)) = 3` representatives. Fewer than two terms becomes `mixed`.
 
 This is a deterministic heuristic, but it is not a label from all members. It will miss a cluster’s dominant non-English terms and can give a nearby repeated campaign or news-template vocabulary disproportionate weight.
 
@@ -29,7 +29,7 @@ For each K=24 topic and each DBSCAN non-noise topic:
 1. Save its member event-ID set, count, five nearest-centroid IDs and cosine scores, all candidate label terms, and the exact space/configuration (`k=24`; DBSCAN epsilon/min-samples). Save DBSCAN noise separately.
 2. Form candidate terms from **all member texts** after URL removal, using Unicode letter/number tokenization. Do not discard a token merely because it is not ASCII. Use one normalized token form consistently for matching; record the raw displayed form beside it.
 3. For every proposed displayed term, record: number and fraction of member events containing it; number and fraction of events in other current topics containing it; and which of the five nearest-centroid posts contain it. A term absent from every nearest-centroid post is a review warning, not a hidden substitution.
-4. Judge labels contrastively: a term needs both member support and lower outside-topic support. Use the exact fallback `Unlabelled topic` when no two terms make the cluster distinguishable. Do not use an embedding projection, activation lens, UMAP coordinate, or language-ID claim as a reader label without separate evidence.
+4. Judge labels contrastively: a term needs both member support and lower outside-topic support. Prefer a plain `mixed`/`unlabelled` label when no two terms make the cluster distinguishable. Do not use an embedding projection, activation lens, UMAP coordinate, or language-ID claim as a reader label without separate evidence.
 5. Manually inspect the five fixed anchor sets above after reassignment. Mark each as: coherent label; changed membership explains difference; campaign/template dominance; non-English label failure; or no useful label. Save misses as well as attractive labels.
 6. For DBSCAN, show noise as `Unsorted` with its count; do not equate noise with spam. A label or campaign observation is not itself a filter action.
 

@@ -1,0 +1,9 @@
+after selfjoin db=/tmp/meatybroth-dbscan-release.sqlite query=/?mode=new
+run=1 code=200 ttfb=0.050735 total=0.051204 bytes=249013
+run=2 code=200 ttfb=0.047390 total=0.047824 bytes=249013
+run=3 code=200 ttfb=0.050923 total=0.051408 bytes=249013
+run=4 code=200 ttfb=0.053694 total=0.054252 bytes=249013
+run=5 code=200 ttfb=0.059199 total=0.059772 bytes=249013
+820645b8e80b69369a4ba6ca54f81ad047b651c1e04722afe969889315ccd561  ordered_ids
+ordered_ids_equal=yes
+normalized_full_html_equal=yes

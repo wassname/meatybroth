@@ -21,13 +21,14 @@ use std::{
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
+        Arc, Mutex, RwLock,
     },
     time::Duration,
 };
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
 const ROOT: &str = "60c052cf19fbfb973c1779585df423e3982a3a251fc826d4c76f8063621c5bb6";
+static CONVERSATION_REFRESHING: AtomicBool = AtomicBool::new(false);
 const MODES: [&str; 6] = [
     "new",
     "relevance",
@@ -38,6 +39,13 @@ const MODES: [&str; 6] = [
 ];
 const FEED_MODES: [&str; 4] = ["new", "conversations", "discovery", "topics"];
 
+struct StatusSnapshot {
+    generated_at: i64,
+    html: String,
+    refresh_error: bool,
+}
+
+#[derive(Clone)]
 struct App {
     path: PathBuf,
     root: String,
@@ -45,8 +53,11 @@ struct App {
     embedding: Option<Arc<dyn embed::SemanticModel>>,
     embedding_queries: Option<tokio::sync::mpsc::Sender<collect::EmbeddingQuery>>,
     embedding_error: Arc<Mutex<Option<String>>>,
+    cached_minilm: Option<embed::Space>,
     default_embedding: String,
     collecting: bool,
+    reader_slots: Arc<tokio::sync::Semaphore>,
+    status_cache: Arc<RwLock<Option<StatusSnapshot>>>,
 }
 
 fn local_embedding(
@@ -98,15 +109,19 @@ struct Search {
     order: String,
     expression: Option<String>,
     similar: Option<String>,
-    topic: Option<i64>,
+    topics: Vec<i64>,
+    include_unsorted: bool,
+    hide_flagged_spam: bool,
     embedding: String,
+    clustering: String,
     error: Option<String>,
 }
 impl Search {
     fn parse(raw: &str, now: i64, default_embedding: &str) -> Self {
-        let args: HashMap<String, String> = url::form_urlencoded::parse(raw.as_bytes())
+        let pairs: Vec<(String, String)> = url::form_urlencoded::parse(raw.as_bytes())
             .into_owned()
             .collect();
+        let args: HashMap<String, String> = pairs.iter().cloned().collect();
         let arg = |key: &str| args.get(key).map(String::as_str).unwrap_or("");
         let number =
             |key: &str, default: i64| arg(key).parse::<i64>().map(|n| n.max(0)).unwrap_or(default);
@@ -115,13 +130,16 @@ impl Search {
         if mode == "recent" {
             mode = "new";
         }
-        if !q.is_empty() && args.contains_key("go") {
-            mode = "relevance";
+        if !q.is_empty() && arg("go") == "1" {
+            mode = match arg("search") {
+                "meaning" => "meaning",
+                _ => "relevance",
+            };
         } else if !MODES.contains(&mode) && mode != "similar" {
             mode = if q.is_empty() { "topics" } else { "relevance" };
         }
         if q.is_empty() && mode == "relevance" {
-            mode = "conversations";
+            mode = "new";
         }
         let timestamp = match number("before", 0) {
             0 => NaiveDate::parse_from_str(arg("date"), "%Y-%m-%d")
@@ -144,11 +162,24 @@ impl Search {
             Ok(e) => (e, None),
             Err(e) => (None, Some(e)),
         };
+        let clustering = match arg("clustering") {
+            "dbscan" => "dbscan",
+            _ => "kmeans",
+        };
         let embedding = match arg("embedding") {
             "titan" => "titan",
             "minilm" => "minilm",
             _ => default_embedding,
         };
+        let mut topics = pairs
+            .iter()
+            .filter(|(key, _)| key == "topic" || key == "topics")
+            .filter_map(|(_, value)| value.parse().ok())
+            .collect::<Vec<_>>();
+        topics.sort_unstable();
+        topics.dedup();
+        let include_unsorted = arg("unsorted") == "true" || topics.contains(&-1);
+        topics.retain(|topic| *topic != -1);
         Self {
             q,
             mode: mode.into(),
@@ -168,19 +199,48 @@ impl Search {
             .into(),
             expression,
             similar: args.get("similar").cloned(),
-            topic: args.get("topic").and_then(|value| value.parse().ok()),
+            topics,
+            include_unsorted,
+            hide_flagged_spam: arg("hide_spam") != "false"
+                && arg("show_spam") != "true"
+                && arg("show_flagged_spam") != "true",
             embedding: embedding.into(),
+            clustering: clustering.into(),
             error,
         }
     }
     fn query_string(&self) -> String {
+        self.query_string_with_before(true, true)
+    }
+    fn latest_query_string(&self) -> String {
+        self.query_string_with_before(false, true)
+    }
+    fn hide_flagged_query_string(&self) -> String {
+        let mut query = self.query_string_with_before(true, false);
+        if self.page > 0 {
+            query.push_str(&format!("page={}&", self.page));
+        }
+        query.push_str("hide_spam=true&");
+        query
+    }
+    fn show_flagged_query_string(&self) -> String {
+        let mut query = self.query_string_with_before(true, false);
+        if self.page > 0 {
+            query.push_str(&format!("page={}&", self.page));
+        }
+        query.push_str("show_spam=true&");
+        query
+    }
+    fn query_string_with_before(&self, include_before: bool, include_hide_spam: bool) -> String {
         let mut qs = url::form_urlencoded::Serializer::new(String::new());
         if !self.q.is_empty() {
             qs.append_pair("q", &self.q);
         }
         qs.append_pair("mode", &self.mode);
-        if let Some(before) = self.before {
-            qs.append_pair("before", &before.to_string());
+        if include_before {
+            if let Some(before) = self.before {
+                qs.append_pair("before", &before.to_string());
+            }
         }
         if self.mode == "discovery" {
             qs.append_pair("reach", &self.reach.to_string())
@@ -191,8 +251,21 @@ impl Search {
         if let Some(similar) = &self.similar {
             qs.append_pair("similar", similar);
         }
-        if let Some(topic) = self.topic {
-            qs.append_pair("topic", &topic.to_string());
+        if self.mode == "topics" {
+            qs.append_pair("clustering", &self.clustering);
+        }
+        for topic in &self.topics {
+            qs.append_pair("topics", &topic.to_string());
+        }
+        if self.include_unsorted {
+            qs.append_pair("unsorted", "true");
+        }
+        if include_hide_spam {
+            if self.hide_flagged_spam {
+                qs.append_pair("hide_spam", "true");
+            } else {
+                qs.append_pair("show_spam", "true");
+            }
         }
         if self.embedding != "minilm" {
             qs.append_pair("embedding", &self.embedding);
@@ -224,7 +297,7 @@ fn parse_fts(q: &str) -> Result<String, String> {
         clauses.extend(words.find_iter(part).map(|m| format!("\"{}\"", m.as_str())));
     }
     if clauses.is_empty() {
-        return Err("Search query has no searchable terms.".into());
+        return Err("Enter a word or phrase to search.".into());
     }
     Ok(clauses.join(" AND "))
 }
@@ -247,16 +320,16 @@ fn templates() -> Result<Environment<'static>, Error> {
 fn page(app: &App, name: &str, data: Value) -> Result<String, Error> {
     let mut shared = json!({"modes":MODES,"feed_modes":FEED_MODES,"window_days":30,"mode":"topics","collecting":app.collecting,
     "meaning_available":app.embedding.is_some() || app.embedding_queries.is_some(),
-    "minilm_available":app.embedding.is_some(),"embedding":app.default_embedding,
-    "mode_labels":{"new":"Latest","relevance":"Keyword search","meaning":"Semantic search","topics":"Topics","conversations":"With replies","discovery":"Network","similar":"Similar posts"},
+    "minilm_available":app.embedding.is_some() || app.cached_minilm.is_some(),"embedding":app.default_embedding,
+    "mode_labels":{"new":"Latest","relevance":"Words","meaning":"Meaning","topics":"Topics","conversations":"With replies","discovery":"Network","similar":"Similar posts"},
     "mode_explanations":{
-        "new":"Every post from the last 30 days, newest first.",
-        "relevance":"Posts matching your words; sort by relevance or newest.",
-        "meaning":"Posts about related concepts in the selected vector space, not only exact-word matches.",
-        "similar":"Posts nearest to the selected post in the selected vector space.",
-        "topics":"Clusters from the selected vector space.",
-        "conversations":"Threads with the most distinct recent repliers first; with a query, only matching threads.",
-        "discovery":"Recent posts within the selected 1–3 hop reach. Connections favours authors supported by more independent accounts you follow; lower distance score ranks first. Based on the collected, incomplete follow graph."
+        "new":"Recent posts, newest first.",
+        "relevance":"Posts containing these words. Sort by relevance or newest.",
+        "meaning":"Posts related to your query. It can find posts without the same words.",
+        "similar":"Posts related to this post.",
+        "topics":"Groups of related posts. Choose one or more topics, or browse all topic posts.",
+        "conversations":"Threads with recent replies. A search limits this view to matching threads.",
+        "discovery":"Posts within the selected number of follow hops. Stored follow lists are incomplete."
     }});
     shared
         .as_object_mut()
@@ -278,12 +351,13 @@ fn canonical_event_id(bytes: &[u8]) -> String {
 fn selected_space(app: &App, search: &Search) -> Result<embed::Space, Error> {
     if search.embedding == "titan" {
         embed::space_by_backend(&app.path, "bedrock")?
-            .ok_or_else(|| "Titan cache is not available yet".into())
+            .ok_or_else(|| "Titan search is not ready yet.".into())
     } else {
         app.embedding
             .as_ref()
             .map(|model| model.vector_space().clone())
-            .ok_or_else(|| "MiniLM cache is not configured".into())
+            .or_else(|| app.cached_minilm.clone())
+            .ok_or_else(|| "MiniLM search is not available.".into())
     }
 }
 
@@ -297,30 +371,28 @@ fn semantic_feed(
     let started = std::time::Instant::now();
     let (query, exclude) = if search.mode == "meaning" {
         if search.q.is_empty() {
-            return Err("Meaning search requires text".into());
+            return Err("Enter text for Meaning search.".into());
         }
         let query = if search.embedding == "titan" {
             embed::cached_query(&app.path, space, &search.q)?
-                .ok_or("This Titan query is not cached and no provider is available")?
+                .ok_or("This Meaning search is not available yet.")?
         } else {
             app.embedding
                 .as_ref()
-                .ok_or("MiniLM is not configured")?
+                .ok_or("MiniLM search is not available.")?
                 .embed_text(&search.q)?
                 .vector
         };
         (query, None)
     } else {
-        let id = search
-            .similar
-            .as_deref()
-            .ok_or("Similar search requires an event ID")?;
-        let event_id = EventId::from_hex(id.strip_prefix("nostr:").unwrap_or(id))?;
+        let id = search.similar.as_deref().ok_or("Choose a post first.")?;
+        let event_id = EventId::from_hex(id.strip_prefix("nostr:").unwrap_or(id))
+            .map_err(|_| "Choose a post first.")?;
         if queries::get(db, &canonical_event_id(event_id.as_bytes()), now)?.is_none() {
-            return Err("The source post is not eligible in the current reader window".into());
+            return Err("This post is not available in this view.".into());
         }
         let vector = embed::event_vector(&app.path, space, event_id.as_bytes())?
-            .ok_or("This post is absent from the selected embedding cache")?;
+            .ok_or("Similar posts are not available for this post.")?;
         (vector, Some(event_id))
     };
     let query_at = started.elapsed();
@@ -368,17 +440,18 @@ fn topic_feed(
     space: &embed::Space,
     now: i64,
 ) -> Result<Vec<(queries::Post, f32)>, Error> {
-    let Some(topic_id) = search.topic else {
-        return Ok(Vec::new());
-    };
     let offset = usize::try_from(search.page)? * queries::PAGE_SIZE;
     let event_ids = embed::topic_events(
         &app.path,
         space,
-        topic_id,
-        now,
-        queries::PAGE_SIZE + 1,
-        offset,
+        embed::TopicPage {
+            ids: &search.topics,
+            include_unsorted: search.include_unsorted,
+            algorithm: &search.clustering,
+            now,
+            limit: queries::PAGE_SIZE + 1,
+            offset,
+        },
     )?;
     let canonical_ids = event_ids
         .iter()
@@ -392,6 +465,70 @@ fn topic_feed(
         }
     }
     Ok(rows)
+}
+
+fn cached_conversations(
+    app: &App,
+    db: &Connection,
+    now: i64,
+) -> Result<Option<Vec<queries::Post>>, Error> {
+    let Some(cache) = queries::conversation_cache(db)? else {
+        return Ok(None);
+    };
+    if now - cache.generated_at > 300 && !CONVERSATION_REFRESHING.swap(true, Ordering::AcqRel) {
+        let (path, root, default_embedding) = (
+            app.path.clone(),
+            app.root.clone(),
+            app.default_embedding.clone(),
+        );
+        std::thread::spawn(move || {
+            let started = std::time::Instant::now();
+            let result = (|| {
+                let db = open_reader(&path)?;
+                let search = Search::parse("mode=conversations", now, &default_embedding);
+                let rows = queries::feed(&db, &search, &root, now)?;
+                let rank_ms = started.elapsed().as_millis();
+                db.execute_batch("COMMIT")?;
+                queries::store_conversation_cache(&path, now, &rows, None)?;
+                Ok::<_, Error>((rows.len(), rank_ms))
+            })();
+            match result {
+                Ok((rows, rank_ms)) => eprintln!(
+                    "Slow reader mode=conversations rows={rows} rank_ms={rank_ms} total_ms={}",
+                    started.elapsed().as_millis()
+                ),
+                Err(error) => {
+                    if let Err(store_error) =
+                        queries::store_conversation_cache(&path, now, &[], Some(&error.to_string()))
+                    {
+                        eprintln!("Conversation cache refresh failed: {error}; could not record it: {store_error}");
+                    }
+                }
+            }
+            CONVERSATION_REFRESHING.store(false, Ordering::Release);
+        });
+    }
+    let ids = cache
+        .rows
+        .iter()
+        .map(|row| row.canonical_id.clone())
+        .collect::<Vec<_>>();
+    let mut current = queries::eligible_map_for(db, now, Some(&ids))?;
+    Ok(Some(
+        cache
+            .rows
+            .into_iter()
+            .filter_map(|ranked| {
+                current.remove(&ranked.canonical_id).map(|mut post| {
+                    post.n_reply_authors = ranked.n_reply_authors;
+                    post.n_replies = ranked.n_replies;
+                    post.latest_activity = ranked.latest_activity;
+                    post.root_present = ranked.root_present;
+                    post
+                })
+            })
+            .collect(),
+    ))
 }
 
 fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, String), Error> {
@@ -411,23 +548,49 @@ fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, 
         }
         Err(_) => None,
     };
-    let titan_vectors = if search.embedding == "titan" {
+    let configured_topic_settings = topic_mode
+        .then(embed::TopicSettings::from_env)
+        .transpose()?;
+    let topic_settings = if topic_mode {
         selected_space
             .as_ref()
-            .map(|space| embed::vector_count(&app.path, space))
+            .map(|space| embed::stored_topic_settings(&app.path, space))
             .transpose()?
+            .flatten()
+            .or(configured_topic_settings)
     } else {
         None
     };
-    let topics = if topic_mode {
+    let topic_epsilon = topic_settings
+        .as_ref()
+        .map(|settings| format!("{:.2}", settings.dbscan_epsilon_cosine));
+    let mut topics = if topic_mode {
         selected_space
             .as_ref()
-            .map(|space| embed::topics(&app.path, space))
+            .map(|space| embed::topics(&app.path, space, &search.clustering))
             .transpose()?
             .unwrap_or_default()
     } else {
         Vec::new()
     };
+    let unsorted_count = topics
+        .iter()
+        .find(|topic| topic.id == -1)
+        .map_or(0, |topic| topic.post_count);
+    let unsorted_percent = topics
+        .iter()
+        .find(|topic| topic.id == -1)
+        .map_or_else(|| "0.0".to_string(), |topic| topic.percent.clone());
+    topics.retain(|topic| topic.id != -1);
+    if topic_mode
+        && search
+            .topics
+            .iter()
+            .any(|selected| !topics.iter().any(|topic| topic.id == *selected))
+    {
+        search.error = Some("One or more selected topics are not available here.".into());
+    }
+    let mut initial_conversation_cache = None;
     let mut scored = if search.error.is_none() && semantic {
         match semantic_feed(
             app,
@@ -451,13 +614,34 @@ fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, 
             now,
         )?
     } else if search.error.is_none() {
-        queries::feed(db, &search, &app.root, now)?
-            .into_iter()
-            .map(|post| (post, f32::NAN))
-            .collect()
+        let cacheable = search.mode == "conversations"
+            && search.q.is_empty()
+            && search.page == 0
+            && search.before.is_none();
+        let rows = if cacheable {
+            match cached_conversations(app, db, now)? {
+                Some(rows) => rows,
+                None => {
+                    let rows = queries::feed(db, &search, &app.root, now)?;
+                    initial_conversation_cache = Some(rows.clone());
+                    rows
+                }
+            }
+        } else {
+            queries::feed(db, &search, &app.root, now)?
+        };
+        rows.into_iter().map(|post| (post, f32::NAN)).collect()
     } else {
         Vec::new()
     };
+    let mut feed_warnings = None;
+    if search.hide_flagged_spam && !scored.is_empty() {
+        let warnings = render::warning_map(db, scored.iter().map(|(post, _)| post))?;
+        scored.retain(|(post, _)| {
+            !render::has_flagged_spam(&render::mapped_warnings(&warnings, post))
+        });
+        feed_warnings = Some(warnings);
+    }
     let ranked_at = started.elapsed();
     let has_next = scored.len() > queries::PAGE_SIZE;
     scored.truncate(queries::PAGE_SIZE);
@@ -478,7 +662,10 @@ fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, 
             .map(|(post, _)| post.canonical_id.clone())
             .collect::<Vec<_>>();
         let reply_counts = queries::reply_counts_for(db, now, Some(&card_ids))?;
-        let warning_map = render::warning_map(db, scored.iter().map(|(post, _)| post))?;
+        let warning_map = match feed_warnings {
+            Some(warnings) => warnings,
+            None => render::warning_map(db, scored.iter().map(|(post, _)| post))?,
+        };
         let identity_map = render::identity_map(db, scored.iter().map(|(post, _)| post))?;
         let parent_excerpt_map =
             render::parent_excerpt_map(db, scored.iter().map(|(post, _)| post), now)?;
@@ -506,6 +693,7 @@ fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, 
                     },
                 )?;
                 card["embedding"] = json!(&search.embedding);
+                card["hide_flagged_spam"] = json!(search.hide_flagged_spam);
                 card["similar_available"] = json!(EventId::from_hex(&post.source_id)
                     .map(|id| similar_available.contains(id.as_bytes().as_slice()))?);
                 if semantic {
@@ -532,17 +720,27 @@ fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, 
             cards_at.as_millis(),
         );
     }
+    if let Some(rows) = initial_conversation_cache {
+        db.execute_batch("COMMIT")?;
+        queries::store_conversation_cache(&app.path, now, &rows, None)?;
+    }
     let html = page(
         app,
         "feed.html",
         json!({"q":search.q,"mode":search.mode,"page":search.page,"error":search.error,
-        "embedding":search.embedding,"titan_vectors":titan_vectors,"results":results,"has_next":has_next,
-        "qs_base":search.query_string(),"now":now,"before":search.before,"similar":search.similar,
-        "similar_context":similar_context,"topics":topics,"selected_topic":search.topic,
-        "meaning_available":app.embedding.is_some() || app.embedding_queries.is_some(),"minilm_available":app.embedding.is_some(),
+        "embedding":search.embedding,"clustering":search.clustering,"results":results,"has_next":has_next,
+        "qs_base":search.query_string(),"qs_latest":search.latest_query_string(),
+        "hide_flagged_url":format!("/?{}",search.hide_flagged_query_string()),
+        "show_flagged_url":format!("/?{}",search.show_flagged_query_string()),
+        "spam_filter_available":true,"hide_flagged_spam":search.hide_flagged_spam,
+        "now":now,"before":search.before,"similar":search.similar,
+        "similar_context":similar_context,"topics":topics,"selected_topics":search.topics,
+        "include_unsorted":search.include_unsorted,"unsorted_count":unsorted_count,"unsorted_percent":unsorted_percent,
+        "topic_settings":topic_settings,"topic_epsilon":topic_epsilon,
+        "meaning_available":app.embedding.is_some() || app.embedding_queries.is_some(),"minilm_available":app.embedding.is_some() || app.cached_minilm.is_some(),
         "reach":if search.mode=="discovery"{Some(search.reach)}else{None},
         "order":&search.order,
-        "state_fields":[["embedding",search.embedding.as_str()]]}),
+        "state_fields":[["embedding",search.embedding.as_str()],["clustering",search.clustering.as_str()]]}),
     )?;
     Ok((
         if search.error.is_some() {
@@ -554,13 +752,31 @@ fn feed(app: &App, db: &Connection, raw: &str, now: i64) -> Result<(StatusCode, 
     ))
 }
 
-fn thread(app: &App, db: &Connection, id: &str, now: i64) -> Result<(StatusCode, String), Error> {
+fn diverse_related_ids(candidates: Vec<(String, Option<String>)>, limit: usize) -> Vec<String> {
+    let mut relations = HashSet::new();
+    candidates
+        .into_iter()
+        .filter_map(|(id, parent_id)| {
+            relations
+                .insert(parent_id.unwrap_or_else(|| id.clone()))
+                .then_some(id)
+        })
+        .take(limit)
+        .collect()
+}
+
+fn thread(
+    app: &App,
+    db: &Connection,
+    id: &str,
+    raw: &str,
+    now: i64,
+) -> Result<(StatusCode, String), Error> {
     let Some(post) = queries::get(db, id, now)? else {
-        return Ok((
-            StatusCode::NOT_FOUND,
-            "Post not stored in the current window.".into(),
-        ));
+        return Ok((StatusCode::NOT_FOUND, "This post is not available.".into()));
     };
+    let search = Search::parse(raw, now, &app.default_embedding);
+    let space = selected_space(app, &search).ok();
     let mut seen = HashSet::from([id.to_string()]);
     let (mut ancestors, mut replies) = (Vec::new(), Vec::new());
     let (mut missing, mut cycle) = (None, false);
@@ -575,14 +791,10 @@ fn thread(app: &App, db: &Connection, id: &str, now: i64) -> Result<(StatusCode,
             break;
         };
         parent = p.parent_id.clone();
-        ancestors.push(render::card(
-            db,
-            &p,
-            now,
-            "",
-            false,
-            render::CardCache::default(),
-        )?);
+        let mut view = render::card(db, &p, now, "", false, render::CardCache::default())?;
+        view["embedding"] = json!(&search.embedding);
+        view["hide_flagged_spam"] = json!(search.hide_flagged_spam);
+        ancestors.push(view);
     }
     ancestors.reverse();
     let mut pending: Vec<_> = queries::children(db, &post.canonical_id, now)?
@@ -602,21 +814,77 @@ fn thread(app: &App, db: &Connection, id: &str, now: i64) -> Result<(StatusCode,
                 .map(|p| (p, depth + 1)),
         );
         let mut view = render::card(db, &p, now, "", false, render::CardCache::default())?;
+        view["embedding"] = json!(&search.embedding);
+        view["hide_flagged_spam"] = json!(search.hide_flagged_spam);
         view["tree_depth"] = json!(depth.min(6));
-        replies.push(view);
+        if !search.hide_flagged_spam || !view["flagged_spam"].as_bool().unwrap() {
+            replies.push(view);
+        }
     }
+    let mut similar_replies = Vec::new();
+    if let Some(space) = space {
+        let event_id = EventId::from_hex(&post.source_id)?;
+        if let Some(vector) = embed::event_vector(&app.path, &space, event_id.as_bytes())? {
+            let ranked = embed::nearest(
+                &app.path,
+                &space,
+                &vector,
+                Some(event_id.as_bytes()),
+                now,
+                seen.len().saturating_add(64),
+            )?;
+            let ranked_ids = ranked
+                .into_iter()
+                .map(|(event_id, _)| canonical_event_id(&event_id))
+                .filter(|id| !seen.contains(id))
+                .take(64)
+                .collect::<Vec<_>>();
+            let eligible = queries::eligible_map_for(db, now, Some(&ranked_ids))?;
+            let candidate_warnings = render::warning_map(db, eligible.values())?;
+            let candidates = ranked_ids
+                .into_iter()
+                .filter_map(|id| {
+                    let post = eligible.get(&id)?;
+                    let reasons = render::mapped_warnings(&candidate_warnings, post);
+                    (!search.hide_flagged_spam || !render::has_flagged_spam(&reasons))
+                        .then(|| (id, post.parent_id.clone()))
+                })
+                .collect();
+            for id in diverse_related_ids(candidates, 5) {
+                let Some(related) = eligible.get(&id) else {
+                    continue;
+                };
+                let mut view =
+                    render::card(db, related, now, "", true, render::CardCache::default())?;
+                view["embedding"] = json!(&search.embedding);
+                view["hide_flagged_spam"] = json!(search.hide_flagged_spam);
+                view["similar_available"] = json!(true);
+                similar_replies.push(view);
+            }
+        }
+    }
+    let mut current = render::card(db, &post, now, "", false, render::CardCache::default())?;
+    current["embedding"] = json!(&search.embedding);
+    current["hide_flagged_spam"] = json!(search.hide_flagged_spam);
+    let context_url = format!(
+        "/context/nostr/{}?embedding={}",
+        post.source_id, search.embedding
+    );
     Ok((
         StatusCode::OK,
         page(
             app,
             "context.html",
-            json!({"post":render::card(db,&post,now,"",false,render::CardCache::default())?,
-        "ancestors":ancestors,"available_reply_count":replies.len(),"replies":replies,"missing_parent_id":missing,"cycle_cut":cycle}),
+            json!({"post":current,"ancestors":ancestors,"available_reply_count":replies.len(),
+        "replies":replies,"similar_replies":similar_replies,"embedding":search.embedding,
+        "spam_filter_available":true,"hide_flagged_spam":search.hide_flagged_spam,
+        "hide_flagged_url":format!("{context_url}&hide_spam=true"),
+        "show_flagged_url":context_url,"missing_parent_id":missing,"cycle_cut":cycle}),
         )?,
     ))
 }
 
-fn status(app: &App, db: &Connection, now: i64) -> Result<String, Error> {
+fn status_uncached(app: &App, db: &Connection, now: i64) -> Result<String, Error> {
     let mut rows = Vec::new();
     let mut statement =
         db.prepare("SELECT source,updated_at,detail FROM source_status ORDER BY source")?;
@@ -654,6 +922,9 @@ fn status(app: &App, db: &Connection, now: i64) -> Result<String, Error> {
         [&app.root],
         |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
+    let conversation_cache = queries::conversation_cache(db)?.map(
+        |cache| json!({"age":now.saturating_sub(cache.generated_at),"attempt_age":now.saturating_sub(cache.last_attempt),"error":cache.last_error}),
+    );
     let embedding_spaces: Vec<_> = embed::cache_status(db, now)?
         .into_iter()
         .map(|status| {
@@ -676,32 +947,86 @@ fn status(app: &App, db: &Connection, now: i64) -> Result<String, Error> {
         "status.html",
         json!({"now":render::time(now),"eligible_posts":counts,"status_rows":rows,"gap_count":gap_count,
             "gaps":gaps,"lists":lists,"embedding_spaces":embedding_spaces,
-            "embedding_error":app.embedding_error.lock().unwrap().clone(),
+            "embedding_error":app.embedding_error.lock().unwrap().clone(),"conversation_cache":conversation_cache,
             "direct_follows":direct_follows,"missing_contact_lists":missing_contact_lists}),
     )
 }
 
-fn handle(app: &App, path: &str, raw: &str, now: i64) -> Result<(StatusCode, String), Error> {
-    let db = Connection::open_with_flags(&app.path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+fn open_reader(path: &std::path::Path) -> Result<Connection, Error> {
+    let db = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     db.busy_timeout(Duration::from_secs(10))?;
-    db.pragma_update(None, "cache_size", -65_536)?;
-    db.pragma_update(None, "mmap_size", 268_435_456)?;
-    db.pragma_update(None, "temp_store", "MEMORY")?;
+    db.pragma_update(None, "cache_size", -16_384)?;
+    db.pragma_update(None, "mmap_size", 67_108_864)?;
+    db.pragma_update(None, "temp_store", "FILE")?;
     db.execute_batch("BEGIN")?;
+    Ok(db)
+}
+
+fn refresh_status_cache(app: &App, now: i64) -> Result<(), Error> {
+    let db = open_reader(&app.path)?;
+    let html = status_uncached(app, &db, now)?;
+    *app.status_cache.write().unwrap() = Some(StatusSnapshot {
+        generated_at: now,
+        html,
+        refresh_error: false,
+    });
+    Ok(())
+}
+
+fn cached_status_html(app: &App, now: i64) -> Option<String> {
+    let cache = app.status_cache.read().unwrap();
+    let snapshot = cache.as_ref()?;
+    let generated =
+        chrono::DateTime::from_timestamp(snapshot.generated_at, 0)?.format("%Y-%m-%d %H:%M:%S UTC");
+    let age = now.saturating_sub(snapshot.generated_at);
+    let warning = if snapshot.refresh_error || age > 300 {
+        " It may be out of date."
+    } else {
+        ""
+    };
+    let notice =
+        format!("<p class=\"status-line\">Status updated {generated} ({age}s ago).{warning}</p>");
+    Some(
+        snapshot
+            .html
+            .replacen("<div id=\"status-snapshot-notice\"></div>", &notice, 1),
+    )
+}
+
+fn cached_status(app: &App, db: &Connection, now: i64) -> Result<String, Error> {
+    if let Some(html) = cached_status_html(app, now) {
+        return Ok(html);
+    }
+    let html = status_uncached(app, db, now)?;
+    *app.status_cache.write().unwrap() = Some(StatusSnapshot {
+        generated_at: now,
+        html,
+        refresh_error: false,
+    });
+    cached_status_html(app, now).ok_or_else(|| "status snapshot was not stored".into())
+}
+
+fn handle(app: &App, path: &str, raw: &str, now: i64) -> Result<(StatusCode, String), Error> {
+    if path == "/status" {
+        if let Some(html) = cached_status_html(app, now) {
+            return Ok((StatusCode::OK, html));
+        }
+    }
+    let db = open_reader(&app.path)?;
     match path {
         "/" => feed(app, &db, raw, now),
         "/about" | "/tos" => Ok((
             StatusCode::OK,
             page(app, &format!("{}.html", &path[1..]), json!({}))?,
         )),
-        "/status" => Ok((StatusCode::OK, status(app, &db, now)?)),
+        "/status" => Ok((StatusCode::OK, cached_status(app, &db, now)?)),
         _ => {
             if let Some(id) = path
                 .strip_prefix("/context/")
                 .and_then(|s| s.split_once('/'))
             {
                 let id = format!("{}:{}", id.0, id.1);
-                thread(app, &db, &id, now)
+                thread(app, &db, &id, raw, now)
             } else {
                 Ok((StatusCode::NOT_FOUND, "Not found".into()))
             }
@@ -716,6 +1041,11 @@ async fn request(State(app): State<Arc<App>>, OriginalUri(uri): OriginalUri) -> 
         )
             .into_response();
     }
+    if uri.path() == "/status" {
+        if let Some(html) = cached_status_html(&app, Utc::now().timestamp()) {
+            return Html(html).into_response();
+        }
+    }
     let now = Utc::now().timestamp();
     let path = uri.path().to_owned();
     let raw = uri.query().unwrap_or("").to_owned();
@@ -725,60 +1055,101 @@ async fn request(State(app): State<Arc<App>>, OriginalUri(uri): OriginalUri) -> 
         && search.embedding == "titan"
         && !search.q.is_empty()
     {
-        let Some(sender) = &app.embedding_queries else {
-            return (
-                StatusCode::BAD_REQUEST,
-                "Titan semantic search is not configured.",
-            )
-                .into_response();
-        };
-        let (reply, result) = tokio::sync::oneshot::channel();
-        if sender
-            .send(collect::EmbeddingQuery {
-                query: search.q.clone(),
-                reply,
-            })
-            .await
-            .is_err()
-        {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                "Titan embedding worker stopped.",
-            )
-                .into_response();
-        }
-        let result = tokio::time::timeout(Duration::from_secs(300), result).await;
-        match result {
-            Ok(Ok(Ok(()))) => *app.embedding_error.lock().unwrap() = None,
-            Ok(Ok(Err(error))) => {
-                let message = format!("Titan semantic search failed: {error}");
-                *app.embedding_error.lock().unwrap() = Some(message.clone());
-                return (StatusCode::SERVICE_UNAVAILABLE, message).into_response();
+        let cache_path = app.path.clone();
+        let query = search.q.clone();
+        let cached = tokio::task::spawn_blocking(move || {
+            let Some(space) = embed::space_by_backend(&cache_path, "bedrock")? else {
+                return Ok::<bool, Error>(false);
+            };
+            Ok(embed::cached_query(&cache_path, &space, &query)?.is_some())
+        })
+        .await;
+        let cached = match cached {
+            Ok(Ok(cached)) => cached,
+            error => {
+                eprintln!("Titan query cache lookup failed: {error:?}");
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Meaning search is temporarily unavailable.",
+                )
+                    .into_response();
             }
-            Ok(Err(_)) => {
+        };
+        if !cached {
+            let Some(sender) = &app.embedding_queries else {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    "Meaning search is unavailable right now.",
+                )
+                    .into_response();
+            };
+            let (reply, result) = tokio::sync::oneshot::channel();
+            if sender
+                .send(collect::EmbeddingQuery {
+                    query: search.q.clone(),
+                    reply,
+                })
+                .await
+                .is_err()
+            {
                 return (
                     StatusCode::SERVICE_UNAVAILABLE,
-                    "Titan embedding worker stopped.",
+                    "Meaning search is temporarily unavailable.",
                 )
                     .into_response();
             }
-            Err(_) => {
-                return (
-                    StatusCode::GATEWAY_TIMEOUT,
-                    "Titan semantic search timed out.",
-                )
-                    .into_response();
+            let result = tokio::time::timeout(Duration::from_secs(300), result).await;
+            match result {
+                Ok(Ok(Ok(()))) => *app.embedding_error.lock().unwrap() = None,
+                Ok(Ok(Err(error))) => {
+                    let message = format!("Titan semantic search failed: {error}");
+                    *app.embedding_error.lock().unwrap() = Some(message.clone());
+                    eprintln!("{message}");
+                    return (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "Meaning search is temporarily unavailable.",
+                    )
+                        .into_response();
+                }
+                Ok(Err(_)) => {
+                    return (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "Meaning search is temporarily unavailable.",
+                    )
+                        .into_response();
+                }
+                Err(_) => {
+                    return (
+                        StatusCode::GATEWAY_TIMEOUT,
+                        "Meaning search took too long. Try again later.",
+                    )
+                        .into_response();
+                }
             }
         }
     }
-    let result = tokio::task::spawn_blocking(move || handle(&app, &path, &raw, now)).await;
+    let permit = match app.reader_slots.clone().acquire_owned().await {
+        Ok(permit) => permit,
+        Err(_) => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "The reader cannot accept this request right now.",
+            )
+                .into_response();
+        }
+    };
+    let result = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        handle(&app, &path, &raw, now)
+    })
+    .await;
     match result {
         Ok(Ok((status, html))) => (status, Html(html)).into_response(),
         error => {
             eprintln!("Reader request failed: {error:?}");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Reader request failed; see server log.",
+                "The reader could not load this page. Try again shortly.",
             )
                 .into_response()
         }
@@ -868,8 +1239,8 @@ async fn backfill_embeddings(
             eprintln!("Cached query added={added}: {query}");
         }
     }
-    let topics = embed::cluster_topics(path, transport.space(), Utc::now().timestamp())?;
-    eprintln!("Built {topics} keyword-labelled topics");
+    let (kmeans, dbscan) = embed::rebuild_topics(path, transport.space(), Utc::now().timestamp())?;
+    eprintln!("Built {kmeans} fixed-k and {dbscan} DBSCAN topics");
     Ok(())
 }
 
@@ -906,8 +1277,10 @@ async fn main() -> Result<(), Error> {
         }
         let space = embed::space_by_backend(&path, &backend)?
             .ok_or("Selected embedding cache is not available")?;
-        let topics = embed::cluster_topics(&path, &space, Utc::now().timestamp())?;
-        eprintln!("Built {topics} keyword-labelled topics from cached {backend} vectors");
+        let (kmeans, dbscan) = embed::rebuild_topics(&path, &space, Utc::now().timestamp())?;
+        eprintln!(
+            "Built {kmeans} fixed-k and {dbscan} DBSCAN topics from cached {backend} vectors"
+        );
         return Ok(());
     }
     let stage_started = std::time::Instant::now();
@@ -972,13 +1345,16 @@ async fn main() -> Result<(), Error> {
                 preflight_only: std::env::var("MEATYBROTH_EMBED_PREFLIGHT_ONLY").as_deref()
                     == Ok("1"),
                 shutdown: shutdown_requested.clone(),
+                topic_rebuild: None,
+                topics_disabled: false,
             }),
             query_sender,
         )
     } else {
         (None, None)
     };
-    let app = router(App {
+    let cached_minilm = embed::space_by_backend(&path, "minilm")?;
+    let app_state = App {
         path: path.clone(),
         root,
         templates: templates()?,
@@ -987,9 +1363,42 @@ async fn main() -> Result<(), Error> {
             .map(|model| model as Arc<dyn embed::SemanticModel>),
         embedding_queries,
         embedding_error: embedding_error.clone(),
+        cached_minilm,
         default_embedding,
         collecting: !read_only,
+        reader_slots: Arc::new(tokio::sync::Semaphore::new(2)),
+        status_cache: Arc::new(RwLock::new(None)),
+    };
+    refresh_status_cache(&app_state, Utc::now().timestamp())?;
+    let status_app = app_state.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(120)).await;
+            let app = status_app.clone();
+            let permit = app
+                .reader_slots
+                .clone()
+                .acquire_owned()
+                .await
+                .expect("reader semaphore remains open");
+            match tokio::task::spawn_blocking(move || {
+                let _permit = permit;
+                refresh_status_cache(&app, Utc::now().timestamp())
+            })
+            .await
+            {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => {
+                    if let Some(snapshot) = status_app.status_cache.write().unwrap().as_mut() {
+                        snapshot.refresh_error = true;
+                    }
+                    eprintln!("Status snapshot refresh failed: {error}");
+                }
+                Err(error) => eprintln!("Status snapshot task failed: {error}"),
+            }
+        }
     });
+    let app = router(app_state);
     let addr = std::env::var("MEATYBROTH_ADDR").unwrap_or_else(|_| "127.0.0.1:8083".into());
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     eprintln!("Rust reader listening on http://{addr}");

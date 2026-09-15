@@ -5,6 +5,13 @@
 
 use crate::{queries::WINDOW, Error};
 use fastembed::{EmbeddingModel, TextEmbedding, TextInitOptions};
+use linfa::traits::Transformer;
+use linfa_clustering::Dbscan;
+use linfa_nn::{
+    distance::{Distance, L2Dist},
+    BallTree, NearestNeighbour,
+};
+use ndarray::{Array2, ArrayView1};
 use rusqlite::{Connection, OptionalExtension};
 use sha2::{Digest, Sha256};
 use std::{
@@ -90,6 +97,12 @@ pub trait Transport: Send + Sync {
     fn split(&self, text: &str) -> Result<Vec<String>, Error>;
     fn concurrency(&self) -> usize {
         1
+    }
+    fn epoch_seconds(&self) -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
     }
     fn embed<'a>(
         &'a self,
@@ -453,6 +466,30 @@ fn register_space(path: &Path, space: &Space, now: i64) -> Result<(), Error> {
     Ok(())
 }
 
+pub fn mark_admissions(
+    path: &Path,
+    event_ids: &[Vec<u8>],
+    admitted_at: i64,
+    live: bool,
+) -> Result<(), Error> {
+    let mut conn = db(path)?;
+    let transaction = conn.transaction()?;
+    for event_id in event_ids {
+        transaction.execute(
+            "INSERT INTO embedding_admissions(event_id,admitted_at,live) VALUES(?1,?2,?3)
+             ON CONFLICT(event_id) DO UPDATE SET
+               admitted_at=CASE
+                 WHEN embedding_admissions.live=0 AND excluded.live=1 THEN excluded.admitted_at
+                 ELSE min(embedding_admissions.admitted_at,excluded.admitted_at)
+               END,
+               live=max(embedding_admissions.live,excluded.live)",
+            rusqlite::params![event_id, admitted_at, live],
+        )?;
+    }
+    transaction.commit()?;
+    Ok(())
+}
+
 fn pending(
     path: &Path,
     space: &Space,
@@ -465,6 +502,7 @@ fn pending(
         "SELECT e.id,e.content
          FROM events e
          JOIN reader_post_events r ON r.event_id=e.id
+         LEFT JOIN embedding_admissions admission ON admission.event_id=e.id
          WHERE e.kind=1 AND e.created_at BETWEEN ?1 AND ?2 AND trim(e.content)!=''
            AND NOT EXISTS (
              SELECT 1 FROM post_embeddings v WHERE v.event_id=e.id AND v.space_id=?3)
@@ -472,7 +510,8 @@ fn pending(
              SELECT 1 FROM embedding_requests request
              WHERE request.event_id=e.id AND request.space_id=?3
                AND request.status IN ('reserved','uncertain'))
-         ORDER BY CASE WHEN ?4 THEN r.received_at END DESC,
+         ORDER BY CASE WHEN ?4 AND coalesce(admission.live,0)=1 THEN 0 ELSE 1 END,
+                  CASE WHEN ?4 AND coalesce(admission.live,0)=1 THEN admission.admitted_at END,
                   CASE WHEN NOT ?4 AND ?5='bedrock' THEN e.id END,
                   CASE WHEN NOT ?4 AND ?5!='bedrock' THEN e.created_at END DESC,e.id LIMIT ?6",
     )?;
@@ -753,14 +792,8 @@ fn finalize(
     Ok(())
 }
 
-fn deadline_reached(deadline: Option<u64>) -> bool {
-    deadline.is_some_and(|deadline| {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-            >= deadline
-    })
+fn deadline_reached(transport: &(impl Transport + ?Sized), deadline: Option<u64>) -> bool {
+    deadline.is_some_and(|deadline| transport.epoch_seconds() >= deadline)
 }
 
 async fn embed_event(
@@ -775,7 +808,7 @@ async fn embed_event(
     let space = transport.space();
     let text_chunks = transport.split(text)?;
     for (chunk_index, text_chunk) in text_chunks.iter().enumerate() {
-        if deadline_reached(deadline) {
+        if deadline_reached(transport, deadline) {
             return Ok(false);
         }
         let Some(request_id) = reserve(
@@ -866,7 +899,7 @@ pub(crate) async fn embed_pending_until(
     let posts = pending(path, space, now, limit, recent_first)?;
     let mut embedded = 0;
     for window in posts.chunks(transport.concurrency()) {
-        if deadline_reached(deadline) {
+        if deadline_reached(transport, deadline) {
             break;
         }
         // SQLite sections finish synchronously; only provider awaits overlap. -- Pi/gpt-5.6-sol
@@ -1072,12 +1105,97 @@ pub fn cache_status(db: &Connection, now: i64) -> Result<Vec<CacheStatus>, Error
     Ok(statuses)
 }
 
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub struct TopicSettings {
+    pub kmeans_k: usize,
+    pub dbscan_epsilon_cosine: f32,
+    pub dbscan_min_samples: usize,
+}
+
+impl TopicSettings {
+    pub fn from_env() -> Result<Self, Error> {
+        let kmeans_k = std::env::var("MEATYBROTH_KMEANS_K")
+            .unwrap_or_else(|_| "24".into())
+            .parse()?;
+        let dbscan_epsilon_cosine = std::env::var("MEATYBROTH_DBSCAN_EPSILON_COSINE")
+            .unwrap_or_else(|_| "0.20".into())
+            .parse()?;
+        let dbscan_min_samples = std::env::var("MEATYBROTH_DBSCAN_MIN_SAMPLES")
+            .unwrap_or_else(|_| "8".into())
+            .parse()?;
+        if kmeans_k == 0 || dbscan_min_samples < 2 {
+            return Err(
+                "Topic k must be positive and DBSCAN min_samples must be at least 2".into(),
+            );
+        }
+        if !(0.0 < dbscan_epsilon_cosine && dbscan_epsilon_cosine <= 2.0) {
+            return Err(
+                "DBSCAN cosine-distance epsilon must be greater than 0 and at most 2".into(),
+            );
+        }
+        Ok(Self {
+            kmeans_k,
+            dbscan_epsilon_cosine,
+            dbscan_min_samples,
+        })
+    }
+}
+
+pub fn stored_topic_settings(path: &Path, space: &Space) -> Result<Option<TopicSettings>, Error> {
+    let conn = db(path)?;
+    let kmeans_k: Option<usize> = conn
+        .query_row(
+            "SELECT kmeans_k FROM embedding_topic_builds WHERE space_id=?1 AND method='kmeans'",
+            [&space.id],
+            |row| row.get::<_, Option<i64>>(0),
+        )
+        .optional()?
+        .flatten()
+        .map(usize::try_from)
+        .transpose()?;
+    let legacy_kmeans_k: usize = conn
+        .query_row(
+            "SELECT count(*) FROM embedding_topics WHERE space_id=?1",
+            [&space.id],
+            |row| row.get::<_, i64>(0),
+        )?
+        .try_into()?;
+    let dbscan: Option<(f32, usize)> = conn.query_row(
+        "SELECT epsilon_cosine,min_samples FROM embedding_topic_builds WHERE space_id=?1 AND method='dbscan'",
+        [&space.id],
+        |row| Ok((row.get::<_, f32>(0)?, usize::try_from(row.get::<_, i64>(1)?).map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?)),
+    ).optional()?;
+    let legacy_dbscan: Option<(f32, usize)> = conn.query_row(
+        "SELECT epsilon_cosine,min_samples FROM embedding_dbscan_topics WHERE space_id=?1 LIMIT 1",
+        [&space.id],
+        |row| Ok((row.get::<_, f32>(0)?, usize::try_from(row.get::<_, i64>(1)?).map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?)),
+    ).optional()?;
+    match (
+        kmeans_k.or((legacy_kmeans_k > 0).then_some(legacy_kmeans_k)),
+        dbscan.or(legacy_dbscan),
+    ) {
+        (Some(kmeans_k), Some((dbscan_epsilon_cosine, dbscan_min_samples))) => {
+            Ok(Some(TopicSettings {
+                kmeans_k,
+                dbscan_epsilon_cosine,
+                dbscan_min_samples,
+            }))
+        }
+        _ => Ok(None),
+    }
+}
+
 /// One keyword-labelled cluster in an exact embedding space.
 #[derive(Debug, serde::Serialize)]
 pub struct Topic {
     pub id: i64,
     pub label: String,
     pub post_count: i64,
+    pub percent: String,
+}
+
+fn dot(left: &[f32], right: &[f32]) -> f32 {
+    left.iter().zip(right).map(|(a, b)| a * b).sum()
 }
 
 fn normalize(vector: &mut [f32]) -> Result<(), Error> {
@@ -1091,52 +1209,123 @@ fn normalize(vector: &mut [f32]) -> Result<(), Error> {
     Ok(())
 }
 
-fn topic_label(texts: &[&str]) -> String {
+fn document_terms(text: &str) -> std::collections::HashSet<String> {
     // stopwords-iso English list, MIT, pinned at ccc8898. -- Pi/gpt-5.6-sol
     // https://github.com/stopwords-iso/stopwords-en/tree/ccc8898188850d8fb019d5f69c14a6635c3bd115
     static STOP: LazyLock<std::collections::HashSet<&'static str>> =
         LazyLock::new(|| include_str!("data/english-stopwords.txt").lines().collect());
-    let urls = regex::Regex::new(r"(?i)https?://\S+").unwrap();
-    let words = regex::Regex::new(r"(?i)[\p{L}\p{N}][\p{L}\p{N}_-]{2,}").unwrap();
-    let mut counts = std::collections::HashMap::<String, usize>::new();
-    for text in texts {
-        let without_urls = urls.replace_all(text, " ");
-        let unique: std::collections::HashSet<_> = words
-            .find_iter(&without_urls)
-            .map(|word| word.as_str().to_lowercase())
-            .filter(|word| {
-                word.is_ascii()
-                    && word
-                        .chars()
-                        .any(|character| character.is_ascii_alphabetic())
-                    && word.chars().count() <= 32
-                    && !STOP.contains(word.as_str())
-                    && !word.starts_with("http")
-            })
-            .collect();
-        for word in unique {
-            *counts.entry(word).or_default() += 1;
+    static URLS: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r"(?i)(?:https?://|www\.)\S+").unwrap());
+    static WORDS: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r"(?i)[\p{L}\p{N}][\p{L}\p{N}_-]{2,}").unwrap());
+    WORDS
+        .find_iter(&URLS.replace_all(text, " "))
+        .map(|word| word.as_str().to_lowercase())
+        .filter(|word| {
+            word.chars().count() <= 40
+                && (word.is_ascii() || word.chars().count() <= 16)
+                && word.chars().any(char::is_alphabetic)
+                && !(word.is_ascii() && STOP.contains(word.as_str()))
+        })
+        .collect()
+}
+
+fn document_frequencies(
+    documents: &[std::collections::HashSet<String>],
+) -> std::collections::HashMap<String, usize> {
+    let mut frequencies = std::collections::HashMap::new();
+    for document in documents {
+        for term in document {
+            *frequencies.entry(term.clone()).or_default() += 1;
         }
     }
-    let mut counts: Vec<_> = counts.into_iter().collect();
-    counts.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
-    let minimum_support = 2.max(texts.len().div_ceil(5));
-    let terms: Vec<_> = counts
+    frequencies
+}
+
+fn script_fallback(frequencies: &std::collections::HashMap<String, usize>) -> Option<&'static str> {
+    let mut alphabetic = 0_usize;
+    let mut japanese = 0_usize;
+    let mut arabic = 0_usize;
+    for (term, frequency) in frequencies {
+        for character in term.chars().filter(|character| character.is_alphabetic()) {
+            alphabetic += frequency;
+            let code = character as u32;
+            if (0x3040..=0x30ff).contains(&code) || (0x4e00..=0x9fff).contains(&code) {
+                japanese += frequency;
+            }
+            if (0x0600..=0x06ff).contains(&code) {
+                arabic += frequency;
+            }
+        }
+    }
+    (alphabetic > 0 && japanese * 5 >= alphabetic * 3)
+        .then_some("Japanese-script text")
+        .or_else(|| {
+            (alphabetic > 0 && arabic * 5 >= alphabetic * 3).then_some("Arabic-script text")
+        })
+}
+
+fn topic_label(
+    member_indices: &[usize],
+    representative_indices: &[usize],
+    documents: &[std::collections::HashSet<String>],
+    corpus_frequencies: &std::collections::HashMap<String, usize>,
+) -> String {
+    let mut cluster_frequencies = std::collections::HashMap::<String, usize>::new();
+    for index in member_indices {
+        for term in &documents[*index] {
+            *cluster_frequencies.entry(term.clone()).or_default() += 1;
+        }
+    }
+    if let Some(label) = script_fallback(&cluster_frequencies) {
+        return label.into();
+    }
+    let minimum_support = 3.max(member_indices.len().div_ceil(5));
+    let minimum_representatives =
+        (representative_indices.len().div_ceil(5) * 3).min(representative_indices.len());
+    let mut terms = cluster_frequencies
         .into_iter()
-        .filter(|(_, support)| *support >= minimum_support)
+        .filter_map(|(term, cluster_frequency)| {
+            let corpus_frequency = corpus_frequencies[&term];
+            let cluster_rate = cluster_frequency as f64 / member_indices.len() as f64;
+            let corpus_rate = corpus_frequency as f64 / documents.len() as f64;
+            let representative_frequency = representative_indices
+                .iter()
+                .filter(|index| documents[**index].contains(&term))
+                .count();
+            (cluster_frequency >= minimum_support
+                && cluster_rate >= 1.5 * corpus_rate
+                && representative_frequency >= minimum_representatives)
+                .then_some((
+                    term,
+                    cluster_frequency,
+                    cluster_rate * (1.0 / corpus_rate).ln(),
+                ))
+        })
+        .collect::<Vec<_>>();
+    terms.sort_by(|left, right| {
+        right
+            .2
+            .total_cmp(&left.2)
+            .then_with(|| right.1.cmp(&left.1))
+            .then_with(|| left.0.cmp(&right.0))
+    });
+    let label = terms
+        .into_iter()
         .take(3)
-        .map(|(word, _)| word)
-        .collect();
-    if terms.len() < 2 {
-        "mixed".into()
+        .map(|(term, _, _)| term)
+        .collect::<Vec<_>>()
+        .join(" · ");
+    if label.is_empty() {
+        "Unlabelled topic".into()
     } else {
-        terms.join(" · ")
+        label
     }
 }
 
-/// Recomputes deterministic cosine clusters and labels from current post text.
-pub fn cluster_topics(path: &Path, space: &Space, now: i64) -> Result<usize, Error> {
-    let mut conn = db(path)?;
+type ClusterInput = (Vec<u8>, Vec<f32>, String);
+
+fn cluster_input(conn: &Connection, space: &Space, now: i64) -> Result<Vec<ClusterInput>, Error> {
     let mut statement = conn.prepare(
         "SELECT embedding.event_id,embedding.vector,event.content
          FROM post_embeddings embedding
@@ -1145,7 +1334,7 @@ pub fn cluster_topics(path: &Path, space: &Space, now: i64) -> Result<usize, Err
          WHERE embedding.space_id=?1 AND event.created_at BETWEEN ?2 AND ?3
          ORDER BY embedding.event_id",
     )?;
-    let rows: Vec<(Vec<u8>, Vec<f32>, String)> = statement
+    let rows = statement
         .query_map((&space.id, now - WINDOW, now), |row| {
             Ok((
                 row.get(0)?,
@@ -1155,13 +1344,51 @@ pub fn cluster_topics(path: &Path, space: &Space, now: i64) -> Result<usize, Err
             ))
         })?
         .collect::<Result<_, _>>()?;
-    drop(statement);
+    Ok(rows)
+}
+
+fn current_topic_event_ids(
+    conn: &Connection,
+    space: &Space,
+    now: i64,
+) -> Result<std::collections::HashSet<Vec<u8>>, Error> {
+    let mut statement = conn.prepare(
+        "SELECT embedding.event_id FROM post_embeddings embedding
+         JOIN events event ON event.id=embedding.event_id
+         JOIN reader_post_events reader ON reader.event_id=event.id
+         WHERE embedding.space_id=?1 AND event.created_at BETWEEN ?2 AND ?3",
+    )?;
+    let event_ids = statement
+        .query_map((&space.id, now - WINDOW, now), |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+    Ok(event_ids)
+}
+
+/// Recomputes deterministic cosine clusters and labels from current post text.
+pub fn cluster_topics(path: &Path, space: &Space, now: i64) -> Result<usize, Error> {
+    if !space.normalize {
+        return Err("Cosine topic clustering requires normalized vectors".into());
+    }
+    let mut conn = db(path)?;
+    let rows = cluster_input(&conn, space, now)?;
     if rows.is_empty() {
+        let settings = TopicSettings::from_env()?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        tx.execute(
+            "DELETE FROM embedding_topics WHERE space_id=?1",
+            [&space.id],
+        )?;
+        tx.execute(
+            "INSERT INTO embedding_topic_builds(space_id,method,kmeans_k,epsilon_cosine,min_samples,built_at)
+             VALUES(?1,'kmeans',?2,NULL,NULL,?3)
+             ON CONFLICT(space_id,method) DO UPDATE SET kmeans_k=excluded.kmeans_k,
+               epsilon_cosine=NULL,min_samples=NULL,built_at=excluded.built_at",
+            rusqlite::params![space.id, i64::try_from(settings.kmeans_k)?, now],
+        )?;
+        tx.commit()?;
         return Ok(0);
     }
-    let cluster_count = ((rows.len() as f64 / 25.0).sqrt().round() as usize)
-        .clamp(6, 16)
-        .min(rows.len());
+    let cluster_count = TopicSettings::from_env()?.kmeans_k.min(rows.len());
     let mut centroids = vec![rows[0].1.clone()];
     while centroids.len() < cluster_count {
         let next = rows
@@ -1210,32 +1437,79 @@ pub fn cluster_topics(path: &Path, space: &Space, now: i64) -> Result<usize, Err
             }
         }
     }
+    let documents = rows
+        .iter()
+        .map(|(_, _, text)| document_terms(text))
+        .collect::<Vec<_>>();
+    let corpus_frequencies = document_frequencies(&documents);
     let labels: Vec<_> = (0..cluster_count)
         .map(|cluster| {
-            topic_label(
-                &assignments
+            let member_indices = assignments
+                .iter()
+                .enumerate()
+                .filter_map(|(index, assignment)| (*assignment == cluster).then_some(index))
+                .collect::<Vec<_>>();
+            let mut representative_indices = member_indices.clone();
+            representative_indices.sort_by(|left, right| {
+                dot(&rows[*right].1, &centroids[cluster])
+                    .total_cmp(&dot(&rows[*left].1, &centroids[cluster]))
+            });
+            representative_indices.truncate(5);
+            (
+                topic_label(
+                    &member_indices,
+                    &representative_indices,
+                    &documents,
+                    &corpus_frequencies,
+                ),
+                representative_indices
                     .iter()
-                    .zip(&rows)
-                    .filter(|(assignment, _)| **assignment == cluster)
-                    .map(|(_, (_, _, text))| text.as_str())
-                    .collect::<Vec<_>>(),
+                    .map(|index| rows[*index].0.clone())
+                    .collect::<Vec<Vec<u8>>>(),
             )
         })
         .collect();
+    let mut centroid_sums = vec![vec![0.0_f32; space.dimensions]; cluster_count];
+    for ((_, vector, _), assignment) in rows.iter().zip(&assignments) {
+        for (sum, value) in centroid_sums[*assignment].iter_mut().zip(vector) {
+            *sum += value;
+        }
+    }
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     tx.execute(
         "DELETE FROM embedding_topics WHERE space_id=?1",
         [&space.id],
     )?;
+    let current_events = current_topic_event_ids(&tx, space, now)?;
     let mut stored_topics = 0;
-    for (topic_id, (label, centroid)) in labels.iter().zip(&centroids).enumerate() {
-        let post_count = assignments
+    for (topic_id, (label, representative_ids)) in labels.iter().enumerate() {
+        let post_count = rows
             .iter()
-            .filter(|value| **value == topic_id)
+            .zip(&assignments)
+            .filter(|((event_id, _, _), assignment)| {
+                **assignment == topic_id && current_events.contains(event_id)
+            })
             .count();
         if post_count == 0 {
             continue;
         }
+        let label = if representative_ids
+            .iter()
+            .any(|event_id| !current_events.contains(event_id))
+        {
+            "Unlabelled topic"
+        } else {
+            label
+        };
+        let mut centroid = centroid_sums[topic_id].clone();
+        for ((event_id, vector, _), assignment) in rows.iter().zip(&assignments) {
+            if *assignment == topic_id && !current_events.contains(event_id) {
+                for (sum, value) in centroid.iter_mut().zip(vector) {
+                    *sum -= value;
+                }
+            }
+        }
+        normalize(&mut centroid)?;
         tx.execute(
             "INSERT INTO embedding_topics(space_id,topic_id,label,post_count,centroid,created_at)
              VALUES(?1,?2,?3,?4,?5,?6)",
@@ -1244,83 +1518,475 @@ pub fn cluster_topics(path: &Path, space: &Space, now: i64) -> Result<usize, Err
                 i64::try_from(topic_id)?,
                 label,
                 i64::try_from(post_count)?,
-                vector_bytes(centroid),
+                vector_bytes(&centroid),
                 now,
             ),
         )?;
         stored_topics += 1;
     }
     for ((event_id, _, _), topic_id) in rows.iter().zip(assignments) {
-        tx.execute(
-            "INSERT INTO post_topics(event_id,space_id,topic_id) VALUES(?1,?2,?3)",
-            (event_id, &space.id, i64::try_from(topic_id)?),
-        )?;
+        if current_events.contains(event_id) {
+            tx.execute(
+                "INSERT INTO post_topics(event_id,space_id,topic_id) VALUES(?1,?2,?3)",
+                (event_id, &space.id, i64::try_from(topic_id)?),
+            )?;
+        }
     }
+    tx.execute(
+        "INSERT INTO embedding_topic_builds(space_id,method,kmeans_k,epsilon_cosine,min_samples,built_at)
+         VALUES(?1,'kmeans',?2,NULL,NULL,?3)
+         ON CONFLICT(space_id,method) DO UPDATE SET kmeans_k=excluded.kmeans_k,
+           epsilon_cosine=NULL,min_samples=NULL,built_at=excluded.built_at",
+        rusqlite::params![space.id, i64::try_from(TopicSettings::from_env()?.kmeans_k)?, now],
+    )?;
     tx.commit()?;
     Ok(stored_topics)
 }
 
-/// Lists keyword-labelled topics largest first.
-pub fn topics(path: &Path, space: &Space) -> Result<Vec<Topic>, Error> {
-    let conn = db(path)?;
-    let mut statement = conn.prepare(
-        "SELECT topic_id,label,post_count FROM embedding_topics
-         WHERE space_id=?1 ORDER BY post_count DESC,topic_id",
+/// Recomputes exact DBSCAN clusters over normalized vectors. -- Pi/gpt-5.6-sol
+pub fn cluster_dbscan_topics(
+    path: &Path,
+    space: &Space,
+    now: i64,
+    epsilon_cosine: f32,
+    min_samples: usize,
+) -> Result<usize, Error> {
+    if !space.normalize {
+        return Err("DBSCAN cosine distance requires normalized vectors".into());
+    }
+    if min_samples < 2 || !(0.0 < epsilon_cosine && epsilon_cosine <= 2.0) {
+        return Err("DBSCAN requires min_samples >= 2 and cosine epsilon in (0,2]".into());
+    }
+    let mut conn = db(path)?;
+    let rows = cluster_input(&conn, space, now)?;
+    if rows.is_empty() {
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        tx.execute(
+            "DELETE FROM embedding_dbscan_topics WHERE space_id=?1",
+            [&space.id],
+        )?;
+        tx.execute(
+            "INSERT INTO embedding_topic_builds(space_id,method,kmeans_k,epsilon_cosine,min_samples,built_at)
+             VALUES(?1,'dbscan',NULL,?2,?3,?4)
+             ON CONFLICT(space_id,method) DO UPDATE SET kmeans_k=NULL,
+               epsilon_cosine=excluded.epsilon_cosine,min_samples=excluded.min_samples,built_at=excluded.built_at",
+            rusqlite::params![space.id, epsilon_cosine, i64::try_from(min_samples)?, now],
+        )?;
+        tx.commit()?;
+        return Ok(0);
+    }
+    let matrix = Array2::from_shape_vec(
+        (rows.len(), space.dimensions),
+        rows.iter()
+            .flat_map(|(_, vector, _)| vector.iter().copied())
+            .collect(),
     )?;
-    let topics = statement
+    let epsilon_l2 = (2.0 * epsilon_cosine).sqrt();
+    let labels = if min_samples > rows.len() {
+        vec![None; rows.len()]
+    } else {
+        Dbscan::params_with(min_samples, L2Dist, BallTree)
+            .tolerance(epsilon_l2)
+            .transform(&matrix)
+            .map_err(|error| std::io::Error::other(error.to_string()))?
+            .to_vec()
+    };
+    let index = BallTree
+        .from_batch(&matrix, L2Dist)
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
+    let core: Vec<bool> = labels
+        .iter()
+        .zip(matrix.outer_iter())
+        .map(|(label, point): (&Option<usize>, ArrayView1<'_, f32>)| {
+            if label.is_none() {
+                return Ok(false);
+            }
+            index
+                .k_nearest(point, min_samples)
+                .map(|neighbors| L2Dist.distance(point, neighbors.last().unwrap().0) <= epsilon_l2)
+                .map_err(|error| std::io::Error::other(error.to_string()))
+        })
+        .collect::<Result<_, _>>()?;
+    let topic_ids: Vec<i64> = labels
+        .iter()
+        .map(|label| label.map_or(-1, |topic| i64::try_from(topic).unwrap()))
+        .collect();
+    let mut members = std::collections::BTreeMap::<i64, Vec<usize>>::new();
+    for (index, topic_id) in topic_ids.iter().copied().enumerate() {
+        members.entry(topic_id).or_default().push(index);
+    }
+    members.entry(-1).or_default();
+    let documents = rows
+        .iter()
+        .map(|(_, _, text)| document_terms(text))
+        .collect::<Vec<_>>();
+    let corpus_frequencies = document_frequencies(&documents);
+    let mut prepared_topics = Vec::with_capacity(members.len());
+    for (topic_id, indices) in &members {
+        let centroid_sum = if *topic_id == -1 {
+            None
+        } else {
+            let mut vector = vec![0.0; space.dimensions];
+            for index in indices {
+                for (total, value) in vector.iter_mut().zip(&rows[*index].1) {
+                    *total += value;
+                }
+            }
+            Some(vector)
+        };
+        let centroid_vector = centroid_sum
+            .as_ref()
+            .map(|sum| {
+                let mut centroid = sum.clone();
+                normalize(&mut centroid).map(|()| centroid)
+            })
+            .transpose()?;
+        let (label, representative_ids) = if let Some(centroid) = &centroid_vector {
+            let mut representatives = indices
+                .iter()
+                .map(|index| (dot(&rows[*index].1, centroid), *index))
+                .collect::<Vec<_>>();
+            representatives.sort_by(|left, right| right.0.total_cmp(&left.0));
+            let representative_indices = representatives
+                .into_iter()
+                .take(5)
+                .map(|(_, index)| index)
+                .collect::<Vec<_>>();
+            (
+                topic_label(
+                    indices,
+                    &representative_indices,
+                    &documents,
+                    &corpus_frequencies,
+                ),
+                representative_indices
+                    .iter()
+                    .map(|index| rows[*index].0.clone())
+                    .collect(),
+            )
+        } else {
+            ("Noise / unmatched".into(), Vec::new())
+        };
+        prepared_topics.push((*topic_id, label, representative_ids, centroid_sum));
+    }
+    let transaction = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    transaction.execute(
+        "DELETE FROM post_dbscan_topics WHERE space_id=?1",
+        [&space.id],
+    )?;
+    transaction.execute(
+        "DELETE FROM embedding_dbscan_topics WHERE space_id=?1",
+        [&space.id],
+    )?;
+    let current_events = current_topic_event_ids(&transaction, space, now)?;
+    let mut stored_topics = 0;
+    for (topic_id, mut label, representative_ids, centroid_sum) in prepared_topics {
+        let current_indices = members[&topic_id]
+            .iter()
+            .filter(|index| current_events.contains(&rows[**index].0))
+            .collect::<Vec<_>>();
+        if current_indices.is_empty() {
+            continue;
+        }
+        if representative_ids
+            .iter()
+            .any(|event_id| !current_events.contains(event_id))
+        {
+            label = "Unlabelled topic".into();
+        }
+        let centroid = if let Some(mut centroid) = centroid_sum {
+            for index in &members[&topic_id] {
+                if !current_events.contains(&rows[*index].0) {
+                    for (sum, value) in centroid.iter_mut().zip(&rows[*index].1) {
+                        *sum -= value;
+                    }
+                }
+            }
+            normalize(&mut centroid)?;
+            Some(vector_bytes(&centroid))
+        } else {
+            None
+        };
+        transaction.execute(
+            "INSERT INTO embedding_dbscan_topics
+             (space_id,topic_id,label,post_count,epsilon_cosine,min_samples,centroid,created_at)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+            rusqlite::params![
+                space.id,
+                topic_id,
+                label,
+                i64::try_from(current_indices.len())?,
+                epsilon_cosine,
+                i64::try_from(min_samples)?,
+                centroid,
+                now
+            ],
+        )?;
+        stored_topics += 1;
+        for index in current_indices {
+            transaction.execute(
+                "INSERT INTO post_dbscan_topics(event_id,space_id,topic_id,is_core,assigned_at)
+                 VALUES(?1,?2,?3,?4,?5)",
+                rusqlite::params![rows[*index].0, space.id, topic_id, core[*index], now],
+            )?;
+        }
+    }
+    transaction.execute(
+        "INSERT INTO embedding_topic_builds(space_id,method,kmeans_k,epsilon_cosine,min_samples,built_at)
+         VALUES(?1,'dbscan',NULL,?2,?3,?4)
+         ON CONFLICT(space_id,method) DO UPDATE SET kmeans_k=NULL,
+           epsilon_cosine=excluded.epsilon_cosine,min_samples=excluded.min_samples,built_at=excluded.built_at",
+        rusqlite::params![space.id, epsilon_cosine, i64::try_from(min_samples)?, now],
+    )?;
+    transaction.commit()?;
+    Ok(stored_topics)
+}
+
+pub fn rebuild_topics(path: &Path, space: &Space, now: i64) -> Result<(usize, usize), Error> {
+    let settings = TopicSettings::from_env()?;
+    let kmeans = cluster_topics(path, space, now)?;
+    let dbscan = cluster_dbscan_topics(
+        path,
+        space,
+        now,
+        settings.dbscan_epsilon_cosine,
+        settings.dbscan_min_samples,
+    )?;
+    Ok((kmeans, dbscan))
+}
+
+pub fn topics_due(path: &Path, space: &Space, now: i64) -> Result<bool, Error> {
+    let settings = TopicSettings::from_env()?;
+    let conn = db(path)?;
+    let matching_kmeans: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM embedding_topic_builds
+          WHERE space_id=?1 AND method='kmeans' AND kmeans_k=?2)",
+        rusqlite::params![space.id, i64::try_from(settings.kmeans_k)?],
+        |row| row.get(0),
+    )?;
+    let matching_dbscan: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM embedding_topic_builds
+          WHERE space_id=?1 AND method='dbscan' AND epsilon_cosine=?2 AND min_samples=?3)",
+        rusqlite::params![
+            space.id,
+            settings.dbscan_epsilon_cosine,
+            i64::try_from(settings.dbscan_min_samples)?
+        ],
+        |row| row.get(0),
+    )?;
+    if !matching_kmeans || !matching_dbscan {
+        return Ok(true);
+    }
+    let kmeans_at: Option<i64> = conn.query_row(
+        "SELECT max(created_at) FROM embedding_topics WHERE space_id=?1",
+        [&space.id],
+        |row| row.get(0),
+    )?;
+    let dbscan_at: Option<i64> = conn.query_row(
+        "SELECT max(created_at) FROM embedding_dbscan_topics WHERE space_id=?1",
+        [&space.id],
+        |row| row.get(0),
+    )?;
+    Ok(kmeans_at
+        .min(dbscan_at)
+        .is_none_or(|built| now - built >= 6 * 3600))
+}
+
+/// Assigns new vectors without promoting DBSCAN cores or merging clusters. -- Pi/gpt-5.6-sol
+pub fn assign_new_topics(path: &Path, space: &Space, now: i64) -> Result<usize, Error> {
+    let settings = TopicSettings::from_env()?;
+    let mut conn = db(path)?;
+    let kmeans: Vec<(i64, Vec<f32>)> = {
+        let mut statement = conn.prepare(
+            "SELECT topic_id,centroid FROM embedding_topics WHERE space_id=?1 ORDER BY topic_id",
+        )?;
+        let rows = statement
+            .query_map([&space.id], |row| {
+                Ok((
+                    row.get(0)?,
+                    decode_vector(&row.get::<_, Vec<u8>>(1)?, space.dimensions)
+                        .map_err(rusqlite::Error::ToSqlConversionFailure)?,
+                ))
+            })?
+            .collect::<Result<_, _>>()?;
+        rows
+    };
+    let dbscan_cores: Vec<(i64, Vec<f32>)> = {
+        let mut statement = conn.prepare(
+            "SELECT membership.topic_id,embedding.vector
+             FROM post_dbscan_topics membership
+             JOIN post_embeddings embedding ON embedding.event_id=membership.event_id
+               AND embedding.space_id=membership.space_id
+             WHERE membership.space_id=?1 AND membership.is_core=1",
+        )?;
+        let rows = statement
+            .query_map([&space.id], |row| {
+                Ok((
+                    row.get(0)?,
+                    decode_vector(&row.get::<_, Vec<u8>>(1)?, space.dimensions)
+                        .map_err(rusqlite::Error::ToSqlConversionFailure)?,
+                ))
+            })?
+            .collect::<Result<_, _>>()?;
+        rows
+    };
+    let dbscan_exists = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM embedding_dbscan_topics WHERE space_id=?1)",
+        [&space.id],
+        |row| row.get::<_, bool>(0),
+    )?;
+    let pending: Vec<(Vec<u8>, Vec<f32>, bool, bool)> = {
+        let mut statement = conn.prepare(
+            "SELECT embedding.event_id,embedding.vector,
+               EXISTS(SELECT 1 FROM post_topics topic WHERE topic.event_id=embedding.event_id AND topic.space_id=embedding.space_id),
+               EXISTS(SELECT 1 FROM post_dbscan_topics topic WHERE topic.event_id=embedding.event_id AND topic.space_id=embedding.space_id)
+             FROM post_embeddings embedding
+             JOIN reader_post_events reader ON reader.event_id=embedding.event_id
+             WHERE embedding.space_id=?1 AND (
+               NOT EXISTS(SELECT 1 FROM post_topics topic WHERE topic.event_id=embedding.event_id AND topic.space_id=embedding.space_id)
+               OR NOT EXISTS(SELECT 1 FROM post_dbscan_topics topic WHERE topic.event_id=embedding.event_id AND topic.space_id=embedding.space_id))",
+        )?;
+        let rows = statement
+            .query_map([&space.id], |row| {
+                Ok((
+                    row.get(0)?,
+                    decode_vector(&row.get::<_, Vec<u8>>(1)?, space.dimensions)
+                        .map_err(rusqlite::Error::ToSqlConversionFailure)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                ))
+            })?
+            .collect::<Result<_, _>>()?;
+        rows
+    };
+    let transaction = conn.transaction()?;
+    for (event_id, vector, has_kmeans, has_dbscan) in &pending {
+        if !has_kmeans && !kmeans.is_empty() {
+            let topic_id = kmeans
+                .iter()
+                .max_by(|(_, left), (_, right)| dot(vector, left).total_cmp(&dot(vector, right)))
+                .unwrap()
+                .0;
+            transaction.execute(
+                "INSERT INTO post_topics(event_id,space_id,topic_id) VALUES(?1,?2,?3)",
+                rusqlite::params![event_id, space.id, topic_id],
+            )?;
+            transaction.execute(
+                "UPDATE embedding_topics SET post_count=post_count+1 WHERE space_id=?1 AND topic_id=?2",
+                rusqlite::params![space.id, topic_id],
+            )?;
+        }
+        if !has_dbscan && dbscan_exists {
+            let nearest = dbscan_cores
+                .iter()
+                .map(|(topic_id, core)| (*topic_id, 1.0 - dot(vector, core)))
+                .min_by(|(_, left), (_, right)| left.total_cmp(right));
+            let topic_id = nearest
+                .filter(|(_, distance)| *distance <= settings.dbscan_epsilon_cosine)
+                .map_or(-1, |(topic_id, _)| topic_id);
+            transaction.execute(
+                "INSERT INTO post_dbscan_topics(event_id,space_id,topic_id,is_core,assigned_at)
+                 VALUES(?1,?2,?3,0,?4)",
+                rusqlite::params![event_id, space.id, topic_id, now],
+            )?;
+            transaction.execute(
+                "UPDATE embedding_dbscan_topics SET post_count=post_count+1 WHERE space_id=?1 AND topic_id=?2",
+                rusqlite::params![space.id, topic_id],
+            )?;
+        }
+    }
+    transaction.commit()?;
+    Ok(pending.len())
+}
+
+/// Lists keyword-labelled topics largest first. -- Pi/gpt-5.6-sol
+pub fn topics(path: &Path, space: &Space, algorithm: &str) -> Result<Vec<Topic>, Error> {
+    let conn = db(path)?;
+    let (topic_table, membership_table) = match algorithm {
+        "kmeans" => ("embedding_topics", "post_topics"),
+        "dbscan" => ("embedding_dbscan_topics", "post_dbscan_topics"),
+        _ => return Err(format!("Unknown topic algorithm: {algorithm}").into()),
+    };
+    let sql = format!(
+        "SELECT topic.topic_id,topic.label,count(member.event_id)
+         FROM {topic_table} topic LEFT JOIN {membership_table} member
+           ON member.space_id=topic.space_id AND member.topic_id=topic.topic_id
+         WHERE topic.space_id=?1
+         GROUP BY topic.topic_id,topic.label
+         ORDER BY count(member.event_id) DESC,topic.topic_id"
+    );
+    let mut statement = conn.prepare(&sql)?;
+    let mut topics = statement
         .query_map([&space.id], |row| {
             Ok(Topic {
                 id: row.get(0)?,
                 label: row.get(1)?,
                 post_count: row.get(2)?,
+                percent: String::new(),
             })
         })?
-        .collect::<Result<_, _>>()
-        .map_err(Into::into);
-    topics
+        .collect::<Result<Vec<_>, _>>()?;
+    let population = topics.iter().map(|topic| topic.post_count).sum::<i64>();
+    for topic in &mut topics {
+        topic.percent = if population == 0 {
+            "0.0".into()
+        } else {
+            format!("{:.1}", 100.0 * topic.post_count as f64 / population as f64)
+        };
+    }
+    Ok(topics)
 }
 
-/// Returns one topic's event IDs in newest-first order.
+pub struct TopicPage<'a> {
+    pub ids: &'a [i64],
+    pub include_unsorted: bool,
+    pub algorithm: &'a str,
+    pub now: i64,
+    pub limit: usize,
+    pub offset: usize,
+}
+
+/// Returns selected topic event IDs in newest-first order. -- Pi/gpt-5.6-sol
 pub fn topic_events(
     path: &Path,
     space: &Space,
-    topic_id: i64,
-    now: i64,
-    limit: usize,
-    offset: usize,
+    page: TopicPage<'_>,
 ) -> Result<Vec<Vec<u8>>, Error> {
     let conn = db(path)?;
-    let mut statement = conn.prepare(
-        "SELECT topic.event_id FROM post_topics topic
-         JOIN events event ON event.id=topic.event_id
+    let table = match page.algorithm {
+        "kmeans" => "post_topics",
+        "dbscan" => "post_dbscan_topics",
+        _ => return Err(format!("Unknown topic algorithm: {}", page.algorithm).into()),
+    };
+    let sql = format!(
+        "SELECT topic.event_id FROM events event INDEXED BY idx_events_created_at
+         JOIN {table} topic ON topic.event_id=event.id
          JOIN reader_post_events reader ON reader.event_id=event.id
-         WHERE topic.space_id=?1 AND topic.topic_id=?2 AND event.created_at BETWEEN ?3 AND ?4
-         ORDER BY event.created_at DESC,event.id LIMIT ?5 OFFSET ?6",
-    )?;
+         WHERE topic.space_id=?1
+           AND ((?2='[]' AND NOT ?3 AND topic.topic_id!=-1)
+             OR topic.topic_id IN (SELECT value FROM json_each(?2))
+             OR (?3 AND topic.topic_id=-1))
+           AND event.created_at BETWEEN ?4 AND ?5
+         ORDER BY event.created_at DESC,event.id LIMIT ?6 OFFSET ?7"
+    );
+    let mut statement = conn.prepare(&sql)?;
+    let topic_ids = serde_json::to_string(page.ids)?;
     let events = statement
         .query_map(
             (
                 &space.id,
-                topic_id,
-                now - WINDOW,
-                now,
-                i64::try_from(limit)?,
-                i64::try_from(offset)?,
+                topic_ids,
+                page.include_unsorted,
+                page.now - WINDOW,
+                page.now,
+                i64::try_from(page.limit)?,
+                i64::try_from(page.offset)?,
             ),
             |row| row.get(0),
         )?
         .collect::<Result<_, _>>()
         .map_err(Into::into);
     events
-}
-
-/// Counts cached post vectors in one exact space.
-pub fn vector_count(path: &Path, space: &Space) -> Result<i64, Error> {
-    Ok(db(path)?.query_row(
-        "SELECT count(*) FROM post_embeddings WHERE space_id=?1",
-        [&space.id],
-        |row| row.get(0),
-    )?)
 }
 
 /// Loads one event vector from the model's exact space.
@@ -1423,17 +2089,74 @@ pub fn nearest(
 
 #[cfg(test)]
 mod label_tests {
-    use super::topic_label;
+    use super::{document_frequencies, document_terms, topic_label};
+
+    fn label(texts: &[&str], members: &[usize], representatives: &[usize]) -> String {
+        let documents = texts
+            .iter()
+            .map(|text| document_terms(text))
+            .collect::<Vec<_>>();
+        topic_label(
+            members,
+            representatives,
+            &documents,
+            &document_frequencies(&documents),
+        )
+    }
 
     #[test]
-    fn labels_remove_english_fragments_and_mark_heterogeneous_clusters() {
+    fn labels_use_contrastive_unicode_terms_from_members_and_check_representatives() {
+        let texts = [
+            "good year all",
+            "them because don't",
+            "rust vector search",
+            "rust vector index",
+            "rust vector",
+        ];
+        assert_eq!(label(&texts, &[0, 1], &[0, 1]), "Unlabelled topic");
+        assert_eq!(label(&texts, &[2, 3, 4], &[2, 3, 4]), "rust · vector");
         assert_eq!(
-            topic_label(&["good year all", "them because don't"]),
-            "mixed"
+            label(
+                &[
+                    "rust protocol",
+                    "rust implementation",
+                    "ordinary note",
+                    "garden soil",
+                    "orchard fruit",
+                    "birds flying",
+                ],
+                &[0, 1, 2],
+                &[0, 2],
+            ),
+            "Unlabelled topic"
         );
         assert_eq!(
-            topic_label(&["rust vector search", "rust vector index", "rust vector"]),
-            "rust · vector"
+            label(
+                &[
+                    "東京経済 ニュース",
+                    "東京経済 市場",
+                    "rust code",
+                    "garden soil"
+                ],
+                &[0, 1],
+                &[0]
+            ),
+            "Japanese-script text"
+        );
+        assert_eq!(
+            label(
+                &[
+                    "plain words https://same.example/path",
+                    "quantum https://same.example/path",
+                    "quantum https://same.example/path",
+                    "garden soil",
+                    "orchard fruit",
+                    "birds flying",
+                ],
+                &[0, 1, 2],
+                &[0]
+            ),
+            "Unlabelled topic"
         );
     }
 }

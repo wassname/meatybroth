@@ -8,6 +8,15 @@ SELECT reader.*
 FROM reader_events reader
 JOIN events event ON event.id=reader.event_id
 WHERE event.kind=1
+  -- Exclude the reviewed key-and-marker campaign from derived reader data only. -- Pi/gpt-5.6-sol
+  AND NOT (
+    lower(hex(event.pubkey))='441d176ae740ef78b4b22129da2aea29aa2caf20dbf53bb8463ddd4fea90cf47'
+    AND (
+      instr(lower(event.content),'aepiot')>0
+      OR instr(lower(event.content),'allgraph')>0
+      OR instr(lower(event.content),'headlines-world')>0
+    )
+  )
   AND NOT CASE WHEN json_valid(event.content) THEN
     json_type(event.content)='object'
     AND (

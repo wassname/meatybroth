@@ -1,0 +1,17 @@
+route	iteration	http	ttfb_s	total_s
+/?feed=topics	1	200	0.637509	0.637646
+/?feed=topics	2	200	0.655175	0.655313
+/?feed=topics	3	200	0.619354	0.619499
+/?feed=topics	4	200	0.661781	0.661902
+/?feed=topics	5	200	0.640755	0.640890
+/?feed=topics	6	200	0.679199	0.679323
+/?feed=topics	7	200	0.756483	0.756628
+/?feed=topics	8	200	0.717434	0.717545
+/?feed=topics	9	200	0.594166	0.594303
+/?feed=topics	10	200	0.594875	0.595052
+/	1	200	0.627950	0.628088
+/?feed=new	1	200	0.637756	0.637889
+/?feed=topics&clustering=dbscan	1	200	0.534284	0.534426
+/?q=bitcoin&mode=relevance	1	200	3.433044	3.433221
+/?q=bitcoin&mode=meaning&embedding=minilm	1	200	3.210267	3.210430
+# Topics median_total_s=0.648 max_total_s=0.757

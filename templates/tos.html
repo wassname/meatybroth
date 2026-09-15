@@ -1,59 +1,11 @@
 {% extends "base.html" %}
 {% block body %}
 <h2>Terms of use</h2>
-<p><strong>What this is.</strong> A public, read-only reader and search over a
-bounded sample of public Nostr posts observed through the operator's followed
-network and followed RSS/Mastodon/Bluesky bridge accounts — text only, last
-30 days. There are no user accounts and no posting. This is an
-experimental, non-commercial website. Shown posts are cached
-copies collected through Nostr relays; original-event links point back to the
-Nostr network.</p>
-<p><strong>What is collected and shown.</strong> Only Nostr events whose
-cryptographic signature verifies are stored; post text, author names and
-profile details are derived from those signed events. Post bodies are
-sanitized text with http(s) links only — no scripts or images in post
-bodies. This site does not verify anyone's real-world identity, and a
-displayed name or address is not proof of who wrote it. A signed Nostr event
-cannot be edited without breaking its signature, and no process guarantees
-its deletion from the Nostr network; relays may retain events regardless of
-what this reader shows. Post bodies expire and disappear after 30 days;
-profile and follow metadata may be kept beyond that window. Filter
-rejections are logged as counts and event ids, never as content.</p>
-<p><strong>Prohibited material and removal.</strong> Child sexual abuse and
-exploitation material, exposed private credentials, and threats or doxxing
-have no place here: posts containing obvious credentials are discarded before
-being stored, stored copies are removed when found, and the operator removes
-other prohibited posts from this site when identified and prevents their
-collection. Spam and explicit content are filtered at the operator's
-discretion, as described on the status page. Removal from this site does not
-affect copies on Nostr relays, and a signed Nostr event cannot be deleted
-network-wide by this site.</p>
-<p><strong>Notices.</strong> To report a problem with a post — including
-copyright infringement — open an issue at
-<a href="https://github.com/wassname/meatybroth/issues/new">github.com/wassname/meatybroth/issues/new</a>
-with the post's event ID and a short reason. GitHub issues are public and
-normally show the reporter's GitHub identity. Do not paste post content,
-screenshots or credentials into a report, and do not copy illegal or
-sensitive material anywhere. The operator reviews reports and disables public
-access to identified prohibited posts.</p>
-<p><strong>Disclaimer and liability.</strong> This site and its contents are
-provided "as is", without warranties of any kind. Shown posts are
-third-party content collected from the Nostr network; showing a post is not
-an endorsement by the operator, who may also publish on Nostr themselves. To
-the extent permitted by applicable law, the operator is not liable for
-third-party posts displayed here; nothing here excludes liability that
-cannot be excluded by law. The operator acts on notices and on their own
-findings, as described above. There is no guarantee of availability: the
-operator may pause, suspend or discontinue the site at any time.</p>
-<p><strong>Limits.</strong> Collection is budgeted and partial by design, and
-filtering is imperfect in both directions: no guarantee is made that any
-particular content is complete, correct, or available. Missing posts may
-reflect collection limits or deliberate filtering. Author-labelled content
-warnings hide text behind a click-to-show with the author's reason;
-unlabelled explicit text is not auto-detected and renders normally unless
-the operator blocklists it. Obvious spam may be labelled rather than hidden,
-and is never deleted automatically. The operator
-maintains a blocklist of authors and posts that stops content from appearing
-here and prevents it from being collected again; per-rule filter counts are
-visible on the status page.</p>
+<p><strong>What this is.</strong> This experimental, non-commercial site is a public, read-only reader and search over a bounded 30-day text sample of public Nostr posts from selected relays, plus followed RSS, Mastodon, and Bluesky bridge accounts. Follows filter the Network view; they do not limit Nostr collection. It has no accounts or posting. Shown posts are cached copies from Nostr relays; original-event links point back to Nostr.</p>
+<p><strong>What is collected and shown.</strong> Only Nostr events with a verified cryptographic signature are stored. Post text, author names, and profile details come from those events. Bodies are sanitized text with http(s) links only; they contain no scripts or images. A displayed name or address does not verify a real-world identity. Signed events cannot be edited without breaking their signatures, and this reader cannot guarantee their deletion from Nostr relays. Post bodies expire after 30 days; profiles and follow metadata can remain longer. Filter rejections retain counts and event IDs, never content.</p>
+<p><strong>Prohibited material and removal.</strong> Child sexual abuse or exploitation material, exposed private credentials, threats, and doxxing are prohibited here. Obvious credentials are discarded before storage. The operator removes stored prohibited posts when found and prevents their collection. Spam and explicit content are filtered at the operator's discretion, as described on <a href="/status">Status</a>. Removing a post here does not affect relay copies or delete a signed event from Nostr network-wide.</p>
+<p><strong>Notices.</strong> To report a problem, including copyright infringement, open a <a href="https://github.com/wassname/meatybroth/issues/new">GitHub issue</a> with the event ID and a short reason. Issues are public and normally show the reporter's GitHub identity. Do not paste post text, screenshots, credentials, or illegal or sensitive material into a report. The operator reviews notices and disables public access to identified prohibited posts.</p>
+<p><strong>Disclaimer and liability.</strong> This site and its contents are provided "as is", without warranties. Shown posts are third-party Nostr content; showing one is not an endorsement, including where the operator also publishes on Nostr. To the extent permitted by law, the operator is not liable for displayed third-party posts; nothing excludes liability that cannot be excluded by law. The operator acts on notices and findings as described above. The site can pause, suspend, or stop at any time.</p>
+<p><strong>Limits.</strong> Collection is budgeted and partial. Filtering can miss content or filter benign content; no particular post is guaranteed complete, correct, or available. Missing posts can result from collection limits or deliberate filtering. Author-labelled content warnings hide text until opened with the author's reason. Unlabelled explicit text is not auto-detected and renders normally unless blocklisted. Obvious spam can be labelled rather than hidden and is never automatically deleted. The operator maintains author and post blocklists that prevent content appearing or being collected again; per-rule filter counts are on the status page.</p>
+<!-- Pi/gpt-5.6-terra copy, integrated by Pi/gpt-5.6-sol -->
 {% endblock %}

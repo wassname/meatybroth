@@ -1,0 +1,11 @@
+2026-09-14T12:34:24Z
+binary=8b332d0a2a53ee9db9820db4733c492cf08b1e42b6dcbde038733ec98c146e37  /tmp/meatybroth-goal3-target/release/meatybroth
+pid=2728800
+listener=State  Recv-Q Send-Q Local Address:Port Peer Address:PortProcess
+LISTEN 0      128        127.0.0.1:8088      0.0.0.0:*    users:(("meatybroth",pid=2728800,fd=14))
+root=http=200 ttfb_s=0.809933 total_s=0.810370 bytes=247621
+100
+2026-09-14T13:18:43Z
+State  Recv-Q Send-Q Local Address:Port Peer Address:PortProcess
+LISTEN 0      128        127.0.0.1:8088      0.0.0.0:*    users:(("meatybroth",pid=2728800,fd=14))
+http=200 total_s=2.944260 cards=100

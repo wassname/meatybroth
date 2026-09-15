@@ -1,0 +1,34 @@
+{
+  "initial": {
+    "busy": "false",
+    "loadingHidden": true,
+    "checked": [
+      "topics"
+    ],
+    "legends": [
+      "View",
+      "Search",
+      "Topics",
+      "Topics",
+      "Model"
+    ],
+    "inlineOnchange": 0
+  },
+  "immediate": {
+    "busy": "true",
+    "loadingHidden": false
+  },
+  "final": {
+    "url": "http://127.0.0.1:8092/?hide_spam=true&go=&mode=conversations&q=&search=relevance&clustering=kmeans&embedding=minilm",
+    "cards": 98,
+    "checked": [
+      "conversations"
+    ],
+    "busy": "false",
+    "loadingHidden": true
+  },
+  "navigationRequests": [
+    "http://127.0.0.1:8092/?hide_spam=true&go=&mode=conversations&q=&search=relevance&clustering=kmeans&embedding=minilm",
+    "http://127.0.0.1:8092/static/style.css"
+  ]
+}

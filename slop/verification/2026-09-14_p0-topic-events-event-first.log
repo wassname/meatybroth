@@ -1,0 +1,5 @@
+event_first run=1 elapsed=0.04 user=0.00 sys=0.01
+event_first run=2 elapsed=0.02 user=0.00 sys=0.01
+event_first run=3 elapsed=0.02 user=0.00 sys=0.01
+event_first run=4 elapsed=0.02 user=0.00 sys=0.02
+event_first run=5 elapsed=0.02 user=0.01 sys=0.01

@@ -1,0 +1,18 @@
+{
+  "radioImmediate": {
+    "checked": true,
+    "busy": "true",
+    "loadingHidden": false
+  },
+  "radioRequests": 1,
+  "checkboxBefore": false,
+  "checkboxAfter": true,
+  "enterImmediate": {
+    "busy": "false",
+    "loadingHidden": true
+  },
+  "enterRequests": 1,
+  "consoleMessages": [
+    "MEATY_BUSY true false"
+  ]
+}

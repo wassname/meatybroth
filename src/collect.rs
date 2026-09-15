@@ -34,6 +34,9 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 pub const PRIMAL_AUTHOR: &str = "5d8282fc89410f1c57681a2c3b8be57afd1566c262fd1deb543999d39d141cb4";
 const DERIVED_ELIGIBILITY_CLEANUP: &str = "
+DELETE FROM post_dbscan_topics WHERE NOT EXISTS (
+    SELECT 1 FROM reader_post_events reader WHERE reader.event_id=post_dbscan_topics.event_id
+);
 DELETE FROM post_topics WHERE NOT EXISTS (
     SELECT 1 FROM reader_post_events reader WHERE reader.event_id=post_topics.event_id
 );
@@ -42,6 +45,14 @@ DELETE FROM embedding_chunks WHERE NOT EXISTS (
 );
 DELETE FROM post_embeddings WHERE NOT EXISTS (
     SELECT 1 FROM reader_post_events reader WHERE reader.event_id=post_embeddings.event_id
+);
+UPDATE embedding_topics SET post_count=(
+    SELECT count(*) FROM post_topics post
+    WHERE post.space_id=embedding_topics.space_id AND post.topic_id=embedding_topics.topic_id
+);
+UPDATE embedding_dbscan_topics SET post_count=(
+    SELECT count(*) FROM post_dbscan_topics post
+    WHERE post.space_id=embedding_dbscan_topics.space_id AND post.topic_id=embedding_dbscan_topics.topic_id
 );";
 const PAGE_LIMIT: usize = 500;
 const COVERAGE_STEP: i64 = 300;
@@ -133,6 +144,7 @@ fn finish_run(
     id: i64,
     observed: &Observation,
     cursor_update: (&str, &str, i64),
+    gap_reason: Option<&str>,
 ) -> Result<(), Error> {
     let now = i64::try_from(Timestamp::now().as_secs())?;
     let mut conn = admin(path)?;
@@ -146,6 +158,13 @@ fn finish_run(
             id,
         ),
     )?;
+    if let Some(reason) = gap_reason {
+        tx.execute(
+            "INSERT INTO collection_gaps(relay,since_at,until_at,reason,checked_at)
+             SELECT relay,since_at,until_at,?1,?2 FROM collection_runs WHERE id=?3",
+            (reason, now, id),
+        )?;
+    }
     let (relay, column, value) = cursor_update;
     let sql = format!("UPDATE collection_cursors SET {column}=?1,updated_at=?2 WHERE relay=?3");
     tx.execute(&sql, (value, now, relay))?;
@@ -165,37 +184,6 @@ fn record_gap(path: &Path, relay: &str, since: i64, until: i64, reason: &str) ->
             i64::try_from(Timestamp::now().as_secs())?,
         ),
     )?;
-    Ok(())
-}
-
-fn finish_unreconciled(
-    path: &Path,
-    id: i64,
-    observed: &Observation,
-    cursor_update: (&str, &str, i64),
-) -> Result<(), Error> {
-    let now = i64::try_from(Timestamp::now().as_secs())?;
-    let mut conn = admin(path)?;
-    let tx = conn.transaction()?;
-    tx.execute(
-        "UPDATE collection_runs SET finished_at=?1,eose=1,accepted=?2,rejected=?3 WHERE id=?4",
-        (
-            now,
-            i64::try_from(observed.accepted_notes.len())?,
-            i64::try_from(observed.rejected)?,
-            id,
-        ),
-    )?;
-    tx.execute(
-        "INSERT INTO collection_gaps(relay,since_at,until_at,reason,checked_at)
-         SELECT relay,since_at,until_at,'EOSE received but relay inventory cannot be reconciled',?1
-         FROM collection_runs WHERE id=?2",
-        (now, id),
-    )?;
-    let (relay, column, value) = cursor_update;
-    let sql = format!("UPDATE collection_cursors SET {column}=?1,updated_at=?2 WHERE relay=?3");
-    tx.execute(&sql, (value, now, relay))?;
-    tx.commit()?;
     Ok(())
 }
 
@@ -624,7 +612,13 @@ async fn durable_window(
         if let Some(observed) =
             reconcile_window(client, policy, sdk, relay, filter.clone(), deadline).await?
         {
-            finish_run(path, id, &observed, (relay, cursor_column, cursor_value))?;
+            finish_run(
+                path,
+                id,
+                &observed,
+                (relay, cursor_column, cursor_value),
+                None,
+            )?;
             return Ok(DurableObservation {
                 observed,
                 reconciled: true,
@@ -648,7 +642,13 @@ async fn durable_window(
         )
         .into());
     }
-    finish_unreconciled(path, id, &observed, (relay, cursor_column, cursor_value))?;
+    finish_run(
+        path,
+        id,
+        &observed,
+        (relay, cursor_column, cursor_value),
+        Some("EOSE received but relay inventory cannot be reconciled"),
+    )?;
     Ok(DurableObservation {
         observed,
         reconciled: false,
@@ -665,17 +665,7 @@ async fn missing_direct_follow_contact_lists(
     let Some(latest) = root_contacts.iter().max_by_key(|event| event.created_at) else {
         return Ok(BTreeSet::new());
     };
-    let follows: BTreeSet<_> = latest
-        .tags
-        .iter()
-        .filter_map(|tag| {
-            let values = tag.as_slice();
-            (values.first().is_some_and(|value| value == "p"))
-                .then(|| values.get(1))
-                .flatten()
-                .and_then(|value| PublicKey::from_hex(value).ok())
-        })
-        .collect();
+    let follows: BTreeSet<_> = latest.tags.public_keys().collect();
     if follows.is_empty() {
         return Ok(follows);
     }
@@ -705,14 +695,7 @@ async fn hydrate_notes(
     let authors: BTreeSet<_> = notes.iter().map(|event| event.pubkey).collect();
     let parent_ids: BTreeSet<_> = notes
         .iter()
-        .flat_map(|event| event.tags.iter())
-        .filter_map(|tag| {
-            let values = tag.as_slice();
-            (values.first().is_some_and(|value| value == "e"))
-                .then(|| values.get(1))
-                .flatten()
-                .and_then(|value| EventId::from_hex(value).ok())
-        })
+        .flat_map(|event| event.tags.event_ids())
         .collect();
     let metadata = if authors.is_empty() {
         Observation {
@@ -890,8 +873,18 @@ pub(crate) async fn collect_relay(
         Duration::from_secs(15),
     )
     .await?;
+    embed::mark_admissions(
+        path,
+        &recent
+            .accepted_notes
+            .iter()
+            .map(|event_id| event_id.as_bytes().to_vec())
+            .collect::<Vec<_>>(),
+        now,
+        true,
+    )?;
     if !recent.eose {
-        return Err("Recent scan timed out; partial arrivals retained".into());
+        return Err("Recent scan timed out; partial arrivals retained and prioritized".into());
     }
     merge(&mut admitted, recent);
 
@@ -920,6 +913,17 @@ pub(crate) async fn collect_relay(
         if !result.reconciled {
             unsupported_reconciliation.insert(relay.to_owned());
         }
+        embed::mark_admissions(
+            path,
+            &result
+                .observed
+                .accepted_notes
+                .iter()
+                .map(|event_id| event_id.as_bytes().to_vec())
+                .collect::<Vec<_>>(),
+            now,
+            false,
+        )?;
         merge(&mut admitted, result.observed);
     }
     let cutoff = now - WINDOW;
@@ -950,6 +954,17 @@ pub(crate) async fn collect_relay(
         if !result.reconciled {
             unsupported_reconciliation.insert(relay.to_owned());
         }
+        embed::mark_admissions(
+            path,
+            &result
+                .observed
+                .accepted_notes
+                .iter()
+                .map(|event_id| event_id.as_bytes().to_vec())
+                .collect::<Vec<_>>(),
+            now,
+            false,
+        )?;
         merge(&mut admitted, result.observed);
     }
     if tokio::time::Instant::now() >= deadline {
@@ -1018,15 +1033,10 @@ pub(crate) async fn embed_until_next_scan(
         let count =
             embed::embed_recent_pending(path, transport, budget, now, transport.concurrency())
                 .await?;
+        if count > 0 {
+            *topics_dirty = true;
+        }
         if count == 0 {
-            if *topics_dirty {
-                let count = embed::cluster_topics(path, transport.space(), now)?;
-                *topics_dirty = false;
-                eprintln!(
-                    "Built {count} keyword-labelled {} topics",
-                    transport.space().backend
-                );
-            }
             tokio::select! {
                 request = queries.recv() => {
                     if let Some(request) = request {
@@ -1038,7 +1048,6 @@ pub(crate) async fn embed_until_next_scan(
             }
             return Ok(());
         }
-        *topics_dirty = true;
         eprintln!(
             "Embedded {count} {} posts between SDK scans",
             transport.space().backend
@@ -1057,6 +1066,50 @@ pub struct EmbeddingWorker {
     pub validated: bool,
     pub preflight_only: bool,
     pub shutdown: Arc<AtomicBool>,
+    pub topic_rebuild: Option<std::thread::JoinHandle<Result<(usize, usize), String>>>,
+    pub topics_disabled: bool,
+}
+
+fn settle_topic_rebuild(worker: &mut EmbeddingWorker, topics_dirty: &mut bool) {
+    let Some(task) = worker.topic_rebuild.as_ref() else {
+        return;
+    };
+    if !task.is_finished() {
+        return;
+    }
+    let result = worker.topic_rebuild.take().unwrap().join();
+    match result {
+        Ok(Ok((kmeans, dbscan))) => {
+            eprintln!(
+                "Built {kmeans} fixed-k and {dbscan} DBSCAN {} topics",
+                worker.transport.space().backend
+            );
+            // Vectors may have arrived while the rebuild used its input snapshot. -- Pi/gpt-5.6-sol
+            *topics_dirty = true;
+        }
+        Ok(Err(error)) => {
+            let message = format!("Topic rebuild failed: {error}");
+            *worker.error.lock().unwrap() = Some(message.clone());
+            worker.topics_disabled = true;
+            eprintln!("{message}; topic refresh is disabled until process restart");
+        }
+        Err(_) => {
+            let message = "Topic rebuild task panicked".to_owned();
+            *worker.error.lock().unwrap() = Some(message.clone());
+            worker.topics_disabled = true;
+            eprintln!("{message}; topic refresh is disabled until process restart");
+        }
+    }
+}
+
+pub(crate) fn detach_topic_rebuild_at_shutdown(worker: &mut EmbeddingWorker) {
+    let mut ignored_dirty = false;
+    settle_topic_rebuild(worker, &mut ignored_dirty);
+    if worker.topic_rebuild.take().is_some() {
+        eprintln!(
+            "Detached an unfinished topic rebuild at shutdown; the last complete topics remain published"
+        );
+    }
 }
 
 pub(crate) async fn service_embeddings(
@@ -1065,6 +1118,7 @@ pub(crate) async fn service_embeddings(
     topics_dirty: &mut bool,
     duration: Duration,
 ) {
+    settle_topic_rebuild(worker, topics_dirty);
     if worker.disabled || worker.shutdown.load(Ordering::Acquire) {
         return;
     }
@@ -1114,7 +1168,45 @@ pub(crate) async fn service_embeddings(
     )
     .await
     {
-        Ok(()) => *worker.error.lock().unwrap() = None,
+        Ok(()) => {
+            let now = i64::try_from(Timestamp::now().as_secs()).unwrap();
+            let due = embed::topics_due(path, worker.transport.space(), now);
+            let topic_result = match due {
+                Ok(true) if worker.topic_rebuild.is_none() && !worker.topics_disabled => {
+                    let path = path.to_path_buf();
+                    let space = worker.transport.space().clone();
+                    worker.topic_rebuild = Some(std::thread::spawn(move || {
+                        embed::rebuild_topics(&path, &space, now).map_err(|error| error.to_string())
+                    }));
+                    eprintln!("Topic rebuild started in the background");
+                    Ok(())
+                }
+                Ok(true) => Ok(()),
+                Ok(false)
+                    if *topics_dirty
+                        && worker.topic_rebuild.is_none()
+                        && !worker.topics_disabled =>
+                {
+                    embed::assign_new_topics(path, worker.transport.space(), now).map(|_| {
+                        *topics_dirty = false;
+                    })
+                }
+                Ok(false) => Ok(()),
+                Err(error) => Err(error),
+            };
+            match topic_result {
+                Ok(()) if !worker.topics_disabled => {
+                    *worker.error.lock().unwrap() = None;
+                }
+                Ok(()) => {}
+                Err(error) => {
+                    let message = format!("Topic refresh failed: {error}");
+                    *worker.error.lock().unwrap() = Some(message.clone());
+                    worker.topics_disabled = true;
+                    eprintln!("{message}; topic refresh is disabled until process restart");
+                }
+            }
+        }
         Err(error) => {
             let message = format!(
                 "{} embedding between completed SDK work failed: {error}",
@@ -1291,6 +1383,9 @@ pub async fn run(
             _ = shutdown.changed() => {}
         }
     }
+    if let Some(worker) = &mut embedding {
+        detach_topic_rebuild_at_shutdown(worker);
+    }
     Ok(())
 }
 
@@ -1327,6 +1422,7 @@ mod tests {
                 "forward_at",
                 initial.forward_at + COVERAGE_STEP,
             ),
+            None,
         )
         .unwrap();
         let advanced = cursor(&path, "wss://relay.example", now + 1).unwrap();

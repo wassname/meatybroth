@@ -1,26 +1,35 @@
 {% extends "base.html" %}
 {% from "_post.html" import post_card %}
 {% block body %}
-<h2>Thread context</h2>
+<h2>Thread</h2>
 {% if missing_parent_id %}
-<p class="scope-note">Parent post not stored (expired or never collected): <code>{{ missing_parent_id }}</code>.</p>
+<p class="scope-note">The parent post is not available. ID: <code>{{ missing_parent_id }}</code>.</p>
 {% endif %}
 {% if cycle_cut %}
-<p class="scope-note">A stored reply cycle was omitted.</p>
+<p class="scope-note">A reply loop was left out.</p>
 {% endif %}
 {% for ancestor in ancestors %}
 <section class="context-ancestor">{{ post_card(ancestor) }}</section>
 {% endfor %}
 <section class="context-current">
-  <h3>This post</h3>
+  <h3>Post</h3>
   {{ post_card(post) }}
 </section>
-<section class="reply-tree" aria-label="available stored replies">
-  <h3>{% if available_reply_count %}{{ available_reply_count }} available {% if available_reply_count == 1 %}reply{% else %}replies{% endif %}{% else %}Available replies{% endif %}</h3>
+<section class="reply-tree" aria-label="replies">
+  <h3>{% if available_reply_count %}{{ available_reply_count }} {% if available_reply_count == 1 %}reply{% else %}replies{% endif %}{% else %}Replies{% endif %}</h3>
   {% for r in replies %}
   <div class="reply-node" style="--tree-depth: {{ r.tree_depth }}">{{ post_card(r) }}</div>
   {% else %}
-  <p class="empty">No replies stored.</p>
+  <p class="empty">No replies found.</p>
+  {% endfor %}
+</section>
+<section class="similar-replies" aria-label="similar replies">
+  <h3>Similar replies:</h3>
+  {% for r in similar_replies %}
+  {{ post_card(r) }}
+  {% else %}
+  <p class="empty">No similar replies found.</p>
   {% endfor %}
 </section>
 {% endblock %}
+<!-- Pi/gpt-5.6-terra copy, integrated by Pi/gpt-5.6-sol -->

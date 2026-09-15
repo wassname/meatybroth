@@ -1,0 +1,45 @@
+UI checkpoint verification 2026-09-14
+warning: unused config key `unstable.min-publish-age` in `/home/code/.cargo/config.toml`
+    Finished `test` profile [unoptimized] target(s) in 2.67s
+     Running unittests src/main.rs (target/debug/build/meatybroth/bd69d2a6a8549d39/out/meatybroth-bd69d2a6a8549d39)
+
+running 31 tests
+test tests::matched_reference_reader_outputs ... ignored, requires saved matched-corpus fixtures
+test sdk_tests::shutdown_does_not_wait_for_topic_rebuild ... ok
+test embed::label_tests::labels_use_contrastive_unicode_terms_from_members_and_check_representatives ... ok
+test tests::similar_replies_keep_one_per_parent_and_keep_top_level_posts_distinct ... ok
+test sdk_tests::expired_provider_deadline_makes_no_calls ... ok
+test sdk_tests::moderation_refresh_rejects_future_and_rollback_snapshots ... ok
+test sdk_tests::relay_budget_expires_only_between_drained_policy_scans ... ok
+test tests::topic_selection_preserves_repeated_and_noise_ids ... ok
+test sdk_tests::eose_boundary_has_no_late_admitted_write ... ok
+test sdk_tests::transport_failure_disables_further_paid_calls_until_restart ... ok
+test sdk_tests::shutdown_waits_for_one_inflight_call_to_settle_without_starting_another ... ok
+test sdk_tests::preflight_only_makes_exactly_one_successful_provider_call ... ok
+test sdk_tests::provider_deadline_stops_before_a_second_chunk_and_resumes_it ... ok
+test collect::tests::coverage_cursor_survives_restart_and_interruption_becomes_gap ... ok
+test sdk_tests::machine_presence_envelopes_stay_auditable_but_not_reader_or_embedding_eligible ... ok
+test sdk_tests::continuous_embedding_prioritizes_admission_time_not_event_time ... ok
+test sdk_tests::sdk_relay_to_atomic_fts_http_policy_and_expiry ... ok
+test sdk_tests::reviewed_aepiot_campaign_keeps_canonical_events_and_ledger_only ... ok
+test tests::reader_work_waits_for_one_of_two_slots ... ok
+test tests::bounded_card_queries_match_full_window_results ... ok
+test sdk_tests::dbscan_preserves_noise_cores_and_assigns_new_vectors_to_core_points ... ok
+test tests::status_snapshot_avoids_recomputing_on_request ... ok
+test sdk_tests::incremental_embeddings_reuse_delete_and_budget_after_sdk_drain ... ok
+test tests::status_exposes_gaps_signed_list_age_and_reader_scope ... ok
+test sdk_tests::sdk_storage_failure_does_not_stop_http_reader ... ok
+test tests::rendering_preserves_safe_text_profiles_warnings_and_exclusions ... ok
+test tests::conversation_context_counts_cycles_and_warning_excerpts ... ok
+test tests::social_uses_canonical_graph_shortest_independent_paths_and_reach ... ok
+test tests::bounded_card_hydration_preserves_off_page_duplicates_and_parent_warnings ... ok
+test tests::pages_query_state_and_invalid_requests_use_real_handlers ... ok
+test sdk_tests::timed_out_recent_scan_keeps_arrivals_live_across_restart ... ok
+
+test result: ok. 30 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 15.50s
+
+warning: unused config key `unstable.min-publish-age` in `/home/code/.cargo/config.toml`
+warning: unused config key `unstable.min-publish-age` in `/home/code/.cargo/config.toml`
+    Finished `dev` profile [unoptimized] target(s) in 5.98s
+warning: unused config key `unstable.min-publish-age` in `/home/code/.cargo/config.toml`
+    Finished `release` profile [optimized] target(s) in 3.55s
