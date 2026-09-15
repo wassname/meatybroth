@@ -77,7 +77,7 @@ impl embed::Transport for GoAwayOnceEmbedder {
     > {
         Box::pin(async move {
             if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
-                return Err("relay GoAway: retry this cycle".into());
+                return Err("HTTP/2 protocol error: GoAway(NO_ERROR): retry this request".into());
             }
             let mut vector = vec![0.0; self.space.dimensions];
             vector[0] = 1.0;
@@ -917,9 +917,17 @@ async fn reviewed_aepiot_campaign_keeps_canonical_events_and_ledger_only() {
     }
     assert_eq!(count(&conn, "SELECT count(*) FROM events WHERE kind=1"), 5);
     assert_eq!(count(&conn, "SELECT count(*) FROM posts"), 2);
+    conn.execute(
+        "INSERT INTO embedding_input_rejections(event_id,space_id,rejected_at,reason) VALUES(?1,?2,?3,'test')",
+        (targeted[0].id.as_bytes(), &mock.space.id, now),
+    ).unwrap();
     collect::cleanup_ineligible_derived(&conn).unwrap();
     assert_eq!(count(&conn, "SELECT count(*) FROM events WHERE kind=1"), 5);
     assert_eq!(count(&conn, "SELECT count(*) FROM post_embeddings"), 2);
+    assert_eq!(
+        count(&conn, "SELECT count(*) FROM embedding_input_rejections"),
+        0
+    );
     assert_eq!(
         count(
             &conn,
@@ -1015,10 +1023,26 @@ async fn blank_input_and_goaway_do_not_stop_a_later_valid_embedding() {
     let sdk = collect::open(&path, collect::PRIMAL_AUTHOR).await.unwrap();
     let keys = Keys::generate();
     let now = Utc::now().timestamp() as u64;
-    let blank = signed(&keys, 1, "\u{2003}", now - 1, vec![]);
-    let valid = signed(&keys, 1, "valid after GoAway", now, vec![]);
+    let blank = signed(&keys, 1, "\u{2003}", now - 2, vec![]);
+    let uncertain = signed(&keys, 1, "first valid input gets GoAway", now, vec![]);
+    let valid = signed(&keys, 1, "second valid input succeeds", now - 1, vec![]);
     sdk.save_event(&blank).await.unwrap();
+    sdk.save_event(&uncertain).await.unwrap();
     sdk.save_event(&valid).await.unwrap();
+    embed::mark_admissions(
+        &path,
+        &[uncertain.id.as_bytes().to_vec()],
+        i64::try_from(now - 1).unwrap(),
+        true,
+    )
+    .unwrap();
+    embed::mark_admissions(
+        &path,
+        &[valid.id.as_bytes().to_vec()],
+        i64::try_from(now).unwrap(),
+        true,
+    )
+    .unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
     let transport: Arc<dyn embed::Transport> = Arc::new(GoAwayOnceEmbedder {
         space: embed::Space::titan_v2(),
@@ -1058,6 +1082,11 @@ async fn blank_input_and_goaway_do_not_stop_a_later_valid_embedding() {
     .await;
     assert!(!worker.disabled);
     assert!(
+        embed::event_vector(&path, transport.space(), uncertain.id.as_bytes())
+            .unwrap()
+            .is_none()
+    );
+    assert!(
         embed::event_vector(&path, transport.space(), valid.id.as_bytes())
             .unwrap()
             .is_some()
@@ -1070,11 +1099,22 @@ async fn blank_input_and_goaway_do_not_stop_a_later_valid_embedding() {
     let conn = rusqlite::Connection::open(&path).unwrap();
     assert_eq!(count(&conn, "SELECT count(*) FROM embedding_requests WHERE event_id=(SELECT id FROM events WHERE content=' ')"), 0);
     assert_eq!(
+        count(
+            &conn,
+            "SELECT count(*) FROM embedding_requests WHERE status='uncertain'"
+        ),
+        1
+    );
+    assert_eq!(
         count(&conn, "SELECT count(*) FROM embedding_input_rejections"),
         1
     );
     assert_eq!(
         embed::cache_status(&conn, i64::try_from(now).unwrap()).unwrap()[0].rejected,
+        1
+    );
+    assert_eq!(
+        embed::cache_status(&conn, i64::try_from(now).unwrap()).unwrap()[0].uncertain,
         1
     );
     assert!(count(&conn, "SELECT count(*) FROM events WHERE content=' '") == 1);

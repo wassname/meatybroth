@@ -743,16 +743,10 @@ fn archive_preflight_failure(
     Ok(())
 }
 
-pub(crate) fn is_relay_goaway(error: &Error) -> bool {
-    error.to_string().to_ascii_lowercase().contains("goaway")
-}
-
-fn release_unstarted_request(path: &Path, request_id: i64) -> Result<(), Error> {
-    db(path)?.execute(
-        "DELETE FROM embedding_requests WHERE id=?1 AND status='reserved'",
-        [request_id],
-    )?;
-    Ok(())
+/// Nostr relay shutdowns never enter this transport; this exact HTTP/2 provider failure may follow dispatch.
+pub(crate) fn is_http2_goaway(error: &Error) -> bool {
+    let message = error.to_string();
+    message.contains("HTTP/2 protocol error") && message.contains("GoAway(")
 }
 
 fn mark_uncertain(path: &Path, request_id: i64, error: &str) -> Result<(), Error> {
@@ -864,9 +858,7 @@ async fn embed_event(
             Ok(output) => output,
             Err(error) => {
                 let message = error.to_string();
-                if is_relay_goaway(&error) {
-                    release_unstarted_request(path, request_id)?;
-                } else if message.starts_with("preflight:") {
+                if message.starts_with("preflight:") {
                     archive_preflight_failure(path, request_id, &message, now)?;
                 } else {
                     mark_uncertain(path, request_id, &message)?;
@@ -990,9 +982,7 @@ pub async fn cache_query(
         Ok(output) => output,
         Err(error) => {
             let message = error.to_string();
-            if is_relay_goaway(&error) {
-                release_unstarted_request(path, request_id)?;
-            } else if message.starts_with("preflight:") {
+            if message.starts_with("preflight:") {
                 archive_preflight_failure(path, request_id, &message, now)?;
             } else {
                 mark_uncertain(path, request_id, &message)?;

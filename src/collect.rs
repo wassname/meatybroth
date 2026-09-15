@@ -46,6 +46,9 @@ DELETE FROM embedding_chunks WHERE NOT EXISTS (
 DELETE FROM post_embeddings WHERE NOT EXISTS (
     SELECT 1 FROM reader_post_events reader WHERE reader.event_id=post_embeddings.event_id
 );
+DELETE FROM embedding_input_rejections WHERE NOT EXISTS (
+    SELECT 1 FROM reader_post_events reader WHERE reader.event_id=embedding_input_rejections.event_id
+);
 UPDATE embedding_topics SET post_count=(
     SELECT count(*) FROM post_topics post
     WHERE post.space_id=embedding_topics.space_id AND post.topic_id=embedding_topics.topic_id
@@ -1151,8 +1154,8 @@ pub(crate) async fn service_embeddings(
                     worker.transport.space().backend
                 );
                 *worker.error.lock().unwrap() = Some(message.clone());
-                if embed::is_relay_goaway(&error) {
-                    eprintln!("{message}; relay closed the cycle, embedding will retry");
+                if embed::is_http2_goaway(&error) {
+                    eprintln!("{message}; HTTP/2 GoAway may be billed, this event remains uncertain and later work will continue");
                 } else {
                     worker.disabled = true;
                     eprintln!("{message}; paid embedding is disabled until process restart");
@@ -1217,8 +1220,8 @@ pub(crate) async fn service_embeddings(
                 worker.transport.space().backend
             );
             *worker.error.lock().unwrap() = Some(message.clone());
-            if embed::is_relay_goaway(&error) {
-                eprintln!("{message}; relay closed the cycle, embedding will retry");
+            if embed::is_http2_goaway(&error) {
+                eprintln!("{message}; HTTP/2 GoAway may be billed, this event remains uncertain and later work will continue");
             } else {
                 worker.disabled = true;
                 eprintln!("{message}; paid embedding is disabled until process restart");
